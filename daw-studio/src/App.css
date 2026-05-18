@@ -1,0 +1,54 @@
+/* アプリ全体の基本設定 */
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #111;
+  color: white;
+  font-family: sans-serif;
+  overflow: hidden; /* 画面全体がスクロールするのを防ぐ */
+}
+
+/* 邪魔な数字入力の上下矢印（スピンボタン）を完全に消し去る魔法 */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* =========================================
+  ✅ ツールチップ（説明ポップアップ）のスタイル
+   ========================================= */
+.tooltip {
+  position: relative;
+  cursor: help;
+}
+
+.tooltip:after {
+  content: attr(data-tooltip);
+  position: absolute;
+  /* 上じゃなくて「下」に出すようにして、見切れを防ぐ */
+  top: 120%; 
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 12px;
+  background-color: rgba(0, 0, 0, 0.95);
+  color: #fff;
+  font-size: 13px;
+  white-space: nowrap;
+  border-radius: 5px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s, visibility 0.2s, transform 0.2s;
+  z-index: 9999; /* 画面の一番手前に強制表示 */
+}
+
+.tooltip:hover:after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(5px);
+}
