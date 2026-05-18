@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import WaveSurfer from "wavesurfer.js";
+import { Play, Square, Mic, SkipBack, Save, FolderOpen, Download, Music, Trash2, Copy, Bell, BellOff, Volume2, Sliders } from "lucide-react";
 import "./App.css";
 
 const TRACK_COLORS = ['#e74c3c', '#9b59b6', '#3498db', '#1abc9c', '#f1c40f', '#e67e22'];
@@ -22,9 +23,8 @@ interface Track {
   fadeIn: number;
   fadeOut: number;
   duration: number;
-  showFx: boolean;
   isSolo: boolean;
-  isMuted: boolean; // ✅ ここを追加！設計図にミュート状態を登録
+  isMuted: boolean;
   offset: number; 
   tremolo: number; 
 }
@@ -47,7 +47,6 @@ const audioBufferToWav = (buffer: AudioBuffer) => {
   const format = 1; 
   const bitDepth = 16;
   const result = new Float32Array(buffer.length * numChannels);
-  
   if (numChannels === 2) {
     const left = buffer.getChannelData(0);
     const right = buffer.getChannelData(1);
@@ -58,32 +57,17 @@ const audioBufferToWav = (buffer: AudioBuffer) => {
   } else {
     result.set(buffer.getChannelData(0));
   }
-
   const dataLength = result.length * (bitDepth / 8);
   const bufferArr = new ArrayBuffer(44 + dataLength);
   const view = new DataView(bufferArr);
-  const writeString = (view: DataView, offset: number, string: string) => {
-    for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i));
-  };
-
-  writeString(view, 0, 'RIFF');
-  view.setUint32(4, 36 + dataLength, true);
-  writeString(view, 8, 'WAVE');
-  writeString(view, 12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, format, true);
-  view.setUint16(22, numChannels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * numChannels * (bitDepth / 8), true);
-  view.setUint16(32, numChannels * (bitDepth / 8), true);
-  view.setUint16(34, bitDepth, true);
-  writeString(view, 36, 'data');
-  view.setUint32(40, dataLength, true);
-
+  const writeString = (v: DataView, o: number, s: string) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  writeString(view, 0, 'RIFF'); view.setUint32(4, 36 + dataLength, true); writeString(view, 8, 'WAVE'); writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true); view.setUint16(20, format, true); view.setUint16(22, numChannels, true); view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * numChannels * (bitDepth / 8), true); view.setUint16(32, numChannels * (bitDepth / 8), true); view.setUint16(34, bitDepth, true);
+  writeString(view, 36, 'data'); view.setUint32(40, dataLength, true);
   let offset = 44;
   for (let i = 0; i < result.length; i++, offset += 2) {
-    let s = Math.max(-1, Math.min(1, result[i]));
-    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    let s = Math.max(-1, Math.min(1, result[i])); view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
   }
   return new Blob([view], { type: 'audio/wav' });
 };
@@ -95,19 +79,25 @@ const formatTime = (seconds: number) => {
   return `${m}:${s}.${ms}`;
 };
 
-const ControlKnob = ({ label, color, min, max, step, value, onChange }: { label: string, color: string, min: string, max: string, step: string, value: number, onChange: (val: number) => void }) => (
-  <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
-    <span style={{ color: color, fontSize: "11px", whiteSpace: "nowrap", marginBottom: "2px" }}>{label}</span>
-    <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(parseFloat(e.target.value))} style={{ width: "100%", cursor: "pointer" }} />
+// 🎛️ スライダーを「数値付きのプロ仕様」に大改造！
+const ControlKnob = ({ label, min, max, step, value, onChange, unit = "" }: { label: string, min: string, max: string, step: string, value: number, onChange: (val: number) => void, unit?: string }) => (
+  <div style={{ display: "flex", flexDirection: "column", gap: "6px", width: "100%", background: "#222", padding: "12px", borderRadius: "8px", border: "1px solid #333" }}>
+    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#aaa", fontWeight: "bold" }}>
+      <span>{label}</span>
+      <span style={{ color: "#4facfe" }}>{value}{unit}</span>
+    </div>
+    <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(parseFloat(e.target.value))} style={{ width: "100%", cursor: "pointer", accentColor: "#4facfe" }} />
   </div>
 );
 
-function TrackItem({ track, hasSolo, masterVolume, globalTime, isPlayingGlobal, onDelete, onDuplicate, onUpdate, onContextMenu }: { 
+function TrackItem({ track, isSelected, hasSolo, masterVolume, globalTime, isPlayingGlobal, onSelect, onDelete, onDuplicate, onUpdate, onContextMenu }: { 
   track: Track; 
+  isSelected: boolean; // 🌟 選択状態を受け取る
   hasSolo: boolean;
   masterVolume: number;
   globalTime: number;
   isPlayingGlobal: boolean;
+  onSelect: (id: number) => void; 
   onDelete: (id: number) => void; 
   onDuplicate: (track: Track) => void;
   onUpdate: (id: number, field: keyof Track, value: any) => void;
@@ -116,7 +106,6 @@ function TrackItem({ track, hasSolo, masterVolume, globalTime, isPlayingGlobal, 
   const containerRef = useRef<HTMLDivElement>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
   const isLocalPlayingRef = useRef(false);
-
   const audioCtxRef = useRef<AudioContext | null>(null);
   const pannerRef = useRef<StereoPannerNode | null>(null);
   const compRef = useRef<DynamicsCompressorNode | null>(null);
@@ -253,10 +242,7 @@ function TrackItem({ track, hasSolo, masterVolume, globalTime, isPlayingGlobal, 
   useEffect(() => wavesurferRef.current?.setVolume(track.volume * masterVolume), [track.volume, masterVolume]);
   useEffect(() => { if (pannerRef.current) pannerRef.current.pan.value = track.pan; }, [track.pan]);
   useEffect(() => { 
-    if (compRef.current) { 
-      compRef.current.threshold.value = track.compressor * -50; 
-      compRef.current.ratio.value = 1 + track.compressor * 19; 
-    } 
+    if (compRef.current) { compRef.current.threshold.value = track.compressor * -50; compRef.current.ratio.value = 1 + track.compressor * 19; } 
   }, [track.compressor]);
   useEffect(() => { if (eqBassRef.current) eqBassRef.current.gain.value = track.bass; }, [track.bass]);
   useEffect(() => { if (eqTrebleRef.current) eqTrebleRef.current.gain.value = track.treble; }, [track.treble]);
@@ -267,7 +253,6 @@ function TrackItem({ track, hasSolo, masterVolume, globalTime, isPlayingGlobal, 
   useEffect(() => { if (reverbGainRef.current) reverbGainRef.current.gain.value = track.reverb; }, [track.reverb]);
   useEffect(() => { if (wavesurferRef.current) wavesurferRef.current.setPlaybackRate(track.speed); }, [track.speed]);
   
-  // ✅ ローカルのstateを廃止して、親(track.isMuted)から状態を受け取るように修正
   const effectiveMute = track.isMuted || (hasSolo && !track.isSolo);
   useEffect(() => { wavesurferRef.current?.setMuted(effectiveMute); }, [effectiveMute]);
 
@@ -318,51 +303,42 @@ function TrackItem({ track, hasSolo, masterVolume, globalTime, isPlayingGlobal, 
   };
 
   return (
-    <div style={{ display: "flex", borderBottom: "1px solid #222", background: "#1a1a1a" }}>
+    <div style={{ display: "flex", borderBottom: "1px solid #111", background: isSelected ? "#2a2a2a" : "#1a1a1a", transition: "background 0.2s" }}>
       
-      <div style={{ width: "220px", flexShrink: 0, position: "sticky", left: 0, zIndex: 10, background: "#252525", borderRight: "1px solid #111", display: "flex", flexDirection: "column", opacity: effectiveMute ? 0.6 : 1, transition: "opacity 0.2s" }}>
-        
-        <div style={{ padding: "12px 10px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+      {/* 🎛️ 左側パネル */}
+      <div 
+        onClick={() => onSelect(track.id)} // クリックで選択
+        style={{ width: "250px", flexShrink: 0, position: "sticky", left: 0, zIndex: 10, background: isSelected ? "#333" : "#252525", borderRight: "1px solid #111", display: "flex", flexDirection: "column", opacity: effectiveMute ? 0.5 : 1, transition: "all 0.2s", cursor: "pointer", borderLeft: isSelected ? `4px solid ${track.color}` : "4px solid transparent" }}
+      >
+        <div style={{ padding: "12px 15px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <input type="color" value={track.color} onChange={(e) => onUpdate(track.id, 'color', e.target.value)} className="tooltip" data-tooltip="色を変更" style={{ width: "16px", height: "16px", padding: 0, border: "none", cursor: "pointer", background: "transparent" }} />
-              <input type="text" value={track.name} onChange={(e) => onUpdate(track.id, 'name', e.target.value)} style={{ background: "transparent", color: "#ddd", fontSize: "14px", fontWeight: "bold", border: "none", width: "95px", outline: "none" }} />
+              <input type="text" value={track.name} onChange={(e) => onUpdate(track.id, 'name', e.target.value)} style={{ background: "transparent", color: "#ddd", fontSize: "14px", fontWeight: "bold", border: "none", width: "110px", outline: "none" }} />
             </div>
+            <div style={{ display: "flex", gap: "6px" }}>
+              <button onClick={(e) => { e.stopPropagation(); onDuplicate(track); }} className="tooltip" data-tooltip="複製" style={{ background: "transparent", color: "#aaa", border: "none", cursor: "pointer", padding: "2px" }}><Copy size={14} /></button>
+              <button onClick={(e) => { e.stopPropagation(); onDelete(track.id); }} className="tooltip" data-tooltip="削除" style={{ background: "transparent", color: "#e74c3c", border: "none", cursor: "pointer", padding: "2px" }}><Trash2 size={14} /></button>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <div style={{ display: "flex", gap: "4px" }}>
-              <button onClick={() => onDuplicate(track)} className="tooltip" data-tooltip="複製" style={{ background: "#444", color: "white", border: "none", padding: "2px 6px", borderRadius: "3px", fontSize: "10px", cursor: "pointer" }}>📄</button>
-              <button onClick={() => onDelete(track.id)} className="tooltip" data-tooltip="削除" style={{ background: "transparent", color: "#e74c3c", border: "none", fontSize: "14px", cursor: "pointer", fontWeight: "bold" }}>×</button>
+              <button onClick={(e) => { e.stopPropagation(); onUpdate(track.id, 'isSolo', !track.isSolo); }} className="tooltip" data-tooltip="ソロ" style={{ background: track.isSolo ? "#f1c40f" : "#444", color: track.isSolo ? "black" : "white", border: "none", width: "28px", height: "28px", borderRadius: "4px", fontSize: "11px", cursor: "pointer", fontWeight: "bold" }}>S</button>
+              <button onClick={(e) => { e.stopPropagation(); onUpdate(track.id, 'isMuted', !track.isMuted); }} className="tooltip" data-tooltip="ミュート" style={{ background: track.isMuted ? "#e74c3c" : "#444", color: "white", border: "none", width: "28px", height: "28px", borderRadius: "4px", fontSize: "11px", cursor: "pointer", fontWeight: "bold" }}>M</button>
             </div>
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-            <button onClick={() => onUpdate(track.id, 'isSolo', !track.isSolo)} className="tooltip" data-tooltip={track.isSolo ? "ソロ解除" : "ソロ"} style={{ background: track.isSolo ? "#f1c40f" : "#333", color: track.isSolo ? "black" : "white", border: "1px solid #444", width: "30px", height: "30px", borderRadius: "4px", fontSize: "12px", cursor: "pointer", fontWeight: "bold" }}>S</button>
-            {/* ✅ ミュートボタンも onUpdate を使って親のデータを書き換える！ */}
-            <button onClick={() => onUpdate(track.id, 'isMuted', !track.isMuted)} className="tooltip" data-tooltip={track.isMuted ? "ミュート解除" : "ミュート"} style={{ background: track.isMuted ? "#e74c3c" : "#333", color: "white", border: "1px solid #444", width: "30px", height: "30px", borderRadius: "4px", fontSize: "12px", cursor: "pointer", fontWeight: "bold" }}>M</button>
-            <div style={{ flex: 1 }}><ControlKnob label={`🔈 Vol: ${Math.round(track.volume * 100)}`} color="#ccc" min="0" max="1" step="0.01" value={track.volume} onChange={(v) => onUpdate(track.id, 'volume', v)} /></div>
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
-            <button onClick={() => onUpdate(track.id, 'showFx', !track.showFx)} className="tooltip" data-tooltip="エフェクト開閉" style={{ background: track.showFx ? "#4facfe" : "#333", color: "white", border: "none", padding: "4px 8px", borderRadius: "4px", fontSize: "11px", cursor: "pointer", fontWeight: "bold", width: "45px" }}>FX</button>
-            <div style={{ flex: 1 }} className="tooltip" data-tooltip="左右バランス"><ControlKnob label={`L ◀ Pan ▶ R`} color="#3498db" min="-1" max="1" step="0.01" value={track.pan} onChange={(v) => onUpdate(track.id, 'pan', v)} /></div>
+            
+            <div style={{ flex: 1, display: "flex", alignItems: "center", gap: "6px" }} onClick={(e) => e.stopPropagation()}>
+              <Volume2 size={16} color="#888" />
+              <input type="range" min="0" max="1" step="0.01" value={track.volume} onChange={(e) => onUpdate(track.id, 'volume', parseFloat(e.target.value))} style={{ width: "100%", cursor: "pointer", accentColor: "#aaa" }} />
+            </div>
           </div>
         </div>
-
-        {track.showFx && (
-          <div style={{ background: "#1e1e1e", padding: "10px", borderTop: "1px solid #333", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", borderBottom: "1px solid #111" }}>
-            <div className="tooltip" data-tooltip="再生速度"><ControlKnob label={`⏩ 速度: ${track.speed}x`} color="#e67e22" min="0.03" max="5" step="0.01" value={track.speed} onChange={(v) => onUpdate(track.id, 'speed', v)} /></div>
-            <div className="tooltip" data-tooltip="音圧アップ"><ControlKnob label={`🗜️ ｺﾝﾌﾟ: ${Math.round(track.compressor * 100)}`} color="#e74c3c" min="0" max="1" step="0.01" value={track.compressor} onChange={(v) => onUpdate(track.id, 'compressor', v)} /></div>
-            <div className="tooltip" data-tooltip="低音(Bass)"><ControlKnob label={`🎚️ 低音: ${track.bass}dB`} color="#3498db" min="-15" max="15" step="1" value={track.bass} onChange={(v) => onUpdate(track.id, 'bass', v)} /></div>
-            <div className="tooltip" data-tooltip="高音(Treble)"><ControlKnob label={`🎚️ 高音: ${track.treble}dB`} color="#3498db" min="-15" max="15" step="1" value={track.treble} onChange={(v) => onUpdate(track.id, 'treble', v)} /></div>
-            <div className="tooltip" data-tooltip="自動で音量を揺らす"><ControlKnob label={`🌊 ﾄﾚﾓﾛ: ${Math.round(track.tremolo * 100)}`} color="#9b59b6" min="0" max="1" step="0.01" value={track.tremolo} onChange={(v) => onUpdate(track.id, 'tremolo', v)} /></div>
-            <div className="tooltip" data-tooltip="コーラス"><ControlKnob label={`👥 ｺｰﾗｽ`} color="#1abc9c" min="0" max="1" step="0.01" value={track.chorus} onChange={(v) => onUpdate(track.id, 'chorus', v)} /></div>
-            <div className="tooltip" data-tooltip="ディレイ"><ControlKnob label={`🔂 ﾃﾞｨﾚｲ`} color="#ccc" min="0" max="1" step="0.01" value={track.delay} onChange={(v) => onUpdate(track.id, 'delay', v)} /></div>
-            <div className="tooltip" data-tooltip="リバーブ"><ControlKnob label={`🌌 ﾘﾊﾞｰﾌﾞ`} color="#ccc" min="0" max="1" step="0.01" value={track.reverb} onChange={(v) => onUpdate(track.id, 'reverb', v)} /></div>
-          </div>
-        )}
       </div>
 
       <div 
         onContextMenu={(e) => onContextMenu(e, track.id)}
+        onClick={() => onSelect(track.id)} // ここをクリックしても選択
         style={{ flex: 1, position: "relative", padding: "10px", minWidth: 0, display: "flex", alignItems: "flex-start", cursor: "context-menu" }}
       >
         <div 
@@ -376,10 +352,11 @@ function TrackItem({ track, hasSolo, masterVolume, globalTime, isPlayingGlobal, 
             background: track.color, 
             borderRadius: "6px", 
             overflow: "hidden",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+            boxShadow: isSelected ? "0 4px 12px rgba(0,0,0,0.6)" : "0 2px 8px rgba(0,0,0,0.3)",
             opacity: effectiveMute ? 0.3 : 1, 
-            transition: "opacity 0.2s",
-            cursor: "grab"
+            transition: "all 0.2s",
+            cursor: "grab",
+            border: isSelected ? "2px solid white" : "none" // 選択時は白枠をつける
           }}>
           <div ref={containerRef} style={{ width: "100%", height: "100%", pointerEvents: "none" }} />
         </div>
@@ -392,6 +369,8 @@ function TrackItem({ track, hasSolo, masterVolume, globalTime, isPlayingGlobal, 
 function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [tracks, setTracks] = useState<Track[]>([]);
+  const [selectedTrackId, setSelectedTrackId] = useState<number | null>(null); // 🌟 新機能：現在選択されているトラック
+  
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   
@@ -410,6 +389,7 @@ function App() {
   const [contextMenu, setContextMenu] = useState<{x: number, y: number, trackId: number} | null>(null);
 
   const hasSolo = tracks.some(t => t.isSolo);
+  const selectedTrack = tracks.find(t => t.id === selectedTrackId); // 選択中のトラック情報を取得
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
@@ -438,8 +418,8 @@ function App() {
         if (scrollContainerRef.current) {
           const container = scrollContainerRef.current;
           const playheadX = currentTime * 50; 
-          if (playheadX > container.scrollLeft + container.clientWidth - 220 - 150) {
-            container.scrollLeft = playheadX - container.clientWidth + 220 + 150;
+          if (playheadX > container.scrollLeft + container.clientWidth - 250 - 150) {
+            container.scrollLeft = playheadX - container.clientWidth + 250 + 150;
           }
         }
       }, 30);
@@ -466,108 +446,80 @@ function App() {
         });
         return { ...track, audioData: base64 };
       }));
-
       const json = JSON.stringify({ tracks: projectData, bpm, masterVolume });
       const blob = new Blob([json], { type: "application/json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = "my_project.daw"; 
       a.click();
-    } catch (e) {
-      alert("保存に失敗しました…。");
-    }
+    } catch (e) { alert("保存に失敗しました…。"); }
   };
 
   const loadProject = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     try {
       const text = await file.text();
       const parsedData = JSON.parse(text);
-      
       setBpm(parsedData.bpm || 120);
       setMasterVolume(parsedData.masterVolume || 1.0);
-
       const restoredTracks = await Promise.all(parsedData.tracks.map(async (trackData: any) => {
         const res = await fetch(trackData.audioData);
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
         const { audioData, ...rest } = trackData;
-        return { 
-          ...rest, 
-          url,
-          isMuted: rest.isMuted || false // 💡 古いセーブデータ対策
-        } as Track;
+        return { ...rest, url, isMuted: rest.isMuted || false } as Track;
       }));
-
       setTracks(restoredTracks);
       seekToTime(0);
-    } catch (err) {
-      alert("ファイルの読み込みに失敗しました！");
-    }
+    } catch (err) { alert("ファイルの読み込みに失敗しました！"); }
     e.target.value = "";
   };
 
   const exportMixdown = async () => {
     if (tracks.length === 0) return alert("書き出すトラックがありません！");
-    const isConfirmed = window.confirm("全トラックを統合してWAVファイルとして書き出しますか？（少し時間がかかります）");
+    const isConfirmed = window.confirm("全トラックを統合してWAVファイルとして書き出しますか？");
     if (!isConfirmed) return;
-
     try {
       const totalDur = Math.max(1, ...tracks.map(t => t.offset + t.duration));
       const offlineCtx = new OfflineAudioContext(2, 44100 * totalDur, 44100);
-
       for (const track of tracks) {
-        // ✅ track.isMuted がここでエラーにならなくなった！
         if (track.isMuted || (hasSolo && !track.isSolo)) continue;
         const res = await fetch(track.url);
         const buf = await offlineCtx.decodeAudioData(await res.arrayBuffer());
-        
         const src = offlineCtx.createBufferSource();
         src.buffer = buf;
         src.playbackRate.value = track.speed;
-
         const panner = offlineCtx.createStereoPanner();
         panner.pan.value = track.pan;
-
         const gain = offlineCtx.createGain();
         gain.gain.value = track.volume * masterVolume;
-
-        src.connect(panner);
-        panner.connect(gain);
-        gain.connect(offlineCtx.destination);
-
+        src.connect(panner); panner.connect(gain); gain.connect(offlineCtx.destination);
         src.start(track.offset);
       }
-
       const renderedBuffer = await offlineCtx.startRendering();
       const wavBlob = audioBufferToWav(renderedBuffer);
-      
       const a = document.createElement("a");
       a.href = URL.createObjectURL(wavBlob);
       a.download = "My_Mixdown.wav"; 
       a.click();
       alert("書き出しが完了しました！");
-    } catch (e) {
-      console.error(e);
-      alert("エクスポートに失敗しました。");
-    }
+    } catch (e) { alert("エクスポートに失敗しました。"); }
   };
 
   const handleImportAudio = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const url = URL.createObjectURL(file);
     const randomColor = TRACK_COLORS[tracks.length % TRACK_COLORS.length];
     const defaultName = file.name.replace(/\.[^/.]+$/, "");
-
-    setTracks(prev => [...prev, { 
+    const newTrack = { 
       id: Date.now(), url, name: defaultName, color: randomColor,
       volume: 0.8, pan: 0, speed: 1.0, bass: 0, treble: 0, 
       noiseReduce: 0, compressor: 0, chorus: 0, delay: 0, reverb: 0, fadeIn: 0, fadeOut: 0, duration: 0, showFx: false, isSolo: false, isMuted: false, offset: 0, tremolo: 0
-    }]);
+    };
+    setTracks(prev => [...prev, newTrack]);
+    setSelectedTrackId(newTrack.id); // 読み込んだトラックを自動選択
     e.target.value = ""; 
   };
 
@@ -577,26 +529,22 @@ function App() {
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
-
       mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
-
       mediaRecorder.onstop = () => {
         const url = URL.createObjectURL(new Blob(audioChunksRef.current, { type: "audio/wav" }));
         const randomColor = TRACK_COLORS[tracks.length % TRACK_COLORS.length];
-        setTracks(prev => [...prev, { 
-          id: Date.now(), url, name: `トラック ${prev.length + 1}`, color: randomColor,
+        const newTrack = { 
+          id: Date.now(), url, name: `トラック ${tracks.length + 1}`, color: randomColor,
           volume: 0.8, pan: 0, speed: 1.0, bass: 0, treble: 0, 
-          noiseReduce: 0, compressor: 0, chorus: 0, delay: 0, reverb: 0, fadeIn: 0, fadeOut: 0, duration: 0, showFx: false, isSolo: false, isMuted: false, offset: globalTime, tremolo: 0 // 💡 録音開始時間をoffsetに！
-        }]);
+          noiseReduce: 0, compressor: 0, chorus: 0, delay: 0, reverb: 0, fadeIn: 0, fadeOut: 0, duration: 0, showFx: false, isSolo: false, isMuted: false, offset: globalTime, tremolo: 0 
+        };
+        setTracks(prev => [...prev, newTrack]);
+        setSelectedTrackId(newTrack.id); // 録音したトラックを自動選択
       };
-
       mediaRecorder.start();
       setIsRecording(true);
-      
       nextClickRef.current = Math.ceil(globalTime / (60 / bpm)) * (60 / bpm);
-    } catch (error) {
-      alert("マイクが許可されていません！");
-    }
+    } catch (error) { alert("マイクが許可されていません！"); }
   };
 
   const stopRecording = () => {
@@ -612,20 +560,14 @@ function App() {
     if (scrollContainerRef.current) {
       const container = scrollContainerRef.current;
       const playheadX = time * 50;
-      if (playheadX < container.scrollLeft || playheadX > container.scrollLeft + container.clientWidth - 220) {
+      if (playheadX < container.scrollLeft || playheadX > container.scrollLeft + container.clientWidth - 250) {
         container.scrollLeft = Math.max(0, playheadX - 100);
       }
     }
   };
 
-  const playAll = () => {
-    setIsPlayingGlobal(true);
-    nextClickRef.current = Math.ceil(globalTime / (60 / bpm)) * (60 / bpm);
-  };
-  
-  const stopAll = () => {
-    setIsPlayingGlobal(false);
-  };
+  const playAll = () => { setIsPlayingGlobal(true); nextClickRef.current = Math.ceil(globalTime / (60 / bpm)) * (60 / bpm); };
+  const stopAll = () => setIsPlayingGlobal(false);
 
   const handleGlobalTimeBlur = (e: React.FocusEvent<HTMLInputElement> | React.KeyboardEvent<HTMLInputElement>) => {
     setIsEditingGlobalTime(false);
@@ -633,7 +575,10 @@ function App() {
     if (!isNaN(newTime)) seekToTime(Math.max(0, newTime)); 
   };
 
-  const deleteTrack = (id: number) => setTracks(tracks.filter(t => t.id !== id));
+  const deleteTrack = (id: number) => {
+    setTracks(tracks.filter(t => t.id !== id));
+    if (selectedTrackId === id) setSelectedTrackId(null);
+  };
   const duplicateTrack = (track: Track) => setTracks(prev => [...prev, { ...track, id: Date.now(), name: `${track.name} (コピー)` }]);
   const updateTrack = (id: number, field: keyof Track, value: any) => setTracks(tracks.map(t => t.id === id ? { ...t, [field]: value } : t));
 
@@ -645,105 +590,97 @@ function App() {
   const loopTrackAudio = async (trackId: number, times: number) => {
     const track = tracks.find(t => t.id === trackId);
     if (!track) return;
-    
     const isConfirmed = window.confirm(`このトラックを ${times} 倍の長さにループ複製しますか？`);
     if (!isConfirmed) return;
-
     try {
       const ctx = new window.AudioContext();
       const res = await fetch(track.url);
-      
       const audioBuffer = await ctx.decodeAudioData(await res.arrayBuffer());
-
-      const newBuffer = ctx.createBuffer(
-        audioBuffer.numberOfChannels,
-        audioBuffer.length * times,
-        audioBuffer.sampleRate
-      );
-
+      const newBuffer = ctx.createBuffer(audioBuffer.numberOfChannels, audioBuffer.length * times, audioBuffer.sampleRate);
       for (let c = 0; c < audioBuffer.numberOfChannels; c++) {
         const channelData = audioBuffer.getChannelData(c);
         const newChannelData = newBuffer.getChannelData(c);
-        for (let i = 0; i < times; i++) {
-          newChannelData.set(channelData, i * audioBuffer.length);
-        }
+        for (let i = 0; i < times; i++) { newChannelData.set(channelData, i * audioBuffer.length); }
       }
-
       const wavBlob = audioBufferToWav(newBuffer);
       updateTrack(track.id, 'url', URL.createObjectURL(wavBlob));
       updateTrack(track.id, 'duration', audioBuffer.duration * times);
-      
-    } catch (err) {
-      console.error(err);
-      alert("ループ処理に失敗しました！");
-    }
+    } catch (err) { alert("ループ処理に失敗しました！"); }
   };
 
   const timelineTicks = [];
   for (let i = 0; i <= maxDuration + 20; i++) timelineTicks.push(i);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#111", color: "white", fontFamily: "sans-serif" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#111", color: "white", fontFamily: "'Inter', sans-serif" }}>
       
-      {/* 🔴 上部ツールバー */}
-      <div style={{ flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "center", background: "#333", padding: "10px 20px", borderBottom: "1px solid #444" }}>
+      {/* 🔴 1. 上部ツールバーの「3分割」配置（美しく整理！） */}
+      <div style={{ flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "center", background: "#1a1a1a", padding: "15px 20px", borderBottom: "1px solid #333", boxShadow: "0 4px 6px rgba(0,0,0,0.3)", zIndex: 100 }}>
         
-        <div style={{ display: "flex", gap: "10px" }}>
+        {/* 左側：ファイル管理 */}
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
           <input type="file" id="load-project" accept=".daw" style={{ display: 'none' }} onChange={loadProject} />
-          <button onClick={saveProject} className="tooltip" data-tooltip="プロジェクトを保存" style={{ background: "#3498db", color: "white", padding: "10px", border: "none", borderRadius: "4px", cursor: "pointer", fontWeight: "bold" }}>💾 保存</button>
-          <button onClick={() => document.getElementById('load-project')?.click()} className="tooltip" data-tooltip="プロジェクトを読込" style={{ background: "#9b59b6", color: "white", padding: "10px", border: "none", borderRadius: "4px", cursor: "pointer", fontWeight: "bold" }}>📂 読込</button>
-          <div style={{ borderLeft: "1px solid #555", margin: "0 5px" }}></div>
-          <button onClick={exportMixdown} className="tooltip" data-tooltip="完成した曲をWAV出力" style={{ background: "#f1c40f", color: "black", padding: "10px 15px", border: "none", borderRadius: "4px", cursor: "pointer", fontWeight: "bold" }}>💿 曲を書き出し</button>
-          <div style={{ borderLeft: "1px solid #555", margin: "0 5px" }}></div>
-          <button onClick={playAll} style={{ background: "#2ecc71", color: "white", padding: "10px 20px", border: "none", borderRadius: "4px", cursor: "pointer", fontWeight: "bold" }}>▶️ 再生</button>
-          <button onClick={stopAll} style={{ background: "#f39c12", color: "white", padding: "10px 20px", border: "none", borderRadius: "4px", cursor: "pointer", fontWeight: "bold" }}>⏹ 停止</button>
+          <button onClick={saveProject} className="tooltip" data-tooltip="プロジェクト保存" style={{ display: "flex", alignItems: "center", gap: "6px", background: "#252525", color: "#ddd", padding: "8px 12px", border: "1px solid #333", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}><Save size={16} /> 保存</button>
+          <button onClick={() => document.getElementById('load-project')?.click()} className="tooltip" data-tooltip="プロジェクト読込" style={{ display: "flex", alignItems: "center", gap: "6px", background: "#252525", color: "#ddd", padding: "8px 12px", border: "1px solid #333", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}><FolderOpen size={16} /> 読込</button>
+          <div style={{ width: "1px", height: "24px", background: "#444", margin: "0 5px" }}></div>
+          <button onClick={exportMixdown} className="tooltip" data-tooltip="WAV書き出し" style={{ display: "flex", alignItems: "center", gap: "6px", background: "linear-gradient(135deg, #f1c40f, #f39c12)", color: "#111", padding: "8px 12px", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}><Download size={16} /> 書き出し</button>
+          <input type="file" id="import-audio" accept="audio/*" style={{ display: 'none' }} onChange={handleImportAudio} />
+          <button onClick={() => document.getElementById('import-audio')?.click()} className="tooltip" data-tooltip="音源を読込" style={{ display: "flex", alignItems: "center", gap: "6px", background: "#3498db", color: "white", padding: "8px 12px", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}><Music size={16} /> 音源追加</button>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "5px", background: "#222", padding: "5px 10px", borderRadius: "4px", border: "1px solid #444" }}>
-            <span style={{ fontSize: "11px", color: "#aaa" }}>BPM:</span>
-            <input type="number" value={bpm} onChange={e => setBpm(Number(e.target.value))} style={{ width: "45px", background: "transparent", color: "white", border: "none", outline: "none", fontSize: "14px", fontWeight: "bold" }} />
-            <button onClick={() => setMetronomeOn(!metronomeOn)} style={{ background: metronomeOn ? "#e74c3c" : "#555", color: "white", border: "none", padding: "4px 8px", borderRadius: "3px", cursor: "pointer", fontSize: "11px", fontWeight: "bold" }}>
-              🔔 {metronomeOn ? "ON" : "OFF"}
-            </button>
-          </div>
-          <button onClick={() => seekToTime(0)} className="tooltip" data-tooltip="最初(0秒)に戻す" style={{ background: "#555", color: "white", border: "none", padding: "10px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold" }}>⏮️ 0秒へ</button>
+        {/* 中央：操作のコア（再生・録音・時間） */}
+        <div style={{ display: "flex", alignItems: "center", gap: "15px", background: "#000", padding: "8px 20px", borderRadius: "12px", border: "1px solid #333", boxShadow: "inset 0 2px 10px rgba(0,0,0,0.5)" }}>
+          <button onClick={() => seekToTime(0)} className="tooltip" data-tooltip="最初に戻る" style={{ background: "transparent", color: "#aaa", border: "none", cursor: "pointer", padding: "5px" }}><SkipBack size={20} /></button>
+          {isPlayingGlobal ? (
+            <button onClick={stopAll} style={{ background: "#e74c3c", color: "white", padding: "10px", border: "none", borderRadius: "50%", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", width: "40px", height: "40px" }}><Square size={20} fill="currentColor" /></button>
+          ) : (
+            <button onClick={playAll} style={{ background: "#2ecc71", color: "white", padding: "10px", border: "none", borderRadius: "50%", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", width: "40px", height: "40px" }}><Play size={22} fill="currentColor" style={{ marginLeft: "4px" }} /></button>
+          )}
           
-          <div className="tooltip" data-tooltip="クリックで開始位置（秒）を指定" style={{ background: "#000", borderRadius: "4px", border: "2px solid #555", width: "160px", height: "45px", display: "flex", alignItems: "center", justifyContent: "center", cursor: (isRecording || isPlayingGlobal) ? "default" : "text" }} onClick={() => { if (!isRecording && !isPlayingGlobal) setIsEditingGlobalTime(true); }}>
+          <div className="tooltip" data-tooltip="クリックで時間指定" style={{ width: "130px", textAlign: "center", cursor: "text" }} onClick={() => { if (!isRecording && !isPlayingGlobal) setIsEditingGlobalTime(true); }}>
             {isEditingGlobalTime ? (
-              <input type="number" step="0.1" defaultValue={globalTime.toFixed(1)} onBlur={handleGlobalTimeBlur} onKeyDown={(e) => { if (e.key === 'Enter') handleGlobalTimeBlur(e); }} autoFocus style={{ color: "#2ecc71", fontFamily: "monospace", fontSize: "28px", letterSpacing: "2px", textShadow: "0 0 5px rgba(46, 204, 113, 0.5)", background: "transparent", border: "none", textAlign: "center", width: "100%", height: "100%", outline: "none", padding: 0, margin: 0 }} />
+              <input type="number" step="0.1" defaultValue={globalTime.toFixed(1)} onBlur={handleGlobalTimeBlur} onKeyDown={(e) => { if (e.key === 'Enter') handleGlobalTimeBlur(e); }} autoFocus style={{ color: "#2ecc71", fontFamily: "monospace", fontSize: "24px", letterSpacing: "1px", background: "transparent", border: "none", textAlign: "center", width: "100%", outline: "none" }} />
             ) : (
-              <span style={{ color: isRecording ? "#e74c3c" : "#2ecc71", fontFamily: "monospace", fontSize: "28px", letterSpacing: "2px", textShadow: "0 0 5px rgba(46, 204, 113, 0.5)" }}>{formatTime(globalTime)}</span>
+              <span style={{ color: isRecording ? "#e74c3c" : "#2ecc71", fontFamily: "monospace", fontSize: "26px", letterSpacing: "1px", textShadow: "0 0 8px rgba(46,204,113,0.4)" }}>{formatTime(globalTime)}</span>
             )}
           </div>
+
+          {!isRecording ? (
+            <button onClick={startRecording} className="tooltip" data-tooltip="録音開始" style={{ background: "transparent", color: "#e74c3c", border: "2px solid #e74c3c", borderRadius: "50%", cursor: "pointer", width: "40px", height: "40px", display: "flex", alignItems: "center", justifyContent: "center" }}><Mic size={20} /></button>
+          ) : (
+            <button onClick={stopRecording} className="tooltip" data-tooltip="録音停止" style={{ background: "#e74c3c", color: "white", border: "none", borderRadius: "50%", cursor: "pointer", width: "40px", height: "40px", display: "flex", alignItems: "center", justifyContent: "center", animation: "pulse 1s infinite" }}><Square size={16} fill="currentColor" /></button>
+          )}
         </div>
 
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-          <div className="tooltip" data-tooltip="曲全体の音量" style={{ display: "flex", alignItems: "center", gap: "8px", background: "#222", padding: "5px 10px", borderRadius: "4px", border: "1px solid #444", marginRight: "10px" }}>
-            <span style={{ fontSize: "12px", color: "#aaa" }}>マスターVol:</span>
-            <input type="range" min="0" max="1" step="0.01" value={masterVolume} onChange={(e) => setMasterVolume(parseFloat(e.target.value))} style={{ width: "60px", cursor: "pointer" }} />
+        {/* 右側：全体設定 */}
+        <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "5px", background: "#252525", padding: "6px 12px", borderRadius: "6px", border: "1px solid #333" }}>
+            <span style={{ fontSize: "12px", color: "#888", fontWeight: "bold" }}>BPM</span>
+            <input type="number" value={bpm} onChange={e => setBpm(Number(e.target.value))} style={{ width: "40px", background: "transparent", color: "white", border: "none", outline: "none", fontSize: "14px", fontWeight: "bold" }} />
+            <div style={{ width: "1px", height: "16px", background: "#444", margin: "0 5px" }}></div>
+            <button onClick={() => setMetronomeOn(!metronomeOn)} className="tooltip" data-tooltip="メトロノーム" style={{ background: "transparent", color: metronomeOn ? "#2ecc71" : "#888", border: "none", cursor: "pointer", padding: 0, display: "flex" }}>
+              {metronomeOn ? <Bell size={18} /> : <BellOff size={18} />}
+            </button>
           </div>
-          <input type="file" id="import-audio" accept="audio/*" style={{ display: 'none' }} onChange={handleImportAudio} />
-          <button onClick={() => document.getElementById('import-audio')?.click()} className="tooltip" data-tooltip="PCから音源を読込" style={{ background: "#8e44ad", color: "white", padding: "10px 15px", border: "none", borderRadius: "4px", cursor: "pointer", fontWeight: "bold" }}>🎵 音源追加</button>
-          {!isRecording ? (
-            <button onClick={startRecording} style={{ background: "#e74c3c", color: "white", padding: "10px 20px", border: "none", borderRadius: "4px", cursor: "pointer", fontWeight: "bold" }}>🔴 録音</button>
-          ) : (
-            <button onClick={stopRecording} style={{ background: "#7f8c8d", color: "white", padding: "10px 20px", border: "none", borderRadius: "4px", cursor: "pointer", fontWeight: "bold", animation: "pulse 1s infinite" }}>⏹ 録音停止</button>
-          )}
+          
+          <div className="tooltip" data-tooltip="マスター音量" style={{ display: "flex", alignItems: "center", gap: "8px", background: "#252525", padding: "6px 12px", borderRadius: "6px", border: "1px solid #333" }}>
+            <Volume2 size={16} color="#888" />
+            <input type="range" min="0" max="1" step="0.01" value={masterVolume} onChange={(e) => setMasterVolume(parseFloat(e.target.value))} style={{ width: "70px", cursor: "pointer", accentColor: "#aaa" }} />
+          </div>
         </div>
       </div>
 
-      {/* 📦 メインワークスペース */}
-      <div ref={scrollContainerRef} style={{ flex: 1, overflowX: "auto", overflowY: "auto", position: "relative" }}>
-        <div style={{ minWidth: `calc(220px + ${Math.max(15, maxDuration) * 50}px)`, position: "relative", paddingBottom: "50px" }}>
+      {/* 📦 メインワークスペース（トラック表示エリア） */}
+      <div ref={scrollContainerRef} style={{ flex: 1, overflowX: "auto", overflowY: "auto", position: "relative", background: "#111" }}>
+        <div style={{ minWidth: `calc(250px + ${Math.max(15, maxDuration) * 50}px)`, position: "relative", paddingBottom: "50px" }}>
           
-          <div style={{ display: "flex", background: "#222", borderBottom: "1px solid #444", position: "sticky", top: 0, zIndex: 20 }}>
-            <div style={{ width: "220px", flexShrink: 0, position: "sticky", left: 0, zIndex: 30, background: "#252525", borderRight: "1px solid #111", display: "flex", alignItems: "center", padding: "0 15px", color: "#888", fontSize: "12px", fontWeight: "bold" }}>
-              タイムライン
+          <div style={{ display: "flex", background: "#1a1a1a", borderBottom: "1px solid #333", position: "sticky", top: 0, zIndex: 20 }}>
+            <div style={{ width: "250px", flexShrink: 0, position: "sticky", left: 0, zIndex: 30, background: "#1a1a1a", borderRight: "1px solid #222", display: "flex", alignItems: "center", padding: "0 15px", color: "#888", fontSize: "12px", fontWeight: "bold" }}>
+              TIMELINE
             </div>
             <div style={{ flex: 1, position: "relative", height: "30px" }}>
               {timelineTicks.map(t => (
-                <div key={t} style={{ position: "absolute", left: `${t * 50}px`, top: t % 5 === 0 ? "0" : "15px", height: t % 5 === 0 ? "30px" : "15px", color: "#aaa", fontSize: "10px", borderLeft: t % 5 === 0 ? "1px solid #888" : "1px solid #444", paddingLeft: "4px" }}>
+                <div key={t} style={{ position: "absolute", left: `${t * 50}px`, top: t % 5 === 0 ? "0" : "15px", height: t % 5 === 0 ? "30px" : "15px", color: "#666", fontSize: "10px", borderLeft: t % 5 === 0 ? "1px solid #555" : "1px solid #333", paddingLeft: "4px" }}>
                   {t % 5 === 0 && `${t}s`}
                 </div>
               ))}
@@ -751,27 +688,71 @@ function App() {
           </div>
 
           {tracks.map(track => (
-            <TrackItem key={track.id} track={track} hasSolo={hasSolo} masterVolume={masterVolume} globalTime={globalTime} isPlayingGlobal={isPlayingGlobal} onDelete={deleteTrack} onDuplicate={duplicateTrack} onUpdate={updateTrack} onContextMenu={handleContextMenu} />
+            <TrackItem 
+              key={track.id} track={track} 
+              isSelected={selectedTrackId === track.id} 
+              hasSolo={hasSolo} masterVolume={masterVolume} globalTime={globalTime} isPlayingGlobal={isPlayingGlobal} 
+              onSelect={setSelectedTrackId} onDelete={deleteTrack} onDuplicate={duplicateTrack} onUpdate={updateTrack} onContextMenu={handleContextMenu} 
+            />
           ))}
 
-          {/* 🟢 再生バー */}
-          <div style={{ position: "absolute", top: 0, bottom: 0, left: `calc(220px + ${globalTime * 50}px)`, width: "2px", background: "#2ecc71", zIndex: 50, pointerEvents: "none", boxShadow: "0 0 5px rgba(46, 204, 113, 0.8)", display: globalTime > 0 ? "block" : "none" }}>
-            <div style={{ position: "absolute", top: 0, left: "-5px", width: 0, height: 0, borderLeft: "6px solid transparent", borderRight: "6px solid transparent", borderTop: "10px solid #2ecc71" }} />
+          {/* 空のスペース（下部パネルに隠れないように） */}
+          <div style={{ height: "200px" }}></div>
+
+          <div style={{ position: "absolute", top: 0, bottom: 0, left: `calc(250px + ${globalTime * 50}px)`, width: "2px", background: "#2ecc71", zIndex: 50, pointerEvents: "none", boxShadow: "0 0 8px rgba(46, 204, 113, 0.8)", display: globalTime > 0 ? "block" : "none" }}>
+            <div style={{ position: "absolute", top: 0, left: "-6px", width: 0, height: 0, borderLeft: "7px solid transparent", borderRight: "7px solid transparent", borderTop: "12px solid #2ecc71" }} />
           </div>
 
         </div>
       </div>
 
-      {/* ✂️ 右クリックコンテキストメニュー */}
+      {/* 🎛️ 2. 画面下部に固定された「エフェクト（FX）専用パネル」！ */}
+      <div style={{ height: "220px", flexShrink: 0, background: "#1a1a1a", borderTop: "1px solid #333", display: "flex", flexDirection: "column", zIndex: 100, boxShadow: "0 -4px 10px rgba(0,0,0,0.3)" }}>
+        <div style={{ background: "#222", padding: "8px 15px", fontSize: "12px", fontWeight: "bold", color: "#888", borderBottom: "1px solid #333", display: "flex", alignItems: "center", gap: "8px" }}>
+          <Sliders size={14} /> EFFECT CONTROLS
+        </div>
+        
+        {selectedTrack ? (
+          <div style={{ flex: 1, padding: "15px", display: "flex", gap: "20px", overflowX: "auto" }}>
+            {/* パネル左：基本設定 */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", width: "200px", borderRight: "1px solid #333", paddingRight: "20px" }}>
+              <div style={{ color: selectedTrack.color, fontWeight: "bold", fontSize: "16px", marginBottom: "5px" }}>{selectedTrack.name}</div>
+              <ControlKnob label="L ◀ Pan ▶ R" min="-1" max="1" step="0.01" value={selectedTrack.pan} onChange={(v) => updateTrack(selectedTrack.id, 'pan', v)} />
+              <ControlKnob label="⏩ 再生速度" min="0.5" max="2" step="0.01" value={selectedTrack.speed} onChange={(v) => updateTrack(selectedTrack.id, 'speed', v)} unit="x" />
+            </div>
+
+            {/* パネル右：エフェクト群 */}
+            <div style={{ display: "flex", gap: "15px", flex: 1 }}>
+              <div style={{ width: "160px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                <ControlKnob label="🎚️ 低音 (Bass)" min="-15" max="15" step="1" value={selectedTrack.bass} onChange={(v) => updateTrack(selectedTrack.id, 'bass', v)} unit="dB" />
+                <ControlKnob label="🎚️ 高音 (Treble)" min="-15" max="15" step="1" value={selectedTrack.treble} onChange={(v) => updateTrack(selectedTrack.id, 'treble', v)} unit="dB" />
+              </div>
+              <div style={{ width: "160px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                <ControlKnob label="🗜️ コンプレッサー" min="0" max="1" step="0.01" value={selectedTrack.compressor} onChange={(v) => updateTrack(selectedTrack.id, 'compressor', v)} />
+                <ControlKnob label="🧹 ノイズ除去" min="0" max="1" step="0.01" value={selectedTrack.noiseReduce} onChange={(v) => updateTrack(selectedTrack.id, 'noiseReduce', v)} />
+              </div>
+              <div style={{ width: "160px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                <ControlKnob label="🌌 リバーブ" min="0" max="1" step="0.01" value={selectedTrack.reverb} onChange={(v) => updateTrack(selectedTrack.id, 'reverb', v)} />
+                <ControlKnob label="🔂 ディレイ" min="0" max="1" step="0.01" value={selectedTrack.delay} onChange={(v) => updateTrack(selectedTrack.id, 'delay', v)} />
+              </div>
+              <div style={{ width: "160px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                <ControlKnob label="👥 コーラス" min="0" max="1" step="0.01" value={selectedTrack.chorus} onChange={(v) => updateTrack(selectedTrack.id, 'chorus', v)} />
+                <ControlKnob label="🌊 トレモロ" min="0" max="1" step="0.01" value={selectedTrack.tremolo} onChange={(v) => updateTrack(selectedTrack.id, 'tremolo', v)} />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#555", fontSize: "14px", fontWeight: "bold" }}>
+            波形（クリップ）をクリックして、トラックを選択してください
+          </div>
+        )}
+      </div>
+
       {contextMenu && (
-        <div style={{ position: "fixed", top: contextMenu.y, left: contextMenu.x, background: "#333", border: "1px solid #555", borderRadius: "4px", boxShadow: "0 4px 12px rgba(0,0,0,0.5)", zIndex: 99999, padding: "5px 0", minWidth: "150px" }}>
-          <div style={{ padding: "8px 15px", color: "#aaa", fontSize: "11px", borderBottom: "1px solid #444", marginBottom: "5px" }}>音声の編集</div>
-          <button onClick={() => loopTrackAudio(contextMenu.trackId, 2)} style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", color: "white", border: "none", padding: "8px 15px", cursor: "pointer", fontSize: "13px" }} onMouseOver={e => e.currentTarget.style.background = "#444"} onMouseOut={e => e.currentTarget.style.background = "transparent"}>
-            🔁 この音を 2倍 にループ
-          </button>
-          <button onClick={() => loopTrackAudio(contextMenu.trackId, 4)} style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", color: "white", border: "none", padding: "8px 15px", cursor: "pointer", fontSize: "13px" }} onMouseOver={e => e.currentTarget.style.background = "#444"} onMouseOut={e => e.currentTarget.style.background = "transparent"}>
-            🔁 この音を 4倍 にループ
-          </button>
+        <div style={{ position: "fixed", top: contextMenu.y, left: contextMenu.x, background: "#252525", border: "1px solid #444", borderRadius: "6px", boxShadow: "0 4px 12px rgba(0,0,0,0.5)", zIndex: 99999, padding: "5px 0", minWidth: "160px" }}>
+          <div style={{ padding: "8px 15px", color: "#888", fontSize: "11px", borderBottom: "1px solid #333", marginBottom: "5px", fontWeight: "bold" }}>音声の編集</div>
+          <button onClick={() => loopTrackAudio(contextMenu.trackId, 2)} style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", color: "#ddd", border: "none", padding: "10px 15px", cursor: "pointer", fontSize: "13px" }} onMouseOver={e => e.currentTarget.style.background = "#333"} onMouseOut={e => e.currentTarget.style.background = "transparent"}>🔁 2倍にループ複製</button>
+          <button onClick={() => loopTrackAudio(contextMenu.trackId, 4)} style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", color: "#ddd", border: "none", padding: "10px 15px", cursor: "pointer", fontSize: "13px" }} onMouseOver={e => e.currentTarget.style.background = "#333"} onMouseOut={e => e.currentTarget.style.background = "transparent"}>🔁 4倍にループ複製</button>
         </div>
       )}
       
