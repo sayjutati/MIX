@@ -79,6 +79,7 @@ const formatTime = (seconds: number) => {
   return `${m}:${s}.${ms}`;
 };
 
+// 通常のツマミ（左パネル用）
 const ControlKnob = ({ label, min, max, step, value, onChange, unit = "" }: { label: string, min: string, max: string, step: string, value: number, onChange: (val: number) => void, unit?: string }) => (
   <div style={{ display: "flex", flexDirection: "column", gap: "6px", width: "100%", background: "#222", padding: "12px", borderRadius: "8px", border: "1px solid #333" }}>
     <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#aaa", fontWeight: "bold" }}>
@@ -88,6 +89,28 @@ const ControlKnob = ({ label, min, max, step, value, onChange, unit = "" }: { la
     <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(parseFloat(e.target.value))} style={{ width: "100%", cursor: "pointer", accentColor: "#4facfe" }} />
   </div>
 );
+
+// 🌟 新機能：微調整ボタン付きのエフェクト専用ツマミ（下パネル用）
+const EffectKnob = ({ label, min, max, step, value, onChange, unit = "", defaultValue = 0 }: { label: string, min: string, max: string, step: string, value: number, onChange: (val: number) => void, unit?: string, defaultValue?: number }) => {
+  const handleDec = () => onChange(Math.max(parseFloat(min), Math.round((value - 0.1) * 100) / 100));
+  const handleInc = () => onChange(Math.min(parseFloat(max), Math.round((value + 0.1) * 100) / 100));
+  const handleReset = () => onChange(defaultValue);
+  
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "6px", width: "100%", background: "#222", padding: "12px", borderRadius: "8px", border: "1px solid #333" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#aaa", fontWeight: "bold" }}>
+        <span>{label}</span>
+        <span style={{ color: "#4facfe" }}>{value}{unit}</span>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(parseFloat(e.target.value))} style={{ width: "100%", cursor: "pointer", accentColor: "#4facfe" }} />
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "5px", marginTop: "4px" }}>
+        <button onClick={handleDec} className="tooltip" data-tooltip="-0.1" style={{ flex: 1, background: "#333", color: "white", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "14px", padding: "2px 0", fontWeight: "bold", display: "flex", justifyContent: "center", alignItems: "center" }}>←</button>
+        <button onClick={handleReset} className="tooltip" data-tooltip="リセット" style={{ flex: 1, background: "#333", color: "white", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "12px", padding: "2px 0", fontWeight: "bold", display: "flex", justifyContent: "center", alignItems: "center" }}>{defaultValue === 1 ? "1" : "0"}</button>
+        <button onClick={handleInc} className="tooltip" data-tooltip="+0.1" style={{ flex: 1, background: "#333", color: "white", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "14px", padding: "2px 0", fontWeight: "bold", display: "flex", justifyContent: "center", alignItems: "center" }}>→</button>
+      </div>
+    </div>
+  );
+};
 
 function TrackItem({ track, isSelected, hasSolo, masterVolume, globalTime, isPlayingGlobal, onSelect, onDelete, onDuplicate, onUpdate, onContextMenu }: { 
   track: Track; 
@@ -368,8 +391,11 @@ function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [selectedTrackId, setSelectedTrackId] = useState<number | null>(null); 
-  const [exportFormat, setExportFormat] = useState("wav"); // 🌟 新機能：書き出し形式（wav/mp3）
+  const [exportFormat, setExportFormat] = useState("wav"); 
   
+  // 🌟 新機能：エフェクトパネルの高さをドラッグで変更するためのステート
+  const [fxPanelHeight, setFxPanelHeight] = useState(250);
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   
@@ -414,18 +440,11 @@ function App() {
           }
         }
 
-        // 🌟 修正：再生・録音時の「中央固定オートスクロール」ロジック！
         if (scrollContainerRef.current) {
           const container = scrollContainerRef.current;
-          const playheadX = currentTime * 50; // 再生ヘッドの現在のX位置
-          
-          // 右側のタイムライン表示エリアの幅を計算（左パネル250pxを除く）
+          const playheadX = currentTime * 50; 
           const timelineVisibleWidth = container.clientWidth - 250;
-          
-          // 再生ヘッドが画面の中央にくるような目標のスクロール位置を計算
           const targetScrollLeft = playheadX - (timelineVisibleWidth / 2);
-          
-          // スクロール位置を反映。0未満にはならず、コンテナの右端に達したら自動でスクロールは止まる
           container.scrollLeft = Math.max(0, targetScrollLeft);
         }
       }, 30);
@@ -438,6 +457,27 @@ function App() {
     window.addEventListener("click", closeMenu);
     return () => window.removeEventListener("click", closeMenu);
   }, []);
+
+  // 🌟 エフェクトパネルの高さリサイズ処理
+  const handlePanelResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startHeight = fxPanelHeight;
+
+    const handlePanelResizeMove = (moveEvent: MouseEvent) => {
+      const diffY = startY - moveEvent.clientY;
+      // 高さは100px〜600pxの間で自由に調整可能！
+      setFxPanelHeight(Math.max(100, Math.min(600, startHeight + diffY)));
+    };
+
+    const handlePanelResizeEnd = () => {
+      window.removeEventListener('mousemove', handlePanelResizeMove);
+      window.removeEventListener('mouseup', handlePanelResizeEnd);
+    };
+
+    window.addEventListener('mousemove', handlePanelResizeMove);
+    window.addEventListener('mouseup', handlePanelResizeEnd);
+  };
 
   const saveProject = async () => {
     if (tracks.length === 0) return alert("保存するトラックがありません！");
@@ -506,7 +546,6 @@ function App() {
       const renderedBuffer = await offlineCtx.startRendering();
       const wavBlob = audioBufferToWav(renderedBuffer);
       
-      // 🌟 新機能：指定された形式（WAV / MP3）に応じてBlobと拡張子を切り替える
       const finalBlob = exportFormat === "mp3" ? new Blob([wavBlob], { type: "audio/mp3" }) : wavBlob;
       const fileExt = exportFormat === "mp3" ? "mp3" : "wav";
 
@@ -636,7 +675,6 @@ function App() {
           
           <div style={{ width: "1px", height: "24px", background: "#444", margin: "0 5px" }}></div>
           
-          {/* 🌟 修正：ファイル形式指定付きの書き出しエリア */}
           <div style={{ display: "flex", alignItems: "center", background: "#252525", padding: "2px", borderRadius: "6px", border: "1px solid #333", gap: "4px" }}>
             <select 
               value={exportFormat} 
@@ -664,7 +702,7 @@ function App() {
           
           <div className="tooltip" data-tooltip="クリックで時間指定" style={{ width: "130px", textAlign: "center", cursor: "text" }} onClick={() => { if (!isRecording && !isPlayingGlobal) setIsEditingGlobalTime(true); }}>
             {isEditingGlobalTime ? (
-              <input type="number" step="0.1" defaultValue={globalTime.toFixed(1)} onBlur={handleGlobalTimeBlur} onKeyDown={(e) => { if (e.key === 'Enter') handleGlobalTimeBlur(e); }} autoFocus style={{ color: "#2ecc7 green", fontFamily: "monospace", fontSize: "24px", letterSpacing: "1px", background: "transparent", border: "none", textAlign: "center", width: "100%", outline: "none" }} />
+              <input type="number" step="0.1" defaultValue={globalTime.toFixed(1)} onBlur={handleGlobalTimeBlur} onKeyDown={(e) => { if (e.key === 'Enter') handleGlobalTimeBlur(e); }} autoFocus style={{ color: "#2ecc71", fontFamily: "monospace", fontSize: "24px", letterSpacing: "1px", background: "transparent", border: "none", textAlign: "center", width: "100%", outline: "none" }} />
             ) : (
               <span style={{ color: isRecording ? "#e74c3c" : "#2ecc71", fontFamily: "monospace", fontSize: "26px", letterSpacing: "1px", textShadow: "0 0 8px rgba(46,204,113,0.4)" }}>{formatTime(globalTime)}</span>
             )}
@@ -730,36 +768,45 @@ function App() {
         </div>
       </div>
 
-      {/* 🎛️ エフェクト専用パネル */}
-      <div style={{ height: "220px", flexShrink: 0, background: "#1a1a1a", borderTop: "1px solid #333", display: "flex", flexDirection: "column", zIndex: 100, boxShadow: "0 -4px 10px rgba(0,0,0,0.3)" }}>
-        <div style={{ background: "#222", padding: "8px 15px", fontSize: "12px", fontWeight: "bold", color: "#888", borderBottom: "1px solid #333", display: "flex", alignItems: "center", gap: "8px" }}>
-          <Sliders size={14} /> EFFECT CONTROLS
+      {/* 🎛️ エフェクト専用パネル（ドラッグでリサイズ対応！） */}
+      <div style={{ height: `${fxPanelHeight}px`, flexShrink: 0, background: "#1a1a1a", display: "flex", flexDirection: "column", zIndex: 100, boxShadow: "0 -4px 10px rgba(0,0,0,0.3)", position: "relative" }}>
+        
+        {/* ↕️ 上部リサイズハンドル */}
+        <div 
+          onMouseDown={handlePanelResizeStart}
+          style={{ background: "#222", padding: "4px 15px", fontSize: "12px", fontWeight: "bold", color: "#888", borderTop: "1px solid #333", borderBottom: "1px solid #333", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", cursor: "row-resize" }}
+          title="ドラッグして高さを調整"
+        >
+          <div style={{ position: "absolute", left: "15px", display: "flex", alignItems: "center", gap: "8px" }}>
+             <Sliders size={14} /> EFFECT CONTROLS
+          </div>
+          <div style={{ width: "40px", height: "4px", background: "#555", borderRadius: "2px" }} />
         </div>
         
         {selectedTrack ? (
           <div style={{ flex: 1, padding: "15px", display: "flex", gap: "20px", overflowX: "auto" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: "10px", width: "200px", borderRight: "1px solid #333", paddingRight: "20px" }}>
               <div style={{ color: selectedTrack.color, fontWeight: "bold", fontSize: "16px", marginBottom: "5px" }}>{selectedTrack.name}</div>
-              <ControlKnob label="L ◀ Pan ▶ R" min="-1" max="1" step="0.01" value={selectedTrack.pan} onChange={(v) => updateTrack(selectedTrack.id, 'pan', v)} />
-              <ControlKnob label="⏩ 再生速度" min="0.5" max="2" step="0.01" value={selectedTrack.speed} onChange={(v) => updateTrack(selectedTrack.id, 'speed', v)} unit="x" />
+              {/* Pan はここから削除済み！ */}
+              <EffectKnob label="⏩ 再生速度" min="0.5" max="2" step="0.01" value={selectedTrack.speed} onChange={(v) => updateTrack(selectedTrack.id, 'speed', v)} unit="x" defaultValue={1} />
             </div>
 
             <div style={{ display: "flex", gap: "15px", flex: 1 }}>
               <div style={{ width: "160px", display: "flex", flexDirection: "column", gap: "10px" }}>
-                <ControlKnob label="🎚️ 低音 (Bass)" min="-15" max="15" step="1" value={selectedTrack.bass} onChange={(v) => updateTrack(selectedTrack.id, 'bass', v)} unit="dB" />
-                <ControlKnob label="🎚️ 高音 (Treble)" min="-15" max="15" step="1" value={selectedTrack.treble} onChange={(v) => updateTrack(selectedTrack.id, 'treble', v)} unit="dB" />
+                <EffectKnob label="🎚️ 低音 (Bass)" min="-15" max="15" step="1" value={selectedTrack.bass} onChange={(v) => updateTrack(selectedTrack.id, 'bass', v)} unit="dB" defaultValue={0} />
+                <EffectKnob label="🎚️ 高音 (Treble)" min="-15" max="15" step="1" value={selectedTrack.treble} onChange={(v) => updateTrack(selectedTrack.id, 'treble', v)} unit="dB" defaultValue={0} />
               </div>
               <div style={{ width: "160px", display: "flex", flexDirection: "column", gap: "10px" }}>
-                <ControlKnob label="🗜️ コンプレッサー" min="0" max="1" step="0.01" value={selectedTrack.compressor} onChange={(v) => updateTrack(selectedTrack.id, 'compressor', v)} />
-                <ControlKnob label="🧹 ノイズ除去" min="0" max="1" step="0.01" value={selectedTrack.noiseReduce} onChange={(v) => updateTrack(selectedTrack.id, 'noiseReduce', v)} />
+                <EffectKnob label="🗜️ コンプレッサー" min="0" max="1" step="0.01" value={selectedTrack.compressor} onChange={(v) => updateTrack(selectedTrack.id, 'compressor', v)} defaultValue={0} />
+                <EffectKnob label="🧹 ノイズ除去" min="0" max="1" step="0.01" value={selectedTrack.noiseReduce} onChange={(v) => updateTrack(selectedTrack.id, 'noiseReduce', v)} defaultValue={0} />
               </div>
               <div style={{ width: "160px", display: "flex", flexDirection: "column", gap: "10px" }}>
-                <ControlKnob label="🌌 リバーブ" min="0" max="1" step="0.01" value={selectedTrack.reverb} onChange={(v) => updateTrack(selectedTrack.id, 'reverb', v)} />
-                <ControlKnob label="🔂 ディレイ" min="0" max="1" step="0.01" value={selectedTrack.delay} onChange={(v) => updateTrack(selectedTrack.id, 'delay', v)} />
+                <EffectKnob label="🌌 リバーブ" min="0" max="1" step="0.01" value={selectedTrack.reverb} onChange={(v) => updateTrack(selectedTrack.id, 'reverb', v)} defaultValue={0} />
+                <EffectKnob label="🔂 ディレイ" min="0" max="1" step="0.01" value={selectedTrack.delay} onChange={(v) => updateTrack(selectedTrack.id, 'delay', v)} defaultValue={0} />
               </div>
               <div style={{ width: "160px", display: "flex", flexDirection: "column", gap: "10px" }}>
-                <ControlKnob label="👥 コーラス" min="0" max="1" step="0.01" value={selectedTrack.chorus} onChange={(v) => updateTrack(selectedTrack.id, 'chorus', v)} />
-                <ControlKnob label="🌊 トレモロ" min="0" max="1" step="0.01" value={selectedTrack.tremolo} onChange={(v) => updateTrack(selectedTrack.id, 'tremolo', v)} />
+                <EffectKnob label="👥 コーラス" min="0" max="1" step="0.01" value={selectedTrack.chorus} onChange={(v) => updateTrack(selectedTrack.id, 'chorus', v)} defaultValue={0} />
+                <EffectKnob label="🌊 トレモロ" min="0" max="1" step="0.01" value={selectedTrack.tremolo} onChange={(v) => updateTrack(selectedTrack.id, 'tremolo', v)} defaultValue={0} />
               </div>
             </div>
           </div>
