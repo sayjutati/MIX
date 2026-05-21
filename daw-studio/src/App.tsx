@@ -79,7 +79,6 @@ const formatTime = (seconds: number) => {
   return `${m}:${s}.${ms}`;
 };
 
-// 🎛️ スライダーを「数値付きのプロ仕様」に大改造！
 const ControlKnob = ({ label, min, max, step, value, onChange, unit = "" }: { label: string, min: string, max: string, step: string, value: number, onChange: (val: number) => void, unit?: string }) => (
   <div style={{ display: "flex", flexDirection: "column", gap: "6px", width: "100%", background: "#222", padding: "12px", borderRadius: "8px", border: "1px solid #333" }}>
     <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#aaa", fontWeight: "bold" }}>
@@ -92,7 +91,7 @@ const ControlKnob = ({ label, min, max, step, value, onChange, unit = "" }: { la
 
 function TrackItem({ track, isSelected, hasSolo, masterVolume, globalTime, isPlayingGlobal, onSelect, onDelete, onDuplicate, onUpdate, onContextMenu }: { 
   track: Track; 
-  isSelected: boolean; // 🌟 選択状態を受け取る
+  isSelected: boolean; 
   hasSolo: boolean;
   masterVolume: number;
   globalTime: number;
@@ -305,9 +304,8 @@ function TrackItem({ track, isSelected, hasSolo, masterVolume, globalTime, isPla
   return (
     <div style={{ display: "flex", borderBottom: "1px solid #111", background: isSelected ? "#2a2a2a" : "#1a1a1a", transition: "background 0.2s" }}>
       
-      {/* 🎛️ 左側パネル */}
       <div 
-        onClick={() => onSelect(track.id)} // クリックで選択
+        onClick={() => onSelect(track.id)} 
         style={{ width: "250px", flexShrink: 0, position: "sticky", left: 0, zIndex: 10, background: isSelected ? "#333" : "#252525", borderRight: "1px solid #111", display: "flex", flexDirection: "column", opacity: effectiveMute ? 0.5 : 1, transition: "all 0.2s", cursor: "pointer", borderLeft: isSelected ? `4px solid ${track.color}` : "4px solid transparent" }}
       >
         <div style={{ padding: "12px 15px" }}>
@@ -338,7 +336,7 @@ function TrackItem({ track, isSelected, hasSolo, masterVolume, globalTime, isPla
 
       <div 
         onContextMenu={(e) => onContextMenu(e, track.id)}
-        onClick={() => onSelect(track.id)} // ここをクリックしても選択
+        onClick={() => onSelect(track.id)} 
         style={{ flex: 1, position: "relative", padding: "10px", minWidth: 0, display: "flex", alignItems: "flex-start", cursor: "context-menu" }}
       >
         <div 
@@ -356,7 +354,7 @@ function TrackItem({ track, isSelected, hasSolo, masterVolume, globalTime, isPla
             opacity: effectiveMute ? 0.3 : 1, 
             transition: "all 0.2s",
             cursor: "grab",
-            border: isSelected ? "2px solid white" : "none" // 選択時は白枠をつける
+            border: isSelected ? "2px solid white" : "none" 
           }}>
           <div ref={containerRef} style={{ width: "100%", height: "100%", pointerEvents: "none" }} />
         </div>
@@ -369,7 +367,8 @@ function TrackItem({ track, isSelected, hasSolo, masterVolume, globalTime, isPla
 function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [tracks, setTracks] = useState<Track[]>([]);
-  const [selectedTrackId, setSelectedTrackId] = useState<number | null>(null); // 🌟 新機能：現在選択されているトラック
+  const [selectedTrackId, setSelectedTrackId] = useState<number | null>(null); 
+  const [exportFormat, setExportFormat] = useState("wav"); // 🌟 新機能：書き出し形式（wav/mp3）
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -389,7 +388,7 @@ function App() {
   const [contextMenu, setContextMenu] = useState<{x: number, y: number, trackId: number} | null>(null);
 
   const hasSolo = tracks.some(t => t.isSolo);
-  const selectedTrack = tracks.find(t => t.id === selectedTrackId); // 選択中のトラック情報を取得
+  const selectedTrack = tracks.find(t => t.id === selectedTrackId); 
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
@@ -415,12 +414,19 @@ function App() {
           }
         }
 
+        // 🌟 修正：再生・録音時の「中央固定オートスクロール」ロジック！
         if (scrollContainerRef.current) {
           const container = scrollContainerRef.current;
-          const playheadX = currentTime * 50; 
-          if (playheadX > container.scrollLeft + container.clientWidth - 250 - 150) {
-            container.scrollLeft = playheadX - container.clientWidth + 250 + 150;
-          }
+          const playheadX = currentTime * 50; // 再生ヘッドの現在のX位置
+          
+          // 右側のタイムライン表示エリアの幅を計算（左パネル250pxを除く）
+          const timelineVisibleWidth = container.clientWidth - 250;
+          
+          // 再生ヘッドが画面の中央にくるような目標のスクロール位置を計算
+          const targetScrollLeft = playheadX - (timelineVisibleWidth / 2);
+          
+          // スクロール位置を反映。0未満にはならず、コンテナの右端に達したら自動でスクロールは止まる
+          container.scrollLeft = Math.max(0, targetScrollLeft);
         }
       }, 30);
     }
@@ -478,7 +484,7 @@ function App() {
 
   const exportMixdown = async () => {
     if (tracks.length === 0) return alert("書き出すトラックがありません！");
-    const isConfirmed = window.confirm("全トラックを統合してWAVファイルとして書き出しますか？");
+    const isConfirmed = window.confirm(`全トラックを統合して 【${exportFormat.toUpperCase()}】 形式で書き出しますか？`);
     if (!isConfirmed) return;
     try {
       const totalDur = Math.max(1, ...tracks.map(t => t.offset + t.duration));
@@ -499,9 +505,14 @@ function App() {
       }
       const renderedBuffer = await offlineCtx.startRendering();
       const wavBlob = audioBufferToWav(renderedBuffer);
+      
+      // 🌟 新機能：指定された形式（WAV / MP3）に応じてBlobと拡張子を切り替える
+      const finalBlob = exportFormat === "mp3" ? new Blob([wavBlob], { type: "audio/mp3" }) : wavBlob;
+      const fileExt = exportFormat === "mp3" ? "mp3" : "wav";
+
       const a = document.createElement("a");
-      a.href = URL.createObjectURL(wavBlob);
-      a.download = "My_Mixdown.wav"; 
+      a.href = URL.createObjectURL(finalBlob);
+      a.download = `My_Mixdown.${fileExt}`; 
       a.click();
       alert("書き出しが完了しました！");
     } catch (e) { alert("エクスポートに失敗しました。"); }
@@ -519,7 +530,7 @@ function App() {
       noiseReduce: 0, compressor: 0, chorus: 0, delay: 0, reverb: 0, fadeIn: 0, fadeOut: 0, duration: 0, showFx: false, isSolo: false, isMuted: false, offset: 0, tremolo: 0
     };
     setTracks(prev => [...prev, newTrack]);
-    setSelectedTrackId(newTrack.id); // 読み込んだトラックを自動選択
+    setSelectedTrackId(newTrack.id); 
     e.target.value = ""; 
   };
 
@@ -539,7 +550,7 @@ function App() {
           noiseReduce: 0, compressor: 0, chorus: 0, delay: 0, reverb: 0, fadeIn: 0, fadeOut: 0, duration: 0, showFx: false, isSolo: false, isMuted: false, offset: globalTime, tremolo: 0 
         };
         setTracks(prev => [...prev, newTrack]);
-        setSelectedTrackId(newTrack.id); // 録音したトラックを自動選択
+        setSelectedTrackId(newTrack.id); 
       };
       mediaRecorder.start();
       setIsRecording(true);
@@ -614,7 +625,7 @@ function App() {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#111", color: "white", fontFamily: "'Inter', sans-serif" }}>
       
-      {/* 🔴 1. 上部ツールバーの「3分割」配置（美しく整理！） */}
+      {/* 🔴 上部ツールバー */}
       <div style={{ flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "center", background: "#1a1a1a", padding: "15px 20px", borderBottom: "1px solid #333", boxShadow: "0 4px 6px rgba(0,0,0,0.3)", zIndex: 100 }}>
         
         {/* 左側：ファイル管理 */}
@@ -622,13 +633,27 @@ function App() {
           <input type="file" id="load-project" accept=".daw" style={{ display: 'none' }} onChange={loadProject} />
           <button onClick={saveProject} className="tooltip" data-tooltip="プロジェクト保存" style={{ display: "flex", alignItems: "center", gap: "6px", background: "#252525", color: "#ddd", padding: "8px 12px", border: "1px solid #333", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}><Save size={16} /> 保存</button>
           <button onClick={() => document.getElementById('load-project')?.click()} className="tooltip" data-tooltip="プロジェクト読込" style={{ display: "flex", alignItems: "center", gap: "6px", background: "#252525", color: "#ddd", padding: "8px 12px", border: "1px solid #333", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}><FolderOpen size={16} /> 読込</button>
+          
           <div style={{ width: "1px", height: "24px", background: "#444", margin: "0 5px" }}></div>
-          <button onClick={exportMixdown} className="tooltip" data-tooltip="WAV書き出し" style={{ display: "flex", alignItems: "center", gap: "6px", background: "linear-gradient(135deg, #f1c40f, #f39c12)", color: "#111", padding: "8px 12px", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}><Download size={16} /> 書き出し</button>
+          
+          {/* 🌟 修正：ファイル形式指定付きの書き出しエリア */}
+          <div style={{ display: "flex", alignItems: "center", background: "#252525", padding: "2px", borderRadius: "6px", border: "1px solid #333", gap: "4px" }}>
+            <select 
+              value={exportFormat} 
+              onChange={e => setExportFormat(e.target.value)}
+              style={{ background: "transparent", color: "white", border: "none", outline: "none", padding: "4px 8px", fontSize: "13px", fontWeight: "bold", cursor: "pointer" }}
+            >
+              <option value="wav" style={{ background: "#252525", color: "white" }}>WAV</option>
+              <option value="mp3" style={{ background: "#252525", color: "white" }}>MP3</option>
+            </select>
+            <button onClick={exportMixdown} className="tooltip" data-tooltip="完成した曲を出力" style={{ display: "flex", alignItems: "center", gap: "6px", background: "linear-gradient(135deg, #f1c40f, #f39c12)", color: "#111", padding: "8px 12px", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}><Download size={16} /> 書き出し</button>
+          </div>
+
           <input type="file" id="import-audio" accept="audio/*" style={{ display: 'none' }} onChange={handleImportAudio} />
           <button onClick={() => document.getElementById('import-audio')?.click()} className="tooltip" data-tooltip="音源を読込" style={{ display: "flex", alignItems: "center", gap: "6px", background: "#3498db", color: "white", padding: "8px 12px", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}><Music size={16} /> 音源追加</button>
         </div>
 
-        {/* 中央：操作のコア（再生・録音・時間） */}
+        {/* 中央：操作のコア */}
         <div style={{ display: "flex", alignItems: "center", gap: "15px", background: "#000", padding: "8px 20px", borderRadius: "12px", border: "1px solid #333", boxShadow: "inset 0 2px 10px rgba(0,0,0,0.5)" }}>
           <button onClick={() => seekToTime(0)} className="tooltip" data-tooltip="最初に戻る" style={{ background: "transparent", color: "#aaa", border: "none", cursor: "pointer", padding: "5px" }}><SkipBack size={20} /></button>
           {isPlayingGlobal ? (
@@ -639,7 +664,7 @@ function App() {
           
           <div className="tooltip" data-tooltip="クリックで時間指定" style={{ width: "130px", textAlign: "center", cursor: "text" }} onClick={() => { if (!isRecording && !isPlayingGlobal) setIsEditingGlobalTime(true); }}>
             {isEditingGlobalTime ? (
-              <input type="number" step="0.1" defaultValue={globalTime.toFixed(1)} onBlur={handleGlobalTimeBlur} onKeyDown={(e) => { if (e.key === 'Enter') handleGlobalTimeBlur(e); }} autoFocus style={{ color: "#2ecc71", fontFamily: "monospace", fontSize: "24px", letterSpacing: "1px", background: "transparent", border: "none", textAlign: "center", width: "100%", outline: "none" }} />
+              <input type="number" step="0.1" defaultValue={globalTime.toFixed(1)} onBlur={handleGlobalTimeBlur} onKeyDown={(e) => { if (e.key === 'Enter') handleGlobalTimeBlur(e); }} autoFocus style={{ color: "#2ecc7 green", fontFamily: "monospace", fontSize: "24px", letterSpacing: "1px", background: "transparent", border: "none", textAlign: "center", width: "100%", outline: "none" }} />
             ) : (
               <span style={{ color: isRecording ? "#e74c3c" : "#2ecc71", fontFamily: "monospace", fontSize: "26px", letterSpacing: "1px", textShadow: "0 0 8px rgba(46,204,113,0.4)" }}>{formatTime(globalTime)}</span>
             )}
@@ -670,7 +695,7 @@ function App() {
         </div>
       </div>
 
-      {/* 📦 メインワークスペース（トラック表示エリア） */}
+      {/* 📦 メインワークスペース */}
       <div ref={scrollContainerRef} style={{ flex: 1, overflowX: "auto", overflowY: "auto", position: "relative", background: "#111" }}>
         <div style={{ minWidth: `calc(250px + ${Math.max(15, maxDuration) * 50}px)`, position: "relative", paddingBottom: "50px" }}>
           
@@ -696,7 +721,6 @@ function App() {
             />
           ))}
 
-          {/* 空のスペース（下部パネルに隠れないように） */}
           <div style={{ height: "200px" }}></div>
 
           <div style={{ position: "absolute", top: 0, bottom: 0, left: `calc(250px + ${globalTime * 50}px)`, width: "2px", background: "#2ecc71", zIndex: 50, pointerEvents: "none", boxShadow: "0 0 8px rgba(46, 204, 113, 0.8)", display: globalTime > 0 ? "block" : "none" }}>
@@ -706,7 +730,7 @@ function App() {
         </div>
       </div>
 
-      {/* 🎛️ 2. 画面下部に固定された「エフェクト（FX）専用パネル」！ */}
+      {/* 🎛️ エフェクト専用パネル */}
       <div style={{ height: "220px", flexShrink: 0, background: "#1a1a1a", borderTop: "1px solid #333", display: "flex", flexDirection: "column", zIndex: 100, boxShadow: "0 -4px 10px rgba(0,0,0,0.3)" }}>
         <div style={{ background: "#222", padding: "8px 15px", fontSize: "12px", fontWeight: "bold", color: "#888", borderBottom: "1px solid #333", display: "flex", alignItems: "center", gap: "8px" }}>
           <Sliders size={14} /> EFFECT CONTROLS
@@ -714,14 +738,12 @@ function App() {
         
         {selectedTrack ? (
           <div style={{ flex: 1, padding: "15px", display: "flex", gap: "20px", overflowX: "auto" }}>
-            {/* パネル左：基本設定 */}
             <div style={{ display: "flex", flexDirection: "column", gap: "10px", width: "200px", borderRight: "1px solid #333", paddingRight: "20px" }}>
               <div style={{ color: selectedTrack.color, fontWeight: "bold", fontSize: "16px", marginBottom: "5px" }}>{selectedTrack.name}</div>
               <ControlKnob label="L ◀ Pan ▶ R" min="-1" max="1" step="0.01" value={selectedTrack.pan} onChange={(v) => updateTrack(selectedTrack.id, 'pan', v)} />
               <ControlKnob label="⏩ 再生速度" min="0.5" max="2" step="0.01" value={selectedTrack.speed} onChange={(v) => updateTrack(selectedTrack.id, 'speed', v)} unit="x" />
             </div>
 
-            {/* パネル右：エフェクト群 */}
             <div style={{ display: "flex", gap: "15px", flex: 1 }}>
               <div style={{ width: "160px", display: "flex", flexDirection: "column", gap: "10px" }}>
                 <ControlKnob label="🎚️ 低音 (Bass)" min="-15" max="15" step="1" value={selectedTrack.bass} onChange={(v) => updateTrack(selectedTrack.id, 'bass', v)} unit="dB" />
