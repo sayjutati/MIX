@@ -79,18 +79,7 @@ const formatTime = (seconds: number) => {
   return `${m}:${s}.${ms}`;
 };
 
-// 通常のツマミ（左パネル用）
-const ControlKnob = ({ label, min, max, step, value, onChange, unit = "" }: { label: string, min: string, max: string, step: string, value: number, onChange: (val: number) => void, unit?: string }) => (
-  <div style={{ display: "flex", flexDirection: "column", gap: "6px", width: "100%", background: "#222", padding: "12px", borderRadius: "8px", border: "1px solid #333" }}>
-    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#aaa", fontWeight: "bold" }}>
-      <span>{label}</span>
-      <span style={{ color: "#4facfe" }}>{value}{unit}</span>
-    </div>
-    <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(parseFloat(e.target.value))} style={{ width: "100%", cursor: "pointer", accentColor: "#4facfe" }} />
-  </div>
-);
-
-// 🌟 新機能：微調整ボタン付きのエフェクト専用ツマミ（下パネル用）
+// 🌟 微調整ボタン付きのエフェクト専用ツマミ（下パネル用）
 const EffectKnob = ({ label, min, max, step, value, onChange, unit = "", defaultValue = 0 }: { label: string, min: string, max: string, step: string, value: number, onChange: (val: number) => void, unit?: string, defaultValue?: number }) => {
   const handleDec = () => onChange(Math.max(parseFloat(min), Math.round((value - 0.1) * 100) / 100));
   const handleInc = () => onChange(Math.min(parseFloat(max), Math.round((value + 0.1) * 100) / 100));
@@ -393,7 +382,6 @@ function App() {
   const [selectedTrackId, setSelectedTrackId] = useState<number | null>(null); 
   const [exportFormat, setExportFormat] = useState("wav"); 
   
-  // 🌟 新機能：エフェクトパネルの高さをドラッグで変更するためのステート
   const [fxPanelHeight, setFxPanelHeight] = useState(250);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -458,7 +446,6 @@ function App() {
     return () => window.removeEventListener("click", closeMenu);
   }, []);
 
-  // 🌟 エフェクトパネルの高さリサイズ処理
   const handlePanelResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
     const startY = e.clientY;
@@ -466,7 +453,6 @@ function App() {
 
     const handlePanelResizeMove = (moveEvent: MouseEvent) => {
       const diffY = startY - moveEvent.clientY;
-      // 高さは100px〜600pxの間で自由に調整可能！
       setFxPanelHeight(Math.max(100, Math.min(600, startHeight + diffY)));
     };
 
@@ -667,7 +653,6 @@ function App() {
       {/* 🔴 上部ツールバー */}
       <div style={{ flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "center", background: "#1a1a1a", padding: "15px 20px", borderBottom: "1px solid #333", boxShadow: "0 4px 6px rgba(0,0,0,0.3)", zIndex: 100 }}>
         
-        {/* 左側：ファイル管理 */}
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
           <input type="file" id="load-project" accept=".daw" style={{ display: 'none' }} onChange={loadProject} />
           <button onClick={saveProject} className="tooltip" data-tooltip="プロジェクト保存" style={{ display: "flex", alignItems: "center", gap: "6px", background: "#252525", color: "#ddd", padding: "8px 12px", border: "1px solid #333", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}><Save size={16} /> 保存</button>
@@ -691,7 +676,6 @@ function App() {
           <button onClick={() => document.getElementById('import-audio')?.click()} className="tooltip" data-tooltip="音源を読込" style={{ display: "flex", alignItems: "center", gap: "6px", background: "#3498db", color: "white", padding: "8px 12px", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}><Music size={16} /> 音源追加</button>
         </div>
 
-        {/* 中央：操作のコア */}
         <div style={{ display: "flex", alignItems: "center", gap: "15px", background: "#000", padding: "8px 20px", borderRadius: "12px", border: "1px solid #333", boxShadow: "inset 0 2px 10px rgba(0,0,0,0.5)" }}>
           <button onClick={() => seekToTime(0)} className="tooltip" data-tooltip="最初に戻る" style={{ background: "transparent", color: "#aaa", border: "none", cursor: "pointer", padding: "5px" }}><SkipBack size={20} /></button>
           {isPlayingGlobal ? (
@@ -715,7 +699,6 @@ function App() {
           )}
         </div>
 
-        {/* 右側：全体設定 */}
         <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "5px", background: "#252525", padding: "6px 12px", borderRadius: "6px", border: "1px solid #333" }}>
             <span style={{ fontSize: "12px", color: "#888", fontWeight: "bold" }}>BPM</span>
@@ -768,10 +751,9 @@ function App() {
         </div>
       </div>
 
-      {/* 🎛️ エフェクト専用パネル（ドラッグでリサイズ対応！） */}
+      {/* 🎛️ エフェクト専用パネル */}
       <div style={{ height: `${fxPanelHeight}px`, flexShrink: 0, background: "#1a1a1a", display: "flex", flexDirection: "column", zIndex: 100, boxShadow: "0 -4px 10px rgba(0,0,0,0.3)", position: "relative" }}>
         
-        {/* ↕️ 上部リサイズハンドル */}
         <div 
           onMouseDown={handlePanelResizeStart}
           style={{ background: "#222", padding: "4px 15px", fontSize: "12px", fontWeight: "bold", color: "#888", borderTop: "1px solid #333", borderBottom: "1px solid #333", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", cursor: "row-resize" }}
@@ -787,7 +769,6 @@ function App() {
           <div style={{ flex: 1, padding: "15px", display: "flex", gap: "20px", overflowX: "auto" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: "10px", width: "200px", borderRight: "1px solid #333", paddingRight: "20px" }}>
               <div style={{ color: selectedTrack.color, fontWeight: "bold", fontSize: "16px", marginBottom: "5px" }}>{selectedTrack.name}</div>
-              {/* Pan はここから削除済み！ */}
               <EffectKnob label="⏩ 再生速度" min="0.5" max="2" step="0.01" value={selectedTrack.speed} onChange={(v) => updateTrack(selectedTrack.id, 'speed', v)} unit="x" defaultValue={1} />
             </div>
 
