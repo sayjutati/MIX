@@ -524,6 +524,9 @@ input[type="number"] {
 
 /* FX panel */
 .fx-panel {
+  --fx-knob-w: 114px;
+  --fx-knob-dial: 78px;
+  --fx-knob-gap: 12px;
   flex-shrink: 0;
   background: linear-gradient(180deg, #1a1a22 0%, #121218 100%);
   display: flex;
@@ -576,9 +579,7 @@ input[type="number"] {
   min-height: 0;
 }
 .fx-panel__track-info {
-  --fx-knob-w: 76px;
-  --fx-knob-gap: 8px;
-  width: 200px;
+  width: calc(var(--fx-knob-w) * 2 + var(--fx-knob-gap) + 32px);
   flex-shrink: 0;
   padding: 14px 16px;
   border-right: 1px solid #2a2a35;
@@ -607,8 +608,6 @@ input[type="number"] {
   line-height: 1.4;
 }
 .fx-panel__knob-strip {
-  --fx-knob-w: 76px;
-  --fx-knob-gap: 8px;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -623,23 +622,23 @@ input[type="number"] {
   width: 1px;
   flex-shrink: 0;
   align-self: stretch;
-  min-height: 100px;
+  min-height: 150px;
   background: #2a2a35;
-  margin: 0 4px;
+  margin: 0 6px;
 }
 
 .fx-knob {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
-  width: var(--fx-knob-w, 76px);
+  gap: 8px;
+  width: var(--fx-knob-w);
   flex-shrink: 0;
 }
 .fx-knob__dial-wrap {
   position: relative;
-  width: 52px;
-  height: 52px;
+  width: var(--fx-knob-dial);
+  height: var(--fx-knob-dial);
 }
 .fx-knob__dial {
   width: 100%;
@@ -658,20 +657,20 @@ input[type="number"] {
 .fx-knob__dial::after {
   content: "";
   position: absolute;
-  inset: 5px;
+  inset: 8px;
   border-radius: 50%;
   background: linear-gradient(145deg, #252530, #16161d);
 }
 .fx-knob__indicator {
   position: absolute;
-  top: 7px;
+  top: 10px;
   left: 50%;
-  width: 3px;
-  height: 9px;
-  margin-left: -1.5px;
+  width: 4px;
+  height: 14px;
+  margin-left: -2px;
   background: #93c5fd;
   border-radius: 2px;
-  transform-origin: 50% 18px;
+  transform-origin: 50% 27px;
   transform: rotate(var(--angle, -135deg));
   z-index: 2;
 }
@@ -684,26 +683,27 @@ input[type="number"] {
   height: 100%;
 }
 .fx-knob__label {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   color: #9ca3af;
   text-align: center;
+  line-height: 1.3;
 }
 .fx-knob__value {
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 700;
   color: #60a5fa;
   font-variant-numeric: tabular-nums;
 }
 .fx-knob__nudge {
   display: flex;
-  gap: 3px;
+  gap: 4px;
   width: 100%;
 }
 .fx-knob__nudge button {
   flex: 1;
-  height: 18px;
-  font-size: 11px;
+  height: 27px;
+  font-size: 13px;
   font-weight: 700;
   background: #2a2a35;
   border: 1px solid #3f3f4a;
@@ -721,7 +721,7 @@ input[type="number"] {
   position: relative;
   display: flex;
   justify-content: center;
-  width: var(--fx-knob-w, 76px);
+  width: var(--fx-knob-w);
   flex-shrink: 0;
 }
 .fx-help-tip__popup {
