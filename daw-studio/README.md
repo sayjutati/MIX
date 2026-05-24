@@ -1,7 +1,29 @@
-# Tauri + React + Typescript
+# MIX DAW — ブラウザ完結スタジオ
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+端末の音源をプロジェクトに取り込み、オケに合わせてオーバーダビ録音し、エフェクトをかけてミックス、WAV 書き出しまで **この1画面** で完結します。音声処理はすべてブラウザ内（Web Audio API）で実行され、サーバーへ音声は送信しません。
 
-## Recommended IDE Setup
+## 基本的な使い方（歌ってみた制作）
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+1. **BGM / 音源追加** — PC 内の MP3・WAV などを読み込む（複数ファイル可）
+2. **再生** — タイムライン上でオケの位置を確認。必要ならクリップをドラッグしてずらす
+3. **オーバーダビ録音** — マイクボタンで録音開始。既存トラックが再生されながら重ね録りされる
+4. **FX** — クリップを選択し、下部パネルで Pan / EQ / コンプ / 空間系 / トレモロ / フェードを調整
+5. **書き出し** — 全トラックをエフェクト込みでミックスして **WAV** または **MP3** でダウンロード
+6. **保存 / 読込** — `.daw` 形式でプロジェクト一式を保存・復元
+
+## 開発
+
+```bash
+npm install
+npm run dev          # ブラウザのみ
+npm run tauri dev    # Tauri デスクトップ
+npm run build        # 本番ビルド（静的ファイルは dist/）
+```
+
+## 仕様メモ
+
+- 録音: エコーキャンセル等をオフにしたマイク入力、WebM/Opus 等で保存後 WaveSurfer で表示
+- トラック種別: `BGM`（インポート） / `REC`（録音）
+- 書き出し: 再生時と同じエフェクトチェーンを OfflineAudioContext で再現
+- MP3: ブラウザ内の `lamejs` でエンコード（128〜320 kbps 選択可）
+- FLAC / AAC 等はブラウザ標準では未対応（WAV 書き出し後に別ツールで変換が必要）
