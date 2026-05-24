@@ -176,9 +176,15 @@ function App() {
   const handlePlayheadDragStart = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    isDraggingPlayheadRef.current = true;
+    const startX = e.clientX;
+    let dragging = false;
 
     const onMove = (ev: MouseEvent) => {
+      if (!dragging) {
+        if (Math.abs(ev.clientX - startX) < 4) return;
+        dragging = true;
+        isDraggingPlayheadRef.current = true;
+      }
       seekToTime(clientXToTime(ev.clientX));
     };
     const onUp = () => {
@@ -192,6 +198,7 @@ function App() {
 
   const handleTimelineClick = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest(".track-clip")) return;
+    if ((e.target as HTMLElement).closest(".playhead")) return;
     if (isDraggingPlayheadRef.current) return;
     seekToTime(clientXToTime(e.clientX));
   };
@@ -610,6 +617,7 @@ function App() {
             className="playhead"
             style={{ left: `${playheadVisualX(globalTime, playheadTrack)}px` }}
             onMouseDown={handlePlayheadDragStart}
+            onClick={(e) => e.stopPropagation()}
             title="ドラッグして再生位置を移動"
           >
             <div className="playhead__line" aria-hidden />
