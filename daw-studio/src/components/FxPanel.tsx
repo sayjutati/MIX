@@ -33,42 +33,46 @@ export function FxPanel({ height, selectedTrack, onResizeStart, onUpdate }: Prop
                 {selectedTrack.kind === "bgm" ? "BGM / オケ" : "ボーカル / 録音"} ·{" "}
                 {formatTime(selectedTrack.duration || 0)} · offset {formatTime(selectedTrack.offset)}
                 {(selectedTrack.nudgeMs ?? 0) !== 0 && (
-                  <> · nudge {selectedTrack.nudgeMs > 0 ? "+" : ""}{selectedTrack.nudgeMs} ms</>
+                  <> · nudge {selectedTrack.nudgeMs > 0 ? "+" : ""}{selectedTrack.nudgeMs.toFixed(1)} ms</>
                 )}
               </div>
               <EffectKnob
                 label="タイミング補正"
-                min="-50"
-                max="50"
-                step="1"
+                min="-100"
+                max="100"
+                step="0.1"
                 value={selectedTrack.nudgeMs ?? 0}
                 onChange={(v) => onUpdate(selectedTrack.id, "nudgeMs", v)}
                 defaultValue={0}
-                formatValue={(v) => (v === 0 ? "0" : v > 0 ? `+${v}` : `${v}`) + " ms"}
+                formatValue={(v) =>
+                  (v === 0 ? "0" : v > 0 ? `+${v.toFixed(1)}` : v.toFixed(1)) + " ms"
+                }
               />
               <p className="fx-panel__nudge-hint">
-                録音が BGM より遅れて聞こえる → マイナス方向へ
+                録音が BGM より遅れて聞こえる → マイナス方向へ（0.1 ms 刻み）
               </p>
-              <EffectKnob
-                label="再生速度"
-                min="0.5"
-                max="2"
-                step="0.01"
-                value={selectedTrack.speed}
-                onChange={(v) => onUpdate(selectedTrack.id, "speed", v)}
-                defaultValue={1}
-                formatValue={(v) => `${v.toFixed(2)}x`}
-              />
-              <EffectKnob
-                label="キー変更"
-                min="-12"
-                max="12"
-                step="1"
-                value={selectedTrack.pitch}
-                onChange={(v) => onUpdate(selectedTrack.id, "pitch", v)}
-                defaultValue={0}
-                formatValue={(v) => (v === 0 ? "0" : v > 0 ? `+${v}` : `${v}`) + " sem"}
-              />
+              <div className="fx-panel__knob-row">
+                <EffectKnob
+                  label="再生速度"
+                  min="0.5"
+                  max="2"
+                  step="0.01"
+                  value={selectedTrack.speed}
+                  onChange={(v) => onUpdate(selectedTrack.id, "speed", v)}
+                  defaultValue={1}
+                  formatValue={(v) => `${v.toFixed(2)}x`}
+                />
+                <EffectKnob
+                  label="キー変更"
+                  min="-12"
+                  max="12"
+                  step="1"
+                  value={selectedTrack.pitch}
+                  onChange={(v) => onUpdate(selectedTrack.id, "pitch", v)}
+                  defaultValue={0}
+                  formatValue={(v) => (v === 0 ? "0" : v > 0 ? `+${v}` : `${v}`) + " sem"}
+                />
+              </div>
             </div>
 
             <div className="fx-panel__sections">

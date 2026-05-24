@@ -286,7 +286,7 @@ input[type="number"] {
   top: 0;
   bottom: 0;
   width: 2px;
-  margin-left: -1px;
+  transform: translateX(-50%);
   background: #34d399;
   z-index: 50;
   pointer-events: auto;
@@ -307,7 +307,7 @@ input[type="number"] {
 .track-row {
   display: flex;
   border-bottom: 1px solid #1a1a22;
-  border-left: 4px solid transparent;
+  box-shadow: inset 4px 0 0 transparent;
   background: #121218;
   transition: background 0.15s;
 }
@@ -566,13 +566,18 @@ input[type="number"] {
   min-height: 0;
 }
 .fx-panel__track-info {
-  width: 200px;
+  width: 240px;
   flex-shrink: 0;
   padding: 14px 16px;
   border-right: 1px solid #2a2a35;
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.fx-panel__knob-row {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
 }
 .fx-panel__track-name {
   font-weight: 700;
@@ -591,16 +596,18 @@ input[type="number"] {
 .fx-panel__sections {
   flex: 1;
   overflow: auto;
-  padding: 12px 14px;
-  display: flex;
-  gap: 10px;
+  padding: 12px 16px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-content: start;
 }
 .fx-section {
-  flex-shrink: 0;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid #2a2a35;
   border-radius: 10px;
   padding: 12px;
+  min-width: 0;
 }
 .fx-section__title {
   font-size: 10px;
@@ -611,9 +618,10 @@ input[type="number"] {
   text-transform: uppercase;
 }
 .fx-section__knobs {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 8px;
+  justify-items: center;
 }
 
 .fx-knob {

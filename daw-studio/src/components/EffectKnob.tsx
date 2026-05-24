@@ -30,10 +30,11 @@ export function EffectKnob({
   const angle = -135 + fill * 270;
   const display = formatValue ? formatValue(value) : `${value}${unit}`;
 
-  const nudge = (delta: number) =>
-    onChange(
-      Math.min(maxN, Math.max(minN, Math.round((value + delta) / stepN) * stepN))
-    );
+  const nudge = (delta: number) => {
+    const next = Math.min(maxN, Math.max(minN, value + delta));
+    const steps = Math.round(next / stepN);
+    onChange(Math.round(steps * stepN * 1000) / 1000);
+  };
 
   return (
     <div className="fx-knob">

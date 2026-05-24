@@ -159,7 +159,7 @@ export function TrackItem({
   return (
     <div
       className={`track-row ${isSelected ? "track-row--selected" : ""}`}
-      style={{ borderLeftColor: isSelected ? track.color : "transparent" }}
+      style={{ boxShadow: isSelected ? `inset 4px 0 0 ${track.color}` : undefined }}
     >
       <div className="track-row__header" onClick={() => onSelect(track.id)}>
         <div className="track-row__title-row">
