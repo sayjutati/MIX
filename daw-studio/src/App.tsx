@@ -22,6 +22,11 @@ import { TrackItem } from "./components/TrackItem";
 import {
   PROJECT_VERSION,
   PIXELS_PER_SECOND,
+  TRACK_HEADER_WIDTH,
+  TIMELINE_PAD,
+  timelineX,
+  timeFromTimelineX,
+  trackEffectiveOffset,
   TRACK_COLORS,
   defaultTrack,
   type Track,
@@ -62,7 +67,7 @@ function App() {
   const hasSolo = tracks.some((t) => t.isSolo);
   const hasBgm = tracks.some((t) => t.kind === "bgm");
   const selectedTrack = tracks.find((t) => t.id === selectedTrackId);
-  const maxDuration = Math.max(15, ...tracks.map((t) => t.offset + (t.duration || 0)));
+  const maxDuration = Math.max(15, ...tracks.map((t) => trackEffectiveOffset(t) + (t.duration || 0)));
 
   const updateTrack = useCallback((id: number, field: keyof Track, value: Track[keyof Track]) => {
     setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, [field]: value } : t)));
@@ -104,8 +109,8 @@ function App() {
 
       const container = scrollContainerRef.current;
       if (container) {
-        const playheadX = currentTime * PIXELS_PER_SECOND;
-        const visible = container.clientWidth - 250;
+        const playheadX = timelineX(currentTime) - TRACK_HEADER_WIDTH;
+        const visible = container.clientWidth - TRACK_HEADER_WIDTH;
         container.scrollLeft = Math.max(0, playheadX - visible / 2);
       }
     }, 30);
@@ -150,8 +155,8 @@ function App() {
     nextClickRef.current = Math.ceil(t / (60 / bpm)) * (60 / bpm);
     const container = scrollContainerRef.current;
     if (container) {
-      const playheadX = t * PIXELS_PER_SECOND;
-      const visible = container.clientWidth - 250;
+      const playheadX = timelineX(t) - TRACK_HEADER_WIDTH;
+      const visible = container.clientWidth - TRACK_HEADER_WIDTH;
       if (playheadX < container.scrollLeft || playheadX > container.scrollLeft + visible) {
         container.scrollLeft = Math.max(0, playheadX - 100);
       }
@@ -162,8 +167,8 @@ function App() {
     const el = scrollContainerRef.current;
     if (!el) return 0;
     const rect = el.getBoundingClientRect();
-    const x = clientX - rect.left + el.scrollLeft - 250;
-    return Math.max(0, x / PIXELS_PER_SECOND);
+    const x = clientX - rect.left + el.scrollLeft;
+    return timeFromTimelineX(x);
   };
 
   const handlePlayheadDragStart = (e: React.MouseEvent) => {
@@ -249,6 +254,7 @@ function App() {
             url: URL.createObjectURL(blob),
             kind: rest.kind ?? "vocal",
             pitch: rest.pitch ?? 0,
+            nudgeMs: rest.nudgeMs ?? 0,
             isMuted: rest.isMuted ?? false,
           } as Track;
         })
@@ -556,7 +562,7 @@ function App() {
       </header>
 
       <div ref={scrollContainerRef} className="workspace" onClick={handleTimelineClick}>
-        <div className="workspace__inner" style={{ minWidth: `calc(250px + ${maxDuration * PIXELS_PER_SECOND}px)` }}>
+        <div className="workspace__inner" style={{ minWidth: `${timelineX(maxDuration)}px` }}>
           <div className="timeline-ruler">
             <div className="timeline-ruler__label">TIMELINE</div>
             <div className="timeline-ruler__ticks">
@@ -564,7 +570,7 @@ function App() {
                 <div
                   key={t}
                   className={`timeline-tick ${t % 5 === 0 ? "timeline-tick--major" : ""}`}
-                  style={{ left: `${t * PIXELS_PER_SECOND}px` }}
+                  style={{ left: `${TIMELINE_PAD + t * PIXELS_PER_SECOND}px` }}
                 >
                   {t % 5 === 0 ? `${t}s` : null}
                 </div>
@@ -600,12 +606,10 @@ function App() {
 
           <div
             className="playhead"
-            style={{ left: `calc(250px + ${globalTime * PIXELS_PER_SECOND}px)` }}
+            style={{ left: `${timelineX(globalTime)}px` }}
             onMouseDown={handlePlayheadDragStart}
             title="ドラッグして再生位置を移動"
-          >
-            <div className="playhead__grip" />
-          </div>
+          />
         </div>
       </div>
 

@@ -1,5 +1,17 @@
-export const PROJECT_VERSION = 2;
+export const PROJECT_VERSION = 3;
 export const PIXELS_PER_SECOND = 50;
+/** 左サイドバー（トラックヘッダー）幅 */
+export const TRACK_HEADER_WIDTH = 250;
+/** 波形エリア左パディング — ルーラー・プレイヘッド・クリップで共通 */
+export const TIMELINE_PAD = 10;
+
+/** 秒 → ワークスペース内 X 座標（px） */
+export const timelineX = (seconds: number) =>
+  TRACK_HEADER_WIDTH + TIMELINE_PAD + seconds * PIXELS_PER_SECOND;
+
+/** ワークスペース内 X → 秒 */
+export const timeFromTimelineX = (x: number) =>
+  Math.max(0, (x - TRACK_HEADER_WIDTH - TIMELINE_PAD) / PIXELS_PER_SECOND);
 
 export type TrackKind = "bgm" | "vocal";
 
@@ -26,8 +38,14 @@ export interface Track {
   isSolo: boolean;
   isMuted: boolean;
   offset: number;
+  /** 再生タイミング微調整（ms）。+で遅らせ / −で早める */
+  nudgeMs: number;
   tremolo: number;
 }
+
+/** タイムライン上の実効開始位置（秒） */
+export const trackEffectiveOffset = (track: Pick<Track, "offset" | "nudgeMs">) =>
+  track.offset + (track.nudgeMs ?? 0) / 1000;
 
 export interface ProjectFile {
   version: number;
@@ -68,6 +86,7 @@ export const defaultTrack = (
   isSolo: false,
   isMuted: false,
   offset: 0,
+  nudgeMs: 0,
   tremolo: 0,
   ...partial,
 });

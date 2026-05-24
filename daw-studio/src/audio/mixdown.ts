@@ -1,4 +1,5 @@
 import type { Track } from "../types";
+import { trackEffectiveOffset } from "../types";
 import { connectOfflineTrackChain } from "./chain";
 
 export const audioBufferToWav = (buffer: AudioBuffer) => {
@@ -73,7 +74,7 @@ export const renderMixdown = async (
 ): Promise<AudioBuffer> => {
   const totalDur = Math.max(
     1,
-    ...tracks.map((t) => t.offset + (t.duration || 0))
+    ...tracks.map((t) => trackEffectiveOffset(t) + (t.duration || 0))
   );
   const offlineCtx = new OfflineAudioContext(
     2,
@@ -101,13 +102,14 @@ export const renderMixdown = async (
       master
     );
 
+    const startAt = trackEffectiveOffset(track);
     if (track.fadeIn > 0 || track.fadeOut > 0) {
-      applyOfflineFade(fadeGain, track, track.offset, clipDur);
+      applyOfflineFade(fadeGain, track, startAt, clipDur);
     } else {
       fadeGain.gain.value = 1;
     }
 
-    src.start(track.offset);
+    src.start(startAt);
   }
 
   return offlineCtx.startRendering();

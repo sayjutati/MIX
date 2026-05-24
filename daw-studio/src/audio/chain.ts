@@ -1,4 +1,5 @@
 import type { Track } from "../types";
+import { trackEffectiveOffset } from "../types";
 
 export type TrackEffectNodes = {
   input: GainNode;
@@ -231,7 +232,7 @@ export const applyLiveFade = (
   if (!fadeGain) return;
   const duration = track.duration;
   if (duration <= 0) return;
-  const localTime = globalTime - track.offset;
+  const localTime = globalTime - trackEffectiveOffset(track);
   fadeGain.gain.value = computeFadeGain(track, localTime, duration);
 };
 

@@ -32,7 +32,23 @@ export function FxPanel({ height, selectedTrack, onResizeStart, onUpdate }: Prop
               <div className="fx-panel__track-meta">
                 {selectedTrack.kind === "bgm" ? "BGM / オケ" : "ボーカル / 録音"} ·{" "}
                 {formatTime(selectedTrack.duration || 0)} · offset {formatTime(selectedTrack.offset)}
+                {(selectedTrack.nudgeMs ?? 0) !== 0 && (
+                  <> · nudge {selectedTrack.nudgeMs > 0 ? "+" : ""}{selectedTrack.nudgeMs} ms</>
+                )}
               </div>
+              <EffectKnob
+                label="タイミング補正"
+                min="-50"
+                max="50"
+                step="1"
+                value={selectedTrack.nudgeMs ?? 0}
+                onChange={(v) => onUpdate(selectedTrack.id, "nudgeMs", v)}
+                defaultValue={0}
+                formatValue={(v) => (v === 0 ? "0" : v > 0 ? `+${v}` : `${v}`) + " ms"}
+              />
+              <p className="fx-panel__nudge-hint">
+                録音が BGM より遅れて聞こえる → マイナス方向へ
+              </p>
               <EffectKnob
                 label="再生速度"
                 min="0.5"

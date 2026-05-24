@@ -286,24 +286,19 @@ input[type="number"] {
   top: 0;
   bottom: 0;
   width: 2px;
+  margin-left: -1px;
   background: #34d399;
   z-index: 50;
   pointer-events: auto;
   cursor: ew-resize;
   box-shadow: 0 0 10px rgba(52, 211, 153, 0.8);
 }
-.playhead__grip {
-  position: absolute;
-  top: 0;
-  left: -9px;
-  width: 20px;
-  height: 100%;
-}
 .playhead::before {
   content: "";
   position: absolute;
   top: 0;
-  left: -6px;
+  left: 50%;
+  transform: translateX(-50%);
   border: 7px solid transparent;
   border-top-color: #34d399;
   pointer-events: none;
@@ -434,7 +429,7 @@ input[type="number"] {
 }
 
 .workspace-empty {
-  padding: 48px 32px 80px 282px;
+  padding: 48px 32px 80px 260px;
   max-width: 720px;
 }
 .workspace-empty__title {
@@ -586,6 +581,12 @@ input[type="number"] {
 .fx-panel__track-meta {
   font-size: 11px;
   color: #6b7280;
+}
+.fx-panel__nudge-hint {
+  margin: -4px 0 8px;
+  font-size: 10px;
+  color: #6b7280;
+  line-height: 1.4;
 }
 .fx-panel__sections {
   flex: 1;

@@ -4,7 +4,7 @@ import { Copy, Trash2, Volume2 } from "lucide-react";
 import { applyLiveFade } from "../audio/chain";
 import { decodeAudioUrl } from "../audio/decode";
 import { audioEngine } from "../audio/engine";
-import { PIXELS_PER_SECOND, type Track } from "../types";
+import { PIXELS_PER_SECOND, trackEffectiveOffset, type Track } from "../types";
 
 type Props = {
   track: Track;
@@ -112,7 +112,7 @@ export function TrackItem({
 
   useEffect(() => {
     audioEngine.restartIfPlaying(track.id);
-  }, [track.id, track.speed, track.pitch, track.offset, track.isMuted, track.isSolo, hasSolo]);
+  }, [track.id, track.speed, track.pitch, track.offset, track.nudgeMs, track.isMuted, track.isSolo, hasSolo]);
 
   useEffect(() => {
     if (effectiveMute) {
@@ -128,11 +128,11 @@ export function TrackItem({
     const ws = wavesurferRef.current;
     if (!ws) return;
     const dur = track.duration || ws.getDuration() || 0;
-    const local = globalTime - track.offset;
+    const local = globalTime - trackEffectiveOffset(track);
     if (dur > 0 && local >= 0 && local <= dur) {
       ws.setTime(local);
     }
-  }, [globalTime, track.fadeIn, track.fadeOut, track.offset, track.duration, track.id]);
+  }, [globalTime, track.fadeIn, track.fadeOut, track.offset, track.nudgeMs, track.duration, track.id]);
 
   const handleDragStart = (e: React.MouseEvent) => {
     e.preventDefault();

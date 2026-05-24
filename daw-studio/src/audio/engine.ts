@@ -1,4 +1,5 @@
 import type { Track } from "../types";
+import { trackEffectiveOffset } from "../types";
 import {
   applyTrackEffectParams,
   createTrackEffectChain,
@@ -188,7 +189,7 @@ class AudioEngine {
 
     const track = rt.state.getTrack();
     const duration = this.trackDuration(rt);
-    const local = globalTime - track.offset;
+    const local = globalTime - trackEffectiveOffset(track);
 
     if (duration > 0 && local >= -0.02 && local < duration) {
       if (!rt.source) {
