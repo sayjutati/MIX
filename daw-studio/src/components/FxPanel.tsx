@@ -1,5 +1,6 @@
 import { Sliders } from "lucide-react";
 import type { Track } from "../types";
+import { FX_TOOLTIPS } from "../data/fxTooltips";
 import { formatTime } from "../utils/time";
 import { EffectKnob } from "./EffectKnob";
 
@@ -47,6 +48,8 @@ export function FxPanel({ height, selectedTrack, onResizeStart, onUpdate }: Prop
                 formatValue={(v) =>
                   (v === 0 ? "0" : v > 0 ? `+${v.toFixed(1)}` : v.toFixed(1)) + " ms"
                 }
+                helpTitle={FX_TOOLTIPS.nudgeMs.title}
+                helpDescription={FX_TOOLTIPS.nudgeMs.description}
               />
               <p className="fx-panel__nudge-hint">
                 録音が BGM より遅れて聞こえる → マイナス方向へ（0.1 ms 刻み）
@@ -61,6 +64,8 @@ export function FxPanel({ height, selectedTrack, onResizeStart, onUpdate }: Prop
                   onChange={(v) => onUpdate(selectedTrack.id, "speed", v)}
                   defaultValue={1}
                   formatValue={(v) => `${v.toFixed(2)}x`}
+                  helpTitle={FX_TOOLTIPS.speed.title}
+                  helpDescription={FX_TOOLTIPS.speed.description}
                 />
                 <EffectKnob
                   label="キー変更"
@@ -71,12 +76,14 @@ export function FxPanel({ height, selectedTrack, onResizeStart, onUpdate }: Prop
                   onChange={(v) => onUpdate(selectedTrack.id, "pitch", v)}
                   defaultValue={0}
                   formatValue={(v) => (v === 0 ? "0" : v > 0 ? `+${v}` : `${v}`) + " sem"}
+                  helpTitle={FX_TOOLTIPS.pitch.title}
+                  helpDescription={FX_TOOLTIPS.pitch.description}
                 />
               </div>
             </div>
 
             <div className="fx-panel__sections">
-              <div className="fx-section">
+              <div className="fx-section" data-cols="3">
                 <div className="fx-section__title">Pan · トーン</div>
                 <div className="fx-section__knobs">
                   <EffectKnob
@@ -90,6 +97,8 @@ export function FxPanel({ height, selectedTrack, onResizeStart, onUpdate }: Prop
                       v === 0 ? "C" : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`
                     }
                     defaultValue={0}
+                    helpTitle={FX_TOOLTIPS.pan.title}
+                    helpDescription={FX_TOOLTIPS.pan.description}
                   />
                   <EffectKnob
                     label="低音 Bass"
@@ -100,6 +109,8 @@ export function FxPanel({ height, selectedTrack, onResizeStart, onUpdate }: Prop
                     onChange={(v) => onUpdate(selectedTrack.id, "bass", v)}
                     unit=" dB"
                     defaultValue={0}
+                    helpTitle={FX_TOOLTIPS.bass.title}
+                    helpDescription={FX_TOOLTIPS.bass.description}
                   />
                   <EffectKnob
                     label="高音 Treble"
@@ -110,11 +121,13 @@ export function FxPanel({ height, selectedTrack, onResizeStart, onUpdate }: Prop
                     onChange={(v) => onUpdate(selectedTrack.id, "treble", v)}
                     unit=" dB"
                     defaultValue={0}
+                    helpTitle={FX_TOOLTIPS.treble.title}
+                    helpDescription={FX_TOOLTIPS.treble.description}
                   />
                 </div>
               </div>
 
-              <div className="fx-section">
+              <div className="fx-section" data-cols="2">
                 <div className="fx-section__title">ダイナミクス</div>
                 <div className="fx-section__knobs">
                   <EffectKnob
@@ -126,6 +139,8 @@ export function FxPanel({ height, selectedTrack, onResizeStart, onUpdate }: Prop
                     onChange={(v) => onUpdate(selectedTrack.id, "compressor", v)}
                     formatValue={pct}
                     defaultValue={0}
+                    helpTitle={FX_TOOLTIPS.compressor.title}
+                    helpDescription={FX_TOOLTIPS.compressor.description}
                   />
                   <EffectKnob
                     label="ノイズ除去"
@@ -136,11 +151,13 @@ export function FxPanel({ height, selectedTrack, onResizeStart, onUpdate }: Prop
                     onChange={(v) => onUpdate(selectedTrack.id, "noiseReduce", v)}
                     formatValue={pct}
                     defaultValue={0}
+                    helpTitle={FX_TOOLTIPS.noiseReduce.title}
+                    helpDescription={FX_TOOLTIPS.noiseReduce.description}
                   />
                 </div>
               </div>
 
-              <div className="fx-section">
+              <div className="fx-section" data-cols="2">
                 <div className="fx-section__title">空間</div>
                 <div className="fx-section__knobs">
                   <EffectKnob
@@ -152,6 +169,8 @@ export function FxPanel({ height, selectedTrack, onResizeStart, onUpdate }: Prop
                     onChange={(v) => onUpdate(selectedTrack.id, "reverb", v)}
                     formatValue={pct}
                     defaultValue={0}
+                    helpTitle={FX_TOOLTIPS.reverb.title}
+                    helpDescription={FX_TOOLTIPS.reverb.description}
                   />
                   <EffectKnob
                     label="ディレイ"
@@ -162,11 +181,13 @@ export function FxPanel({ height, selectedTrack, onResizeStart, onUpdate }: Prop
                     onChange={(v) => onUpdate(selectedTrack.id, "delay", v)}
                     formatValue={pct}
                     defaultValue={0}
+                    helpTitle={FX_TOOLTIPS.delay.title}
+                    helpDescription={FX_TOOLTIPS.delay.description}
                   />
                 </div>
               </div>
 
-              <div className="fx-section">
+              <div className="fx-section" data-cols="2">
                 <div className="fx-section__title">モジュレーション</div>
                 <div className="fx-section__knobs">
                   <EffectKnob
@@ -178,6 +199,8 @@ export function FxPanel({ height, selectedTrack, onResizeStart, onUpdate }: Prop
                     onChange={(v) => onUpdate(selectedTrack.id, "chorus", v)}
                     formatValue={pct}
                     defaultValue={0}
+                    helpTitle={FX_TOOLTIPS.chorus.title}
+                    helpDescription={FX_TOOLTIPS.chorus.description}
                   />
                   <EffectKnob
                     label="トレモロ"
@@ -188,11 +211,13 @@ export function FxPanel({ height, selectedTrack, onResizeStart, onUpdate }: Prop
                     onChange={(v) => onUpdate(selectedTrack.id, "tremolo", v)}
                     formatValue={pct}
                     defaultValue={0}
+                    helpTitle={FX_TOOLTIPS.tremolo.title}
+                    helpDescription={FX_TOOLTIPS.tremolo.description}
                   />
                 </div>
               </div>
 
-              <div className="fx-section">
+              <div className="fx-section" data-cols="2">
                 <div className="fx-section__title">フェード</div>
                 <div className="fx-section__knobs">
                   <EffectKnob
@@ -204,6 +229,8 @@ export function FxPanel({ height, selectedTrack, onResizeStart, onUpdate }: Prop
                     onChange={(v) => onUpdate(selectedTrack.id, "fadeIn", v)}
                     unit="s"
                     defaultValue={0}
+                    helpTitle={FX_TOOLTIPS.fadeIn.title}
+                    helpDescription={FX_TOOLTIPS.fadeIn.description}
                   />
                   <EffectKnob
                     label="フェードアウト"
@@ -214,6 +241,8 @@ export function FxPanel({ height, selectedTrack, onResizeStart, onUpdate }: Prop
                     onChange={(v) => onUpdate(selectedTrack.id, "fadeOut", v)}
                     unit="s"
                     defaultValue={0}
+                    helpTitle={FX_TOOLTIPS.fadeOut.title}
+                    helpDescription={FX_TOOLTIPS.fadeOut.description}
                   />
                 </div>
               </div>

@@ -129,10 +129,11 @@ export function TrackItem({
     if (!ws) return;
     const dur = track.duration || ws.getDuration() || 0;
     const local = globalTime - trackEffectiveOffset(track);
-    if (dur > 0 && local >= 0 && local <= dur) {
-      ws.setTime(local);
+    const waveTime = Math.max(0, local * track.speed);
+    if (dur > 0 && local >= 0 && local <= dur / track.speed) {
+      ws.setTime(Math.min(waveTime, dur));
     }
-  }, [globalTime, track.fadeIn, track.fadeOut, track.offset, track.nudgeMs, track.duration, track.id]);
+  }, [globalTime, track.fadeIn, track.fadeOut, track.offset, track.nudgeMs, track.speed, track.duration, track.id]);
 
   const handleDragStart = (e: React.MouseEvent) => {
     e.preventDefault();

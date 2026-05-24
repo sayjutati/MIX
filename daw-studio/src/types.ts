@@ -47,6 +47,25 @@ export interface Track {
 export const trackEffectiveOffset = (track: Pick<Track, "offset" | "nudgeMs">) =>
   track.offset + (track.nudgeMs ?? 0) / 1000;
 
+/**
+ * 波形の白い再生ラインと同じ X 座標（px）。
+ * クリップの offset 位置 + クリップ内の再生位置で算出する。
+ */
+export const playheadVisualX = (
+  globalTime: number,
+  track?: Pick<Track, "offset" | "nudgeMs" | "speed">
+) => {
+  if (!track) return timelineX(globalTime);
+  const local = globalTime - trackEffectiveOffset(track);
+  const waveLocal = Math.max(0, local * (track.speed ?? 1));
+  return (
+    TRACK_HEADER_WIDTH +
+    TIMELINE_PAD +
+    track.offset * PIXELS_PER_SECOND +
+    waveLocal * PIXELS_PER_SECOND
+  );
+};
+
 export interface ProjectFile {
   version: number;
   bpm: number;

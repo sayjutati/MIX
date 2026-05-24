@@ -285,15 +285,24 @@ input[type="number"] {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 2px;
-  transform: translateX(-50%);
-  background: #34d399;
+  width: 20px;
+  margin-left: -10px;
   z-index: 50;
-  pointer-events: auto;
   cursor: ew-resize;
-  box-shadow: 0 0 10px rgba(52, 211, 153, 0.8);
+  background: transparent;
 }
-.playhead::before {
+.playhead__line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+  background: #34d399;
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.8);
+  pointer-events: none;
+}
+.playhead__line::before {
   content: "";
   position: absolute;
   top: 0;
@@ -411,7 +420,8 @@ input[type="number"] {
   cursor: pointer;
 }
 .track-clip {
-  position: relative;
+  position: absolute;
+  top: 0;
   height: 80px;
   border-radius: 6px;
   overflow: hidden;
@@ -550,7 +560,7 @@ input[type="number"] {
 .fx-panel__body {
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
 }
 .fx-panel__empty {
   height: 100%;
@@ -566,18 +576,21 @@ input[type="number"] {
   min-height: 0;
 }
 .fx-panel__track-info {
-  width: 240px;
+  --fx-knob-w: 76px;
+  --fx-knob-gap: 8px;
+  width: 200px;
   flex-shrink: 0;
   padding: 14px 16px;
   border-right: 1px solid #2a2a35;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  overflow: visible;
 }
 .fx-panel__knob-row {
   display: flex;
-  gap: 12px;
-  justify-content: center;
+  gap: var(--fx-knob-gap);
+  width: calc(var(--fx-knob-w) * 2 + var(--fx-knob-gap));
 }
 .fx-panel__track-name {
   font-weight: 700;
@@ -594,34 +607,45 @@ input[type="number"] {
   line-height: 1.4;
 }
 .fx-panel__sections {
+  --fx-knob-w: 76px;
+  --fx-knob-gap: 8px;
   flex: 1;
-  overflow: auto;
+  overflow: visible;
   padding: 12px 16px;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  align-content: start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-content: flex-start;
+  align-items: flex-start;
 }
 .fx-section {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid #2a2a35;
   border-radius: 10px;
-  padding: 12px;
-  min-width: 0;
+  padding: 10px 12px;
+  flex: 0 0 auto;
+  width: max-content;
+  max-width: 100%;
 }
 .fx-section__title {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
   color: #6b7280;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   text-transform: uppercase;
 }
 .fx-section__knobs {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px 8px;
-  justify-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fx-knob-gap);
+  justify-content: flex-start;
+}
+.fx-section[data-cols="2"] .fx-section__knobs {
+  width: calc(var(--fx-knob-w) * 2 + var(--fx-knob-gap));
+}
+.fx-section[data-cols="3"] .fx-section__knobs {
+  width: calc(var(--fx-knob-w) * 3 + var(--fx-knob-gap) * 2);
 }
 
 .fx-knob {
@@ -629,7 +653,8 @@ input[type="number"] {
   flex-direction: column;
   align-items: center;
   gap: 5px;
-  width: 72px;
+  width: var(--fx-knob-w, 76px);
+  flex-shrink: 0;
 }
 .fx-knob__dial-wrap {
   position: relative;
@@ -709,4 +734,58 @@ input[type="number"] {
 .fx-knob__nudge button:hover {
   background: #3f3f4a;
   color: #fff;
+}
+
+/* FX エフェクト説明ポップアップ */
+.fx-help-tip {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  width: var(--fx-knob-w, 76px);
+  flex-shrink: 0;
+}
+.fx-help-tip__popup {
+  position: fixed;
+  width: max-content;
+  max-width: min(260px, calc(100vw - 20px));
+  padding: 10px 12px;
+  background: rgba(15, 15, 22, 0.98);
+  border: 1px solid #3b82f6;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  opacity: 0;
+  z-index: 100000;
+  text-align: left;
+  transition: opacity 0.12s;
+}
+.fx-help-tip__popup--open {
+  opacity: 1;
+}
+.fx-help-tip__popup::after {
+  content: "";
+  position: absolute;
+  left: var(--arrow-left, 50%);
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+}
+.fx-help-tip__popup--top::after {
+  top: 100%;
+  border-top-color: #3b82f6;
+}
+.fx-help-tip__popup--bottom::after {
+  bottom: 100%;
+  border-bottom-color: #3b82f6;
+}
+.fx-help-tip__title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #93c5fd;
+  margin-bottom: 6px;
+}
+.fx-help-tip__desc {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: #d1d5db;
 }

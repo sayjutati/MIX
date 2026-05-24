@@ -26,6 +26,7 @@ import {
   TIMELINE_PAD,
   timelineX,
   timeFromTimelineX,
+  playheadVisualX,
   trackEffectiveOffset,
   TRACK_COLORS,
   defaultTrack,
@@ -67,6 +68,7 @@ function App() {
   const hasSolo = tracks.some((t) => t.isSolo);
   const hasBgm = tracks.some((t) => t.kind === "bgm");
   const selectedTrack = tracks.find((t) => t.id === selectedTrackId);
+  const playheadTrack = selectedTrack ?? tracks[0];
   const maxDuration = Math.max(15, ...tracks.map((t) => trackEffectiveOffset(t) + (t.duration || 0)));
 
   const updateTrack = useCallback((id: number, field: keyof Track, value: Track[keyof Track]) => {
@@ -109,7 +111,7 @@ function App() {
 
       const container = scrollContainerRef.current;
       if (container) {
-        const playheadX = timelineX(currentTime) - TRACK_HEADER_WIDTH;
+        const playheadX = playheadVisualX(currentTime, playheadTrack) - TRACK_HEADER_WIDTH;
         const visible = container.clientWidth - TRACK_HEADER_WIDTH;
         container.scrollLeft = Math.max(0, playheadX - visible / 2);
       }
@@ -155,7 +157,7 @@ function App() {
     nextClickRef.current = Math.ceil(t / (60 / bpm)) * (60 / bpm);
     const container = scrollContainerRef.current;
     if (container) {
-      const playheadX = timelineX(t) - TRACK_HEADER_WIDTH;
+      const playheadX = playheadVisualX(t, playheadTrack) - TRACK_HEADER_WIDTH;
       const visible = container.clientWidth - TRACK_HEADER_WIDTH;
       if (playheadX < container.scrollLeft || playheadX > container.scrollLeft + visible) {
         container.scrollLeft = Math.max(0, playheadX - 100);
@@ -606,10 +608,12 @@ function App() {
 
           <div
             className="playhead"
-            style={{ left: `${timelineX(globalTime)}px` }}
+            style={{ left: `${playheadVisualX(globalTime, playheadTrack)}px` }}
             onMouseDown={handlePlayheadDragStart}
             title="ドラッグして再生位置を移動"
-          />
+          >
+            <div className="playhead__line" aria-hidden />
+          </div>
         </div>
       </div>
 

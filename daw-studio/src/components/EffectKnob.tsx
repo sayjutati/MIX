@@ -1,4 +1,5 @@
 import type React from "react";
+import { FxHelpTooltip } from "./FxHelpTooltip";
 
 type Props = {
   label: string;
@@ -10,6 +11,8 @@ type Props = {
   unit?: string;
   defaultValue?: number;
   formatValue?: (v: number) => string;
+  helpTitle?: string;
+  helpDescription?: string;
 };
 
 export function EffectKnob({
@@ -22,6 +25,8 @@ export function EffectKnob({
   unit = "",
   defaultValue = 0,
   formatValue,
+  helpTitle,
+  helpDescription,
 }: Props) {
   const minN = parseFloat(min);
   const maxN = parseFloat(max);
@@ -36,7 +41,7 @@ export function EffectKnob({
     onChange(Math.round(steps * stepN * 1000) / 1000);
   };
 
-  return (
+  const knob = (
     <div className="fx-knob">
       <div className="fx-knob__dial-wrap">
         <div className="fx-knob__dial" style={{ "--fill": fill } as React.CSSProperties}>
@@ -71,4 +76,14 @@ export function EffectKnob({
       </div>
     </div>
   );
+
+  if (helpTitle && helpDescription) {
+    return (
+      <FxHelpTooltip title={helpTitle} description={helpDescription}>
+        {knob}
+      </FxHelpTooltip>
+    );
+  }
+
+  return knob;
 }
