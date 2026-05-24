@@ -288,8 +288,16 @@ input[type="number"] {
   width: 2px;
   background: #34d399;
   z-index: 50;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: ew-resize;
   box-shadow: 0 0 10px rgba(52, 211, 153, 0.8);
+}
+.playhead__grip {
+  position: absolute;
+  top: 0;
+  left: -9px;
+  width: 20px;
+  height: 100%;
 }
 .playhead::before {
   content: "";
@@ -298,6 +306,7 @@ input[type="number"] {
   left: -6px;
   border: 7px solid transparent;
   border-top-color: #34d399;
+  pointer-events: none;
 }
 
 .track-row {

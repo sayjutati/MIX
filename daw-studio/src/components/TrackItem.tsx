@@ -112,7 +112,7 @@ export function TrackItem({
 
   useEffect(() => {
     audioEngine.restartIfPlaying(track.id);
-  }, [track.id, track.speed, track.offset, track.isMuted, track.isSolo, hasSolo]);
+  }, [track.id, track.speed, track.pitch, track.offset, track.isMuted, track.isSolo, hasSolo]);
 
   useEffect(() => {
     if (effectiveMute) {

@@ -52,7 +52,7 @@ function App() {
   const [bpm, setBpm] = useState(120);
   const [metronomeOn, setMetronomeOn] = useState(false);
   const nextClickRef = useRef(0);
-  const transportStartRef = useRef(0);
+  const isDraggingPlayheadRef = useRef(false);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; trackId: number } | null>(
@@ -79,10 +79,10 @@ function App() {
   useEffect(() => {
     if (!isPlayingGlobal && !isRecording) return;
 
-    transportStartRef.current = Date.now() - globalTimeRef.current * 1000;
     const interval = setInterval(() => {
-      const currentTime = (Date.now() - transportStartRef.current) / 1000;
+      const currentTime = audioEngine.tickTransport();
       setGlobalTime(currentTime);
+      globalTimeRef.current = currentTime;
 
       if (metronomeOn) {
         void audioEngine.ensureRunning().then(() => {
@@ -143,15 +143,14 @@ function App() {
   };
 
   const seekToTime = (time: number) => {
-    setGlobalTime(time);
-    globalTimeRef.current = time;
-    transportStartRef.current = Date.now() - time * 1000;
-    audioEngine.seek(time);
-    if (isPlayingGlobal || isRecording) void audioEngine.play(time);
-    nextClickRef.current = Math.ceil(time / (60 / bpm)) * (60 / bpm);
+    const t = Math.max(0, time);
+    setGlobalTime(t);
+    globalTimeRef.current = t;
+    audioEngine.seek(t);
+    nextClickRef.current = Math.ceil(t / (60 / bpm)) * (60 / bpm);
     const container = scrollContainerRef.current;
     if (container) {
-      const playheadX = time * PIXELS_PER_SECOND;
+      const playheadX = t * PIXELS_PER_SECOND;
       const visible = container.clientWidth - 250;
       if (playheadX < container.scrollLeft || playheadX > container.scrollLeft + visible) {
         container.scrollLeft = Math.max(0, playheadX - 100);
@@ -159,9 +158,39 @@ function App() {
     }
   };
 
+  const clientXToTime = (clientX: number) => {
+    const el = scrollContainerRef.current;
+    if (!el) return 0;
+    const rect = el.getBoundingClientRect();
+    const x = clientX - rect.left + el.scrollLeft - 250;
+    return Math.max(0, x / PIXELS_PER_SECOND);
+  };
+
+  const handlePlayheadDragStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isDraggingPlayheadRef.current = true;
+
+    const onMove = (ev: MouseEvent) => {
+      seekToTime(clientXToTime(ev.clientX));
+    };
+    const onUp = () => {
+      isDraggingPlayheadRef.current = false;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  const handleTimelineClick = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest(".track-clip")) return;
+    if (isDraggingPlayheadRef.current) return;
+    seekToTime(clientXToTime(e.clientX));
+  };
+
   const playAll = async () => {
     await audioEngine.ensureRunning();
-    transportStartRef.current = Date.now() - globalTimeRef.current * 1000;
     nextClickRef.current = Math.ceil(globalTimeRef.current / (60 / bpm)) * (60 / bpm);
     setIsPlayingGlobal(true);
   };
@@ -219,6 +248,7 @@ function App() {
             ...rest,
             url: URL.createObjectURL(blob),
             kind: rest.kind ?? "vocal",
+            pitch: rest.pitch ?? 0,
             isMuted: rest.isMuted ?? false,
           } as Track;
         })
@@ -327,7 +357,6 @@ function App() {
       recordOffsetRef.current = globalTimeRef.current;
       recorder.start(250);
 
-      transportStartRef.current = Date.now() - globalTimeRef.current * 1000;
       setIsRecording(true);
       setIsPlayingGlobal(true);
       nextClickRef.current = Math.ceil(globalTimeRef.current / (60 / bpm)) * (60 / bpm);
@@ -526,7 +555,7 @@ function App() {
         </div>
       </header>
 
-      <div ref={scrollContainerRef} className="workspace">
+      <div ref={scrollContainerRef} className="workspace" onClick={handleTimelineClick}>
         <div className="workspace__inner" style={{ minWidth: `calc(250px + ${maxDuration * PIXELS_PER_SECOND}px)` }}>
           <div className="timeline-ruler">
             <div className="timeline-ruler__label">TIMELINE</div>
@@ -572,7 +601,11 @@ function App() {
           <div
             className="playhead"
             style={{ left: `calc(250px + ${globalTime * PIXELS_PER_SECOND}px)` }}
-          />
+            onMouseDown={handlePlayheadDragStart}
+            title="ドラッグして再生位置を移動"
+          >
+            <div className="playhead__grip" />
+          </div>
         </div>
       </div>
 

@@ -92,6 +92,7 @@ export const renderMixdown = async (
     const src = offlineCtx.createBufferSource();
     src.buffer = buf;
     src.playbackRate.value = track.speed;
+    src.detune.value = (track.pitch ?? 0) * 100;
 
     const { fadeGain } = connectOfflineTrackChain(
       offlineCtx,

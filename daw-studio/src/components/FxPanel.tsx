@@ -43,6 +43,16 @@ export function FxPanel({ height, selectedTrack, onResizeStart, onUpdate }: Prop
                 defaultValue={1}
                 formatValue={(v) => `${v.toFixed(2)}x`}
               />
+              <EffectKnob
+                label="キー変更"
+                min="-12"
+                max="12"
+                step="1"
+                value={selectedTrack.pitch}
+                onChange={(v) => onUpdate(selectedTrack.id, "pitch", v)}
+                defaultValue={0}
+                formatValue={(v) => (v === 0 ? "0" : v > 0 ? `+${v}` : `${v}`) + " sem"}
+              />
             </div>
 
             <div className="fx-panel__sections">

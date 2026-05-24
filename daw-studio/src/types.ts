@@ -12,6 +12,7 @@ export interface Track {
   volume: number;
   pan: number;
   speed: number;
+  pitch: number;
   bass: number;
   treble: number;
   noiseReduce: number;
@@ -53,6 +54,7 @@ export const defaultTrack = (
   volume: 0.8,
   pan: 0,
   speed: 1,
+  pitch: 0,
   bass: 0,
   treble: 0,
   noiseReduce: 0,
