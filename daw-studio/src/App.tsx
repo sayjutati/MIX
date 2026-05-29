@@ -11,6 +11,7 @@ import {
   Bell,
   BellOff,
   Volume2,
+  Headphones,
 } from "lucide-react";
 import { audioEngine } from "./audio/engine";
 import { createMediaRecorder, createMicStream } from "./audio/recording";
@@ -27,9 +28,12 @@ import {
   timelineX,
   timeFromTimelineX,
   playheadVisualX,
-  trackEffectiveOffset,
+  trackTimelineEnd,
+  makeClip,
+  createTrack,
+  trackFxDefaults,
   TRACK_COLORS,
-  defaultTrack,
+  type Clip,
   type Track,
   type ProjectFile,
 } from "./types";
@@ -47,7 +51,11 @@ function App() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordStreamRef = useRef<MediaStream | null>(null);
   const recordOffsetRef = useRef(0);
+  const recordTargetRef = useRef<number | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const [monitorOn, setMonitorOn] = useState(true);
+  const monitorOnRef = useRef(monitorOn);
+  monitorOnRef.current = monitorOn;
 
   const [globalTime, setGlobalTime] = useState(0);
   const globalTimeRef = useRef(0);
@@ -69,10 +77,31 @@ function App() {
   const hasBgm = tracks.some((t) => t.kind === "bgm");
   const selectedTrack = tracks.find((t) => t.id === selectedTrackId);
   const playheadTrack = selectedTrack ?? tracks[0];
-  const maxDuration = Math.max(15, ...tracks.map((t) => trackEffectiveOffset(t) + (t.duration || 0)));
+  const maxDuration = Math.max(15, ...tracks.map((t) => trackTimelineEnd(t)));
 
   const updateTrack = useCallback((id: number, field: keyof Track, value: Track[keyof Track]) => {
     setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, [field]: value } : t)));
+  }, []);
+
+  const updateClip = useCallback(
+    (trackId: number, clipId: number, field: keyof Clip, value: number) => {
+      setTracks((prev) =>
+        prev.map((t) =>
+          t.id === trackId
+            ? { ...t, clips: t.clips.map((c) => (c.id === clipId ? { ...c, [field]: value } : c)) }
+            : t
+        )
+      );
+    },
+    []
+  );
+
+  const deleteClip = useCallback((trackId: number, clipId: number) => {
+    setTracks((prev) =>
+      prev.map((t) =>
+        t.id === trackId ? { ...t, clips: t.clips.filter((c) => c.id !== clipId) } : t
+      )
+    );
   }, []);
 
   useEffect(() => {
@@ -216,18 +245,23 @@ function App() {
 
   const saveProject = async () => {
     if (tracks.length === 0) return alert("保存するトラックがありません！");
+    const toDataUrl = (blob: Blob) =>
+      new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
     try {
       const projectTracks = await Promise.all(
         tracks.map(async (track) => {
-          const res = await fetch(track.url);
-          const blob = await res.blob();
-          const base64 = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-          });
-          return { ...track, audioData: base64 };
+          const clips = await Promise.all(
+            track.clips.map(async (c) => {
+              const blob = await (await fetch(c.url)).blob();
+              return { ...c, audioData: await toDataUrl(blob) };
+            })
+          );
+          return { ...track, clips };
         })
       );
       const data: ProjectFile = {
@@ -255,12 +289,35 @@ function App() {
       setMasterVolume(parsed.masterVolume ?? 1);
       const restored = await Promise.all(
         parsed.tracks.map(async (td) => {
-          const res = await fetch(td.audioData!);
-          const blob = await res.blob();
-          const { audioData: _, ...rest } = td;
+          let clips: Clip[];
+          if (Array.isArray(td.clips)) {
+            clips = await Promise.all(
+              td.clips.map(async (pc) => {
+                const blob = await (await fetch(pc.audioData!)).blob();
+                return makeClip({
+                  id: pc.id,
+                  url: URL.createObjectURL(blob),
+                  offset: pc.offset ?? 0,
+                  duration: pc.duration ?? 0,
+                });
+              })
+            );
+          } else {
+            // 旧フォーマット（v3 以前）: 単一クリップへ移行
+            const blob = await (await fetch(td.audioData!)).blob();
+            clips = [
+              makeClip({
+                url: URL.createObjectURL(blob),
+                offset: td.offset ?? 0,
+                duration: td.duration ?? 0,
+              }),
+            ];
+          }
+          const { audioData: _a, url: _u, offset: _o, duration: _d, clips: _c, ...rest } = td;
           return {
+            ...trackFxDefaults(),
             ...rest,
-            url: URL.createObjectURL(blob),
+            clips,
             kind: rest.kind ?? "vocal",
             pitch: rest.pitch ?? 0,
             nudgeMs: rest.nudgeMs ?? 0,
@@ -317,7 +374,7 @@ function App() {
 
     setTracks((prev) => {
       const added = list.map((file, i) =>
-        defaultTrack({
+        createTrack({
           id: Date.now() + i,
           url: URL.createObjectURL(file),
           name: file.name.replace(/\.[^/.]+$/, ""),
@@ -344,6 +401,11 @@ function App() {
       mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
 
+      // 選択中がボーカルレーンなら、そのレーンに重ねて録る
+      const target =
+        selectedTrack && selectedTrack.kind !== "bgm" ? selectedTrack.id : null;
+      recordTargetRef.current = target;
+
       recorder.ondataavailable = (ev) => {
         if (ev.data.size > 0) audioChunksRef.current.push(ev.data);
       };
@@ -351,12 +413,21 @@ function App() {
       recorder.onstop = () => {
         recordStreamRef.current?.getTracks().forEach((t) => t.stop());
         recordStreamRef.current = null;
+        audioEngine.stopMonitor();
         const blobType = recorder.mimeType || "audio/webm";
         const url = URL.createObjectURL(new Blob(audioChunksRef.current, { type: blobType }));
         const offset = recordOffsetRef.current;
+        const targetId = recordTargetRef.current;
 
         setTracks((prev) => {
-          const t = defaultTrack({
+          if (targetId != null && prev.some((t) => t.id === targetId)) {
+            return prev.map((t) =>
+              t.id === targetId
+                ? { ...t, clips: [...t.clips, makeClip({ url, offset })] }
+                : t
+            );
+          }
+          const t = createTrack({
             id: Date.now(),
             url,
             name: `ボーカル ${prev.filter((x) => x.kind !== "bgm").length + 1}`,
@@ -372,6 +443,10 @@ function App() {
       recordOffsetRef.current = globalTimeRef.current;
       recorder.start(250);
 
+      if (monitorOnRef.current) {
+        await audioEngine.startMonitor(stream);
+      }
+
       setIsRecording(true);
       setIsPlayingGlobal(true);
       nextClickRef.current = Math.ceil(globalTimeRef.current / (60 / bpm)) * (60 / bpm);
@@ -382,6 +457,7 @@ function App() {
 
   const stopRecording = () => {
     if (!mediaRecorderRef.current || !isRecording) return;
+    audioEngine.stopMonitor();
     mediaRecorderRef.current.requestData();
     mediaRecorderRef.current.stop();
     setIsRecording(false);
@@ -396,15 +472,21 @@ function App() {
   const duplicateTrack = (track: Track) =>
     setTracks((prev) => [
       ...prev,
-      { ...track, id: Date.now(), name: `${track.name} (コピー)`, url: track.url },
+      {
+        ...track,
+        id: Date.now(),
+        name: `${track.name} (コピー)`,
+        clips: track.clips.map((c) => makeClip({ url: c.url, offset: c.offset, duration: c.duration })),
+      },
     ]);
 
   const loopTrackAudio = async (trackId: number, times: number) => {
     const track = tracks.find((t) => t.id === trackId);
-    if (!track || !window.confirm(`このトラックを ${times} 倍にループ複製しますか？`)) return;
+    const clip = track?.clips[0];
+    if (!track || !clip || !window.confirm(`先頭テイクを ${times} 倍にループしますか？`)) return;
     try {
       const ctx = new AudioContext();
-      const buf = await ctx.decodeAudioData(await (await fetch(track.url)).arrayBuffer());
+      const buf = await ctx.decodeAudioData(await (await fetch(clip.url)).arrayBuffer());
       const newBuf = ctx.createBuffer(
         buf.numberOfChannels,
         buf.length * times,
@@ -416,14 +498,25 @@ function App() {
         for (let i = 0; i < times; i++) out.set(ch, i * buf.length);
       }
       const wavBlob = audioBufferToWav(newBuf);
-      updateTrack(track.id, "url", URL.createObjectURL(wavBlob));
-      updateTrack(track.id, "duration", buf.duration * times);
+      const url = URL.createObjectURL(wavBlob);
+      setTracks((prev) =>
+        prev.map((t) =>
+          t.id === trackId
+            ? {
+                ...t,
+                clips: t.clips.map((c) =>
+                  c.id === clip.id ? { ...c, url, duration: buf.duration * times } : c
+                ),
+              }
+            : t
+        )
+      );
     } catch {
       alert("ループ処理に失敗しました。");
     }
   };
 
-  const timelineTicks = Array.from({ length: maxDuration + 21 }, (_, i) => i);
+  const timelineTicks = Array.from({ length: Math.ceil(maxDuration) + 21 }, (_, i) => i);
 
   return (
     <div className="app">
@@ -532,7 +625,13 @@ function App() {
             <button
               type="button"
               className="transport__btn-rec tooltip"
-              data-tooltip={hasBgm ? "BGM再生しながらオーバーダビ録音" : "録音（BGM追加後はオケに合わせて重ね録り）"}
+              data-tooltip={
+                selectedTrack && selectedTrack.kind !== "bgm"
+                  ? `「${selectedTrack.name}」に重ねて録音`
+                  : hasBgm
+                  ? "BGM再生しながら新規レーンに録音"
+                  : "録音（BGM追加後はオケに合わせて重ね録り）"
+              }
               onClick={() => void startRecording()}
             >
               <Mic size={20} />
@@ -542,6 +641,27 @@ function App() {
               <Square size={16} fill="currentColor" />
             </button>
           )}
+          <button
+            type="button"
+            className={`transport__btn-monitor tooltip ${monitorOn ? "transport__btn-monitor--on" : ""}`}
+            data-tooltip={
+              monitorOn
+                ? "録音モニターON（自分の声が聞こえる・ヘッドホン推奨）"
+                : "録音モニターOFF"
+            }
+            onClick={() => {
+              setMonitorOn((v) => {
+                const next = !v;
+                if (isRecording && recordStreamRef.current) {
+                  if (next) void audioEngine.startMonitor(recordStreamRef.current);
+                  else audioEngine.stopMonitor();
+                }
+                return next;
+              });
+            }}
+          >
+            <Headphones size={18} />
+          </button>
         </div>
 
         <div className="toolbar__right">
@@ -605,6 +725,8 @@ function App() {
                 onDelete={deleteTrack}
                 onDuplicate={duplicateTrack}
                 onUpdate={updateTrack}
+                onUpdateClip={updateClip}
+                onDeleteClip={deleteClip}
                 onContextMenu={(e, id) => {
                   e.preventDefault();
                   setContextMenu({ x: e.pageX, y: e.pageY, trackId: id });

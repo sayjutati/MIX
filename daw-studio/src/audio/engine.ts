@@ -1,7 +1,8 @@
 import type { Track } from "../types";
-import { trackEffectiveOffset } from "../types";
+import { clipEffectiveOffset } from "../types";
 import {
   applyTrackEffectParams,
+  computeFadeGain,
   createTrackEffectChain,
   type TrackEffectNodes,
 } from "./chain";
@@ -11,15 +12,45 @@ export type TrackStateRef = {
   isAudible: () => boolean;
 };
 
+type ClipRuntime = {
+  buffer: AudioBuffer | null;
+  source: AudioBufferSourceNode | null;
+  gain: GainNode | null;
+};
+
 type Runtime = {
   id: number;
-  buffer: AudioBuffer | null;
   nodes: TrackEffectNodes | null;
-  source: AudioBufferSourceNode | null;
+  clips: Map<number, ClipRuntime>;
   state: TrackStateRef;
 };
 
 const START_LOOKAHEAD = 0.012;
+
+/** クリップ用ゲインにフェードイン/アウトをスケジュール */
+const scheduleClipFade = (
+  gain: GainNode,
+  track: Track,
+  localTime: number,
+  playDur: number,
+  when: number
+) => {
+  const g = gain.gain;
+  g.cancelScheduledValues(0);
+  const startVal = computeFadeGain(track, localTime, playDur);
+  g.setValueAtTime(startVal, when);
+
+  if (track.fadeIn > 0 && localTime < track.fadeIn) {
+    g.linearRampToValueAtTime(1, when + (track.fadeIn - localTime));
+  }
+  if (track.fadeOut > 0) {
+    const foStart = playDur - track.fadeOut;
+    if (localTime < foStart) {
+      g.setValueAtTime(1, when + (foStart - localTime));
+    }
+    g.linearRampToValueAtTime(0, when + Math.max(0, playDur - localTime));
+  }
+};
 
 class AudioEngine {
   private ctx: AudioContext | null = null;
@@ -29,6 +60,9 @@ class AudioEngine {
   private anchorGlobalTime = 0;
   private anchorCtxTime = 0;
   private getGlobalTime: (() => number) | null = null;
+
+  private monitorSource: MediaStreamAudioSourceNode | null = null;
+  private monitorGain: GainNode | null = null;
 
   setGlobalTimeProvider(fn: () => number) {
     this.getGlobalTime = fn;
@@ -41,7 +75,6 @@ class AudioEngine {
     return this.getGlobalTime?.() ?? this.anchorGlobalTime;
   }
 
-  /** 再生中のトランスポート時刻（AudioContext 基準） */
   getTransportTime(): number {
     return this.currentGlobalTime();
   }
@@ -74,28 +107,22 @@ class AudioEngine {
 
   register(id: number, state: TrackStateRef) {
     const existing = this.runtimes.get(id);
+    if (existing) {
+      existing.state = state;
+      return;
+    }
     this.runtimes.set(id, {
       id,
-      buffer: existing?.buffer ?? null,
-      nodes: existing?.nodes ?? null,
-      source: existing?.source ?? null,
+      nodes: null,
+      clips: new Map(),
       state,
     });
   }
 
   unregister(id: number) {
-    this.stopRuntimeSource(this.runtimes.get(id));
-    this.runtimes.delete(id);
-  }
-
-  setTrackBuffer(id: number, buffer: AudioBuffer) {
     const rt = this.runtimes.get(id);
     if (!rt) return;
-
-    this.stopRuntimeSource(rt);
-    rt.buffer = buffer;
-
-    const { ctx, master } = this.getContext();
+    for (const clipRt of rt.clips.values()) this.stopClipSource(clipRt);
     if (rt.nodes) {
       try {
         rt.nodes.input.disconnect();
@@ -103,11 +130,39 @@ class AudioEngine {
         /* noop */
       }
     }
+    this.runtimes.delete(id);
+  }
+
+  private ensureNodes(rt: Runtime) {
+    if (rt.nodes) return;
+    const { ctx, master } = this.getContext();
     rt.nodes = createTrackEffectChain(ctx, master, rt.state.getTrack());
+  }
+
+  setClipBuffer(trackId: number, clipId: number, buffer: AudioBuffer) {
+    const rt = this.runtimes.get(trackId);
+    if (!rt) return;
+    this.ensureNodes(rt);
+
+    let clipRt = rt.clips.get(clipId);
+    if (!clipRt) {
+      clipRt = { buffer: null, source: null, gain: null };
+      rt.clips.set(clipId, clipRt);
+    }
+    this.stopClipSource(clipRt);
+    clipRt.buffer = buffer;
 
     if (this.playing && this.ctx) {
       this.syncTrack(rt, this.currentGlobalTime(), this.ctx.currentTime + START_LOOKAHEAD);
     }
+  }
+
+  removeClip(trackId: number, clipId: number) {
+    const rt = this.runtimes.get(trackId);
+    const clipRt = rt?.clips.get(clipId);
+    if (!rt || !clipRt) return;
+    this.stopClipSource(clipRt);
+    rt.clips.delete(clipId);
   }
 
   updateTrackEffects(id: number) {
@@ -121,82 +176,105 @@ class AudioEngine {
     if (rt?.nodes) rt.nodes.outGain.gain.value = volume;
   }
 
-  getEffectNodes(id: number): TrackEffectNodes | null {
-    return this.runtimes.get(id)?.nodes ?? null;
-  }
-
-  private stopRuntimeSource(rt: Runtime | undefined) {
-    if (!rt?.source) return;
-    try {
-      rt.source.onended = null;
-      rt.source.stop();
-      rt.source.disconnect();
-    } catch {
-      /* noop */
+  private stopClipSource(clipRt: ClipRuntime | undefined) {
+    if (!clipRt) return;
+    if (clipRt.source) {
+      try {
+        clipRt.source.onended = null;
+        clipRt.source.stop();
+        clipRt.source.disconnect();
+      } catch {
+        /* noop */
+      }
+      clipRt.source = null;
     }
-    rt.source = null;
+    if (clipRt.gain) {
+      try {
+        clipRt.gain.disconnect();
+      } catch {
+        /* noop */
+      }
+      clipRt.gain = null;
+    }
   }
 
   private stopAllSources() {
     for (const rt of this.runtimes.values()) {
-      this.stopRuntimeSource(rt);
+      for (const clipRt of rt.clips.values()) this.stopClipSource(clipRt);
     }
   }
 
-  private trackDuration(rt: Runtime): number {
+  private startClipSource(
+    rt: Runtime,
+    clipRt: ClipRuntime,
+    localTime: number,
+    when: number
+  ) {
+    if (!clipRt.buffer || !rt.nodes) return;
     const track = rt.state.getTrack();
-    if (track.duration > 0) return track.duration;
-    if (rt.buffer) return rt.buffer.duration / track.speed;
-    return 0;
-  }
+    const speed = track.speed || 1;
 
-  private startRuntimeSource(rt: Runtime, localTime: number, when: number) {
-    if (!rt.buffer || !rt.nodes) return;
-    const track = rt.state.getTrack();
-    const speed = track.speed;
-
-    this.stopRuntimeSource(rt);
+    this.stopClipSource(clipRt);
 
     const bufferOffset = Math.max(0, localTime * speed);
-    const remain = rt.buffer.duration - bufferOffset;
+    const remain = clipRt.buffer.duration - bufferOffset;
     if (remain <= 0.001) return;
 
-    const src = this.getContext().ctx.createBufferSource();
-    src.buffer = rt.buffer;
+    const { ctx } = this.getContext();
+    const src = ctx.createBufferSource();
+    src.buffer = clipRt.buffer;
     src.playbackRate.value = speed;
     src.detune.value = (track.pitch ?? 0) * 100;
-    src.connect(rt.nodes.input);
+
+    const gain = ctx.createGain();
+    src.connect(gain);
+    gain.connect(rt.nodes.input);
+
+    const playDur = clipRt.buffer.duration / speed;
+    scheduleClipFade(gain, track, localTime, playDur, when);
+
     src.onended = () => {
-      if (rt.source === src) rt.source = null;
+      if (clipRt.source === src) {
+        clipRt.source = null;
+      }
     };
 
     try {
       src.start(when, bufferOffset, remain);
-      rt.source = src;
+      clipRt.source = src;
+      clipRt.gain = gain;
     } catch {
       src.disconnect();
+      gain.disconnect();
     }
   }
 
-  /** 再生範囲に入ったトラックを起動（オフセット付きクリップ対応） */
-  private syncTrack(rt: Runtime, globalTime: number, ctxTime: number) {
-    if (!rt.buffer || !rt.nodes) return;
-
-    if (!rt.state.isAudible()) {
-      this.stopRuntimeSource(rt);
-      return;
-    }
-
+  /** 再生範囲に入ったクリップを起動（複数クリップ・オフセット対応） */
+  private syncTrack(rt: Runtime, globalTime: number, when: number) {
+    if (!rt.nodes) return;
+    const audible = rt.state.isAudible();
     const track = rt.state.getTrack();
-    const duration = this.trackDuration(rt);
-    const local = globalTime - trackEffectiveOffset(track);
 
-    if (duration > 0 && local >= -0.02 && local < duration) {
-      if (!rt.source) {
-        this.startRuntimeSource(rt, Math.max(0, local), ctxTime + START_LOOKAHEAD);
+    for (const clip of track.clips) {
+      const clipRt = rt.clips.get(clip.id);
+      if (!clipRt || !clipRt.buffer) continue;
+
+      if (!audible) {
+        this.stopClipSource(clipRt);
+        continue;
       }
-    } else {
-      this.stopRuntimeSource(rt);
+
+      const start = clipEffectiveOffset(track, clip);
+      const playDur = clipRt.buffer.duration / (track.speed || 1);
+      const local = globalTime - start;
+
+      if (local >= -0.02 && local < playDur) {
+        if (!clipRt.source) {
+          this.startClipSource(rt, clipRt, Math.max(0, local), when);
+        }
+      } else {
+        this.stopClipSource(clipRt);
+      }
     }
   }
 
@@ -206,7 +284,7 @@ class AudioEngine {
     }
   }
 
-  /** 毎フレーム呼び出し：時刻更新 + 遅れて開始するトラックの起動 */
+  /** 毎フレーム呼び出し：時刻更新 + 遅れて開始するクリップの起動 */
   tickTransport(): number {
     if (!this.playing || !this.ctx) return this.anchorGlobalTime;
     const t = this.currentGlobalTime();
@@ -244,16 +322,54 @@ class AudioEngine {
     }
   }
 
+  /** speed/pitch/nudge/offset 変更時：該当レーンのクリップを停止して再同期 */
   restartIfPlaying(id: number) {
     if (!this.playing || !this.ctx) return;
     const rt = this.runtimes.get(id);
     if (!rt) return;
-    this.stopRuntimeSource(rt);
+    for (const clipRt of rt.clips.values()) this.stopClipSource(clipRt);
     this.syncTrack(rt, this.currentGlobalTime(), this.ctx.currentTime + START_LOOKAHEAD);
   }
 
   getIsPlaying() {
     return this.playing;
+  }
+
+  /** 録音モニター開始：マイク入力を出力へ直結（自分の声を聞く） */
+  async startMonitor(stream: MediaStream) {
+    await this.ensureRunning();
+    const { ctx } = this.getContext();
+    this.stopMonitor();
+    const source = ctx.createMediaStreamSource(stream);
+    const gain = ctx.createGain();
+    gain.gain.value = 1;
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    this.monitorSource = source;
+    this.monitorGain = gain;
+  }
+
+  stopMonitor() {
+    if (this.monitorSource) {
+      try {
+        this.monitorSource.disconnect();
+      } catch {
+        /* noop */
+      }
+      this.monitorSource = null;
+    }
+    if (this.monitorGain) {
+      try {
+        this.monitorGain.disconnect();
+      } catch {
+        /* noop */
+      }
+      this.monitorGain = null;
+    }
+  }
+
+  setMonitorVolume(value: number) {
+    if (this.monitorGain) this.monitorGain.gain.value = value;
   }
 }
 

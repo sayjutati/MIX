@@ -1,10 +1,165 @@
 import { useEffect, useRef } from "react";
 import WaveSurfer from "wavesurfer.js";
-import { Copy, Trash2, Volume2 } from "lucide-react";
-import { applyLiveFade } from "../audio/chain";
+import { Copy, Trash2, Volume2, X } from "lucide-react";
 import { decodeAudioUrl } from "../audio/decode";
 import { audioEngine } from "../audio/engine";
-import { PIXELS_PER_SECOND, trackEffectiveOffset, type Track } from "../types";
+import {
+  PIXELS_PER_SECOND,
+  clipEffectiveOffset,
+  type Clip,
+  type Track,
+} from "../types";
+
+type ClipViewProps = {
+  track: Track;
+  clip: Clip;
+  isSelected: boolean;
+  effectiveMute: boolean;
+  globalTime: number;
+  canDelete: boolean;
+  onSelect: () => void;
+  onUpdateClip: (clipId: number, field: keyof Clip, value: number) => void;
+  onDeleteClip: (clipId: number) => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+};
+
+function ClipView({
+  track,
+  clip,
+  isSelected,
+  effectiveMute,
+  globalTime,
+  canDelete,
+  onSelect,
+  onUpdateClip,
+  onDeleteClip,
+  onContextMenu,
+}: ClipViewProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const wavesurferRef = useRef<WaveSurfer | null>(null);
+  const trackRef = useRef(track);
+  const clipRef = useRef(clip);
+  trackRef.current = track;
+  clipRef.current = clip;
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    let cancelled = false;
+    const trackId = trackRef.current.id;
+    const clipId = clip.id;
+
+    wavesurferRef.current?.destroy();
+    const ws = WaveSurfer.create({
+      container: containerRef.current,
+      waveColor: "rgba(255, 255, 255, 0.4)",
+      progressColor: "rgba(255, 255, 255, 0.9)",
+      height: 80,
+      url: clip.url,
+      interact: false,
+      minPxPerSec: PIXELS_PER_SECOND,
+      fillParent: false,
+      hideScrollbar: true,
+    });
+    wavesurferRef.current = ws;
+    ws.setVolume(0);
+
+    ws.on("ready", () => {
+      const dur = ws.getDuration() || 0;
+      if (dur && dur !== clipRef.current.duration) {
+        onUpdateClip(clipId, "duration", dur);
+      }
+      const media = ws.getMediaElement();
+      if (media) {
+        media.muted = true;
+        media.volume = 0;
+      }
+    });
+
+    const { ctx } = audioEngine.getContext();
+    void decodeAudioUrl(clip.url, ctx)
+      .then((buffer) => {
+        if (cancelled) return;
+        audioEngine.setClipBuffer(trackId, clipId, buffer);
+      })
+      .catch((err) => console.error("Failed to decode clip audio:", err));
+
+    return () => {
+      cancelled = true;
+      audioEngine.removeClip(trackId, clipId);
+      ws.destroy();
+      wavesurferRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clip.url, clip.id]);
+
+  // クリップ内の白線（再生位置）
+  useEffect(() => {
+    const ws = wavesurferRef.current;
+    if (!ws) return;
+    const dur = clip.duration || ws.getDuration() || 0;
+    const local = globalTime - clipEffectiveOffset(track, clip);
+    const waveTime = Math.max(0, local * track.speed);
+    if (dur > 0 && local >= 0 && local <= dur / track.speed) {
+      ws.setTime(Math.min(waveTime, dur));
+    }
+  }, [globalTime, clip, track]);
+
+  // offset 変更時、再生中なら同期し直す
+  useEffect(() => {
+    audioEngine.restartIfPlaying(track.id);
+  }, [clip.offset, track.id]);
+
+  const handleDragStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onSelect();
+    const startX = e.clientX;
+    const startOffset = clip.offset;
+
+    const move = (ev: MouseEvent) => {
+      const diffX = ev.clientX - startX;
+      onUpdateClip(clip.id, "offset", Math.max(0, startOffset + diffX / PIXELS_PER_SECOND));
+    };
+    const end = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", end);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", end);
+  };
+
+  const clipWidth = Math.max((clip.duration || 0) * PIXELS_PER_SECOND, 40);
+
+  return (
+    <div
+      className={`track-clip ${isSelected ? "track-clip--selected" : ""}`}
+      style={{
+        left: `${clip.offset * PIXELS_PER_SECOND}px`,
+        width: `${clipWidth}px`,
+        background: track.color,
+        opacity: effectiveMute ? 0.35 : 1,
+      }}
+      onMouseDown={handleDragStart}
+      onContextMenu={onContextMenu}
+    >
+      <div ref={containerRef} className="track-clip__wave" />
+      {canDelete && (
+        <button
+          type="button"
+          className="track-clip__del tooltip"
+          data-tooltip="このテイクを削除"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDeleteClip(clip.id);
+          }}
+        >
+          <X size={12} />
+        </button>
+      )}
+    </div>
+  );
+}
 
 type Props = {
   track: Track;
@@ -15,6 +170,8 @@ type Props = {
   onDelete: (id: number) => void;
   onDuplicate: (track: Track) => void;
   onUpdate: (id: number, field: keyof Track, value: Track[keyof Track]) => void;
+  onUpdateClip: (trackId: number, clipId: number, field: keyof Clip, value: number) => void;
+  onDeleteClip: (trackId: number, clipId: number) => void;
   onContextMenu: (e: React.MouseEvent, trackId: number) => void;
 };
 
@@ -27,10 +184,10 @@ export function TrackItem({
   onDelete,
   onDuplicate,
   onUpdate,
+  onUpdateClip,
+  onDeleteClip,
   onContextMenu,
 }: Props) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const wavesurferRef = useRef<WaveSurfer | null>(null);
   const trackRef = useRef(track);
   const hasSoloRef = useRef(hasSolo);
   trackRef.current = track;
@@ -38,61 +195,20 @@ export function TrackItem({
 
   const effectiveMute = track.isMuted || (hasSolo && !track.isSolo);
 
+  // ランタイム登録（FX チェーン保持）。子クリップの setClipBuffer より前に存在させる
+  const stateRef = useRef({
+    getTrack: () => trackRef.current,
+    isAudible: () => {
+      const t = trackRef.current;
+      return !t.isMuted && !(hasSoloRef.current && !t.isSolo);
+    },
+  });
+  audioEngine.register(track.id, stateRef.current);
+
   useEffect(() => {
-    if (!containerRef.current) return;
-    let cancelled = false;
-    const trackId = track.id;
-
-    audioEngine.register(trackId, {
-      getTrack: () => trackRef.current,
-      isAudible: () => {
-        const t = trackRef.current;
-        return !t.isMuted && !(hasSoloRef.current && !t.isSolo);
-      },
-    });
-
-    wavesurferRef.current?.destroy();
-    const ws = WaveSurfer.create({
-      container: containerRef.current,
-      waveColor: "rgba(255, 255, 255, 0.4)",
-      progressColor: "rgba(255, 255, 255, 0.9)",
-      height: 80,
-      url: track.url,
-      interact: false,
-      minPxPerSec: PIXELS_PER_SECOND,
-      fillParent: false,
-      hideScrollbar: true,
-    });
-    wavesurferRef.current = ws;
-    ws.setVolume(0);
-
-    ws.on("ready", () => {
-      const dur = ws.getDuration() || 0;
-      if (dur !== trackRef.current.duration) {
-        onUpdate(trackRef.current.id, "duration", dur);
-      }
-      const media = ws.getMediaElement();
-      if (media) {
-        media.muted = true;
-        media.volume = 0;
-      }
-    });
-
-    const { ctx } = audioEngine.getContext();
-    void decodeAudioUrl(track.url, ctx)
-      .then((buffer) => {
-        if (cancelled) return;
-        audioEngine.setTrackBuffer(trackId, buffer);
-      })
-      .catch((err) => console.error("Failed to decode track audio:", err));
-
-    return () => {
-      cancelled = true;
-      audioEngine.unregister(trackId);
-      ws.destroy();
-      wavesurferRef.current = null;
-    };
-  }, [track.url, track.id]);
+    const id = track.id;
+    return () => audioEngine.unregister(id);
+  }, [track.id]);
 
   useEffect(() => {
     audioEngine.updateTrackEffects(track.id);
@@ -112,50 +228,13 @@ export function TrackItem({
 
   useEffect(() => {
     audioEngine.restartIfPlaying(track.id);
-  }, [track.id, track.speed, track.pitch, track.offset, track.nudgeMs, track.isMuted, track.isSolo, hasSolo]);
+  }, [track.id, track.speed, track.pitch, track.nudgeMs, track.isMuted, track.isSolo, hasSolo]);
 
   useEffect(() => {
-    if (effectiveMute) {
-      audioEngine.setTrackVolume(track.id, 0);
-    } else {
-      audioEngine.setTrackVolume(track.id, track.volume);
-    }
+    audioEngine.setTrackVolume(track.id, effectiveMute ? 0 : track.volume);
   }, [track.id, track.volume, effectiveMute]);
 
-  useEffect(() => {
-    applyLiveFade(audioEngine.getEffectNodes(track.id)?.fadeGain ?? null, track, globalTime);
-
-    const ws = wavesurferRef.current;
-    if (!ws) return;
-    const dur = track.duration || ws.getDuration() || 0;
-    const local = globalTime - trackEffectiveOffset(track);
-    const waveTime = Math.max(0, local * track.speed);
-    if (dur > 0 && local >= 0 && local <= dur / track.speed) {
-      ws.setTime(Math.min(waveTime, dur));
-    }
-  }, [globalTime, track.fadeIn, track.fadeOut, track.offset, track.nudgeMs, track.speed, track.duration, track.id]);
-
-  const handleDragStart = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const startX = e.clientX;
-    const startOffset = track.offset;
-
-    const handleDragMove = (moveEvent: MouseEvent) => {
-      const diffX = moveEvent.clientX - startX;
-      onUpdate(track.id, "offset", Math.max(0, startOffset + diffX / PIXELS_PER_SECOND));
-    };
-
-    const handleDragEnd = () => {
-      window.removeEventListener("mousemove", handleDragMove);
-      window.removeEventListener("mouseup", handleDragEnd);
-    };
-
-    window.addEventListener("mousemove", handleDragMove);
-    window.addEventListener("mouseup", handleDragEnd);
-  };
-
-  const clipWidth = Math.max((track.duration || 0) * PIXELS_PER_SECOND, 40);
+  const canDeleteClip = track.clips.length > 1;
 
   return (
     <div
@@ -183,6 +262,11 @@ export function TrackItem({
             <span className={`track-row__badge ${track.kind === "bgm" ? "track-row__badge--bgm" : ""}`}>
               {track.kind === "bgm" ? "BGM" : "REC"}
             </span>
+            {track.clips.length > 1 && (
+              <span className="track-row__take-count tooltip" data-tooltip="このレーンのテイク数">
+                {track.clips.length}
+              </span>
+            )}
           </div>
           <div className="track-row__actions">
             <button
@@ -242,18 +326,21 @@ export function TrackItem({
         onContextMenu={(e) => onContextMenu(e, track.id)}
         onClick={() => onSelect(track.id)}
       >
-        <div
-          className={`track-clip ${isSelected ? "track-clip--selected" : ""}`}
-          style={{
-            left: `${track.offset * PIXELS_PER_SECOND}px`,
-            width: `${clipWidth}px`,
-            background: track.color,
-            opacity: effectiveMute ? 0.35 : 1,
-          }}
-          onMouseDown={handleDragStart}
-        >
-          <div ref={containerRef} className="track-clip__wave" />
-        </div>
+        {track.clips.map((clip) => (
+          <ClipView
+            key={clip.id}
+            track={track}
+            clip={clip}
+            isSelected={isSelected}
+            effectiveMute={effectiveMute}
+            globalTime={globalTime}
+            canDelete={canDeleteClip}
+            onSelect={() => onSelect(track.id)}
+            onUpdateClip={(clipId, field, value) => onUpdateClip(track.id, clipId, field, value)}
+            onDeleteClip={(clipId) => onDeleteClip(track.id, clipId)}
+            onContextMenu={(e) => onContextMenu(e, track.id)}
+          />
+        ))}
       </div>
     </div>
   );

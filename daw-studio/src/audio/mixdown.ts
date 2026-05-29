@@ -1,5 +1,5 @@
 import type { Track } from "../types";
-import { trackEffectiveOffset } from "../types";
+import { clipEffectiveOffset, clipPlayDuration } from "../types";
 import { connectOfflineTrackChain } from "./chain";
 
 export const audioBufferToWav = (buffer: AudioBuffer) => {
@@ -72,10 +72,10 @@ export const renderMixdown = async (
   masterVolume: number,
   sampleRate = 44100
 ): Promise<AudioBuffer> => {
-  const totalDur = Math.max(
-    1,
-    ...tracks.map((t) => trackEffectiveOffset(t) + (t.duration || 0))
+  const ends = tracks.flatMap((t) =>
+    t.clips.map((c) => clipEffectiveOffset(t, c) + clipPlayDuration(t, c))
   );
+  const totalDur = Math.max(1, ...ends);
   const offlineCtx = new OfflineAudioContext(
     2,
     Math.ceil(sampleRate * totalDur),
@@ -87,29 +87,35 @@ export const renderMixdown = async (
 
   for (const track of tracks) {
     if (track.isMuted || (hasSolo && !track.isSolo)) continue;
-    const res = await fetch(track.url);
-    const buf = await offlineCtx.decodeAudioData(await res.arrayBuffer());
-    const clipDur = buf.duration / track.speed;
-    const src = offlineCtx.createBufferSource();
-    src.buffer = buf;
-    src.playbackRate.value = track.speed;
-    src.detune.value = (track.pitch ?? 0) * 100;
+    if (track.clips.length === 0) continue;
 
-    const { fadeGain } = connectOfflineTrackChain(
-      offlineCtx,
-      src,
-      track,
-      master
-    );
+    // レーンにつき1本の FX チェーン（クリップを合算して通す）
+    const clipBus = offlineCtx.createGain();
+    connectOfflineTrackChain(offlineCtx, clipBus, track, master);
 
-    const startAt = trackEffectiveOffset(track);
-    if (track.fadeIn > 0 || track.fadeOut > 0) {
-      applyOfflineFade(fadeGain, track, startAt, clipDur);
-    } else {
-      fadeGain.gain.value = 1;
+    for (const clip of track.clips) {
+      const res = await fetch(clip.url);
+      const buf = await offlineCtx.decodeAudioData(await res.arrayBuffer());
+      const clipDur = buf.duration / track.speed;
+
+      const src = offlineCtx.createBufferSource();
+      src.buffer = buf;
+      src.playbackRate.value = track.speed;
+      src.detune.value = (track.pitch ?? 0) * 100;
+
+      const fadeGain = offlineCtx.createGain();
+      src.connect(fadeGain);
+      fadeGain.connect(clipBus);
+
+      const startAt = clipEffectiveOffset(track, clip);
+      if (track.fadeIn > 0 || track.fadeOut > 0) {
+        applyOfflineFade(fadeGain, track, startAt, clipDur);
+      } else {
+        fadeGain.gain.value = 1;
+      }
+
+      src.start(startAt);
     }
-
-    src.start(startAt);
   }
 
   return offlineCtx.startRendering();

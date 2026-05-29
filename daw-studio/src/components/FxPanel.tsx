@@ -1,5 +1,6 @@
 import { Sliders } from "lucide-react";
 import type { Track } from "../types";
+import { trackTimelineEnd } from "../types";
 import { FX_TOOLTIPS } from "../data/fxTooltips";
 import { formatTime } from "../utils/time";
 import { EffectKnob } from "./EffectKnob";
@@ -32,7 +33,7 @@ export function FxPanel({ height, selectedTrack, onResizeStart, onUpdate }: Prop
               </div>
               <div className="fx-panel__track-meta">
                 {selectedTrack.kind === "bgm" ? "BGM / オケ" : "ボーカル / 録音"} ·{" "}
-                {formatTime(selectedTrack.duration || 0)} · offset {formatTime(selectedTrack.offset)}
+                テイク {selectedTrack.clips.length} · {formatTime(trackTimelineEnd(selectedTrack))}
                 {(selectedTrack.nudgeMs ?? 0) !== 0 && (
                   <> · nudge {selectedTrack.nudgeMs > 0 ? "+" : ""}{selectedTrack.nudgeMs.toFixed(1)} ms</>
                 )}

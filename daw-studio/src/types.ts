@@ -1,9 +1,9 @@
-export const PROJECT_VERSION = 3;
+export const PROJECT_VERSION = 4;
 export const PIXELS_PER_SECOND = 50;
 /** 左サイドバー（トラックヘッダー）幅 */
 export const TRACK_HEADER_WIDTH = 250;
-/** 波形エリア左パディング — ルーラー・プレイヘッド・クリップで共通 */
-export const TIMELINE_PAD = 10;
+/** 波形エリア左パディング — ルーラー・プレイヘッド・クリップで共通（0で原点を揃える） */
+export const TIMELINE_PAD = 0;
 
 /** 秒 → ワークスペース内 X 座標（px） */
 export const timelineX = (seconds: number) =>
@@ -15,9 +15,19 @@ export const timeFromTimelineX = (x: number) =>
 
 export type TrackKind = "bgm" | "vocal";
 
-export interface Track {
+/** 1つの音声クリップ（テイク）。1レーンに複数並べられる。 */
+export interface Clip {
   id: number;
   url: string;
+  /** レーン上の開始位置（秒） */
+  offset: number;
+  /** 素材の長さ（秒） */
+  duration: number;
+}
+
+/** トラック = レーン。FX・音量・Solo/Mute はレーン共通。 */
+export interface Track {
+  id: number;
   name: string;
   color: string;
   kind: TrackKind;
@@ -34,44 +44,66 @@ export interface Track {
   reverb: number;
   fadeIn: number;
   fadeOut: number;
-  duration: number;
   isSolo: boolean;
   isMuted: boolean;
-  offset: number;
-  /** 再生タイミング微調整（ms）。+で遅らせ / −で早める */
+  /** 再生タイミング微調整（ms）。+で遅らせ / −で早める。レーン共通 */
   nudgeMs: number;
   tremolo: number;
+  clips: Clip[];
 }
 
-/** タイムライン上の実効開始位置（秒） */
-export const trackEffectiveOffset = (track: Pick<Track, "offset" | "nudgeMs">) =>
-  track.offset + (track.nudgeMs ?? 0) / 1000;
+/** クリップの実効開始位置（秒）＝ offset + nudge */
+export const clipEffectiveOffset = (track: Pick<Track, "nudgeMs">, clip: Pick<Clip, "offset">) =>
+  clip.offset + (track.nudgeMs ?? 0) / 1000;
+
+/** クリップのタイムライン上の再生長（速度反映後の秒） */
+export const clipPlayDuration = (track: Pick<Track, "speed">, clip: Pick<Clip, "duration">) =>
+  (clip.duration || 0) / (track.speed || 1);
+
+/** レーンの末尾（タイムライン秒） */
+export const trackTimelineEnd = (track: Track) =>
+  track.clips.reduce(
+    (max, c) => Math.max(max, clipEffectiveOffset(track, c) + clipPlayDuration(track, c)),
+    0
+  );
 
 /**
- * 波形の白い再生ラインと同じ X 座標（px）。
- * クリップの offset 位置 + クリップ内の再生位置で算出する。
+ * 緑プレイヘッドの X 座標（px）。
+ * globalTime を含むクリップがあれば、その波形の白線と一致する位置を返す。
  */
-export const playheadVisualX = (
-  globalTime: number,
-  track?: Pick<Track, "offset" | "nudgeMs" | "speed">
-) => {
+export const playheadVisualX = (globalTime: number, track?: Track) => {
   if (!track) return timelineX(globalTime);
-  const local = globalTime - trackEffectiveOffset(track);
-  const waveLocal = Math.max(0, local * (track.speed ?? 1));
-  return (
-    TRACK_HEADER_WIDTH +
-    TIMELINE_PAD +
-    track.offset * PIXELS_PER_SECOND +
-    waveLocal * PIXELS_PER_SECOND
-  );
+  for (const clip of track.clips) {
+    const start = clipEffectiveOffset(track, clip);
+    const playDur = clipPlayDuration(track, clip);
+    if (playDur > 0 && globalTime >= start && globalTime <= start + playDur) {
+      const local = globalTime - start;
+      const waveLocal = Math.max(0, local * (track.speed ?? 1));
+      return TRACK_HEADER_WIDTH + TIMELINE_PAD + clip.offset * PIXELS_PER_SECOND + waveLocal * PIXELS_PER_SECOND;
+    }
+  }
+  return timelineX(globalTime);
 };
+
+export interface ProjectClip extends Clip {
+  audioData?: string;
+}
+
+export interface ProjectTrack extends Omit<Track, "clips"> {
+  clips?: ProjectClip[];
+  /** 旧フォーマット（v3 以前）の単一クリップ用 */
+  url?: string;
+  offset?: number;
+  duration?: number;
+  audioData?: string;
+}
 
 export interface ProjectFile {
   version: number;
   bpm: number;
   masterVolume: number;
   globalTime?: number;
-  tracks: (Track & { audioData?: string })[];
+  tracks: ProjectTrack[];
 }
 
 export const TRACK_COLORS = [
@@ -83,11 +115,17 @@ export const TRACK_COLORS = [
   "#e67e22",
 ];
 
-export const defaultTrack = (
-  partial: Partial<Track> & Pick<Track, "id" | "url" | "name">
-): Track => ({
-  color: TRACK_COLORS[0],
-  kind: "vocal",
+let clipSeq = 0;
+const nextClipId = () => Date.now() * 1000 + (clipSeq++ % 1000);
+
+export const makeClip = (opts: { id?: number; url: string; offset?: number; duration?: number }): Clip => ({
+  id: opts.id ?? nextClipId(),
+  url: opts.url,
+  offset: opts.offset ?? 0,
+  duration: opts.duration ?? 0,
+});
+
+const FX_DEFAULTS = {
   volume: 0.8,
   pan: 0,
   speed: 1,
@@ -101,11 +139,29 @@ export const defaultTrack = (
   reverb: 0,
   fadeIn: 0,
   fadeOut: 0,
-  duration: 0,
   isSolo: false,
   isMuted: false,
-  offset: 0,
   nudgeMs: 0,
   tremolo: 0,
-  ...partial,
+};
+
+/** 1クリップを持つ新規レーンを作成 */
+export const createTrack = (opts: {
+  id: number;
+  name: string;
+  url: string;
+  kind?: TrackKind;
+  color?: string;
+  offset?: number;
+  duration?: number;
+}): Track => ({
+  id: opts.id,
+  name: opts.name,
+  color: opts.color ?? TRACK_COLORS[0],
+  kind: opts.kind ?? "vocal",
+  ...FX_DEFAULTS,
+  clips: [makeClip({ url: opts.url, offset: opts.offset, duration: opts.duration })],
 });
+
+/** レーンの FX 既定値（読込時の補完用） */
+export const trackFxDefaults = () => ({ ...FX_DEFAULTS });
