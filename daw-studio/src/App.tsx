@@ -272,7 +272,7 @@ function App() {
         a.isRecording ? a.stopRecording() : void a.startRecording();
       } else if (e.key === "Home") {
         a.seek(0);
-      } else if ((e.key === "Delete" || e.key === "Backspace") && a.selectedTrackId != null) {
+      } else if (e.key === "Delete" && a.selectedTrackId != null) {
         e.preventDefault();
         a.deleteTrack(a.selectedTrackId);
       } else if (e.key === "+" || e.key === "=") {
@@ -582,21 +582,34 @@ function App() {
         if (ev.data.size > 0) audioChunksRef.current.push(ev.data);
       };
 
-      recorder.onstop = () => {
+      recorder.onstop = async () => {
         recordStreamRef.current?.getTracks().forEach((t) => t.stop());
         recordStreamRef.current = null;
         audioEngine.stopMonitor();
         const blobType = recorder.mimeType || "audio/webm";
-        const url = URL.createObjectURL(new Blob(audioChunksRef.current, { type: blobType }));
+        const rawBlob = new Blob(audioChunksRef.current, { type: blobType });
         const offset = recordOffsetRef.current;
         const targetId = recordTargetRef.current;
+
+        // 録音(webm/opus)を WAV に正規化：再生・波形・長さの取得をどの環境でも安定させる
+        let url: string;
+        let duration = 0;
+        try {
+          const { ctx } = audioEngine.getContext();
+          const decoded = await ctx.decodeAudioData(await rawBlob.arrayBuffer());
+          duration = decoded.duration;
+          url = URL.createObjectURL(audioBufferToWav(decoded));
+        } catch (err) {
+          console.error("録音データのデコードに失敗。元データで保存します:", err);
+          url = URL.createObjectURL(rawBlob);
+        }
 
         pushHistory();
         setTracks((prev) => {
           if (targetId != null && prev.some((t) => t.id === targetId)) {
             return prev.map((t) =>
               t.id === targetId
-                ? { ...t, clips: [...t.clips, makeClip({ url, offset })] }
+                ? { ...t, clips: [...t.clips, makeClip({ url, offset, duration })] }
                 : t
             );
           }
@@ -607,10 +620,16 @@ function App() {
             color: TRACK_COLORS[prev.length % TRACK_COLORS.length],
             kind: "vocal",
             offset,
+            duration,
           });
           setSelectedTrackId(t.id);
           return [...prev, t];
         });
+
+        // 録音後は再生ヘッドを録音開始位置へ戻す（押せばすぐ録ったテイクが聴ける）
+        setGlobalTime(offset);
+        globalTimeRef.current = offset;
+        audioEngine.seek(offset);
       };
 
       if (monitorOnRef.current) {

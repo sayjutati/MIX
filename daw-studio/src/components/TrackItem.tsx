@@ -229,7 +229,10 @@ export function TrackItem({
 
   const effectiveMute = track.isMuted || (hasSolo && !track.isSolo);
 
-  // ランタイム登録（FX チェーン保持）。子クリップの setClipBuffer より前に存在させる
+  // ランタイム登録（FX チェーン保持）。
+  // register/unregister を同一エフェクトで対にし、StrictMode の二重マウントでも
+  // 必ず再登録されるようにする（録音直後のトラックが無音になる不具合の対策）。
+  // setClipBuffer 等の利用は decode 後の非同期で走るため、この登録に間に合う。
   const stateRef = useRef({
     getTrack: () => trackRef.current,
     isAudible: () => {
@@ -237,11 +240,10 @@ export function TrackItem({
       return !t.isMuted && !(hasSoloRef.current && !t.isSolo);
     },
   });
-  audioEngine.register(track.id, stateRef.current);
 
   useEffect(() => {
-    const id = track.id;
-    return () => audioEngine.unregister(id);
+    audioEngine.register(track.id, stateRef.current);
+    return () => audioEngine.unregister(track.id);
   }, [track.id]);
 
   useEffect(() => {
