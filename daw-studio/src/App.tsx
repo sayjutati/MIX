@@ -12,6 +12,15 @@ import {
   BellOff,
   Volume2,
   Headphones,
+  Repeat,
+  Magnet,
+  Timer,
+  ZoomIn,
+  ZoomOut,
+  Maximize,
+  Undo2,
+  Redo2,
+  Clock,
 } from "lucide-react";
 import { audioEngine } from "./audio/engine";
 import { createMediaRecorder, createMicStream } from "./audio/recording";
@@ -20,9 +29,12 @@ import { audioBufferToWav, renderMixdown } from "./audio/mixdown";
 import { EmptyWorkspace } from "./components/EmptyWorkspace";
 import { FxPanel } from "./components/FxPanel";
 import { TrackItem } from "./components/TrackItem";
+import { MasterMeter } from "./components/MasterMeter";
 import {
   PROJECT_VERSION,
   PIXELS_PER_SECOND,
+  MIN_PX_PER_SEC,
+  MAX_PX_PER_SEC,
   TRACK_HEADER_WIDTH,
   TIMELINE_PAD,
   timelineX,
@@ -37,7 +49,7 @@ import {
   type Track,
   type ProjectFile,
 } from "./types";
-import { formatTime } from "./utils/time";
+import { formatTime, formatBarsBeats } from "./utils/time";
 import "./App.css";
 
 function App() {
@@ -67,6 +79,39 @@ function App() {
   const [metronomeOn, setMetronomeOn] = useState(false);
   const nextClickRef = useRef(0);
   const isDraggingPlayheadRef = useRef(false);
+  const actionsRef = useRef<{
+    isPlaying: boolean;
+    isRecording: boolean;
+    selectedTrackId: number | null;
+    play: () => Promise<void> | void;
+    stop: () => void;
+    startRecording: () => Promise<void> | void;
+    stopRecording: () => void;
+    seek: (t: number) => void;
+    deleteTrack: (id: number) => void;
+    undo: () => void;
+    redo: () => void;
+    zoomBy: (f: number) => void;
+    fit: () => void;
+    toggleLoop: () => void;
+  }>(null as never);
+
+  // ズーム
+  const [pxPerSec, setPxPerSec] = useState(PIXELS_PER_SECOND);
+  const pxPerSecRef = useRef(pxPerSec);
+  pxPerSecRef.current = pxPerSec;
+
+  // ループ区間 (A–B)
+  const [loopEnabled, setLoopEnabled] = useState(false);
+  const [loopStart, setLoopStart] = useState(0);
+  const [loopEnd, setLoopEnd] = useState(0);
+  const loopRef = useRef({ enabled: false, start: 0, end: 0 });
+  loopRef.current = { enabled: loopEnabled, start: loopStart, end: loopEnd };
+
+  // スナップ / カウントイン / 小節拍表示
+  const [snapOn, setSnapOn] = useState(false);
+  const [countInOn, setCountInOn] = useState(false);
+  const [showBarsBeats, setShowBarsBeats] = useState(false);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; trackId: number } | null>(
@@ -77,7 +122,37 @@ function App() {
   const hasBgm = tracks.some((t) => t.kind === "bgm");
   const selectedTrack = tracks.find((t) => t.id === selectedTrackId);
   const playheadTrack = selectedTrack ?? tracks[0];
+  const playheadTrackRef = useRef(playheadTrack);
+  playheadTrackRef.current = playheadTrack;
   const maxDuration = Math.max(15, ...tracks.map((t) => trackTimelineEnd(t)));
+
+  // Undo / Redo（構造操作のスナップショット）
+  const tracksRef = useRef(tracks);
+  tracksRef.current = tracks;
+  const pastRef = useRef<Track[][]>([]);
+  const futureRef = useRef<Track[][]>([]);
+  const [histTick, setHistTick] = useState(0);
+  const pushHistory = useCallback(() => {
+    pastRef.current.push(tracksRef.current);
+    if (pastRef.current.length > 60) pastRef.current.shift();
+    futureRef.current = [];
+    setHistTick((n) => n + 1);
+  }, []);
+  const undo = useCallback(() => {
+    if (!pastRef.current.length) return;
+    const prev = pastRef.current.pop()!;
+    futureRef.current.push(tracksRef.current);
+    setTracks(prev);
+    setHistTick((n) => n + 1);
+  }, []);
+  const redo = useCallback(() => {
+    if (!futureRef.current.length) return;
+    const next = futureRef.current.pop()!;
+    pastRef.current.push(tracksRef.current);
+    setTracks(next);
+    setHistTick((n) => n + 1);
+  }, []);
+  void histTick;
 
   const updateTrack = useCallback((id: number, field: keyof Track, value: Track[keyof Track]) => {
     setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, [field]: value } : t)));
@@ -96,13 +171,17 @@ function App() {
     []
   );
 
-  const deleteClip = useCallback((trackId: number, clipId: number) => {
-    setTracks((prev) =>
-      prev.map((t) =>
-        t.id === trackId ? { ...t, clips: t.clips.filter((c) => c.id !== clipId) } : t
-      )
-    );
-  }, []);
+  const deleteClip = useCallback(
+    (trackId: number, clipId: number) => {
+      pushHistory();
+      setTracks((prev) =>
+        prev.map((t) =>
+          t.id === trackId ? { ...t, clips: t.clips.filter((c) => c.id !== clipId) } : t
+        )
+      );
+    },
+    [pushHistory]
+  );
 
   useEffect(() => {
     audioEngine.setMasterVolume(masterVolume);
@@ -117,6 +196,14 @@ function App() {
 
     const interval = setInterval(() => {
       const currentTime = audioEngine.tickTransport();
+
+      // ループ区間: 終端に達したら始点へ
+      const lp = loopRef.current;
+      if (lp.enabled && lp.end - lp.start > 0.05 && currentTime >= lp.end) {
+        seekFnRef.current(lp.start);
+        return;
+      }
+
       setGlobalTime(currentTime);
       globalTimeRef.current = currentTime;
 
@@ -140,7 +227,9 @@ function App() {
 
       const container = scrollContainerRef.current;
       if (container) {
-        const playheadX = playheadVisualX(currentTime, playheadTrack) - TRACK_HEADER_WIDTH;
+        const playheadX =
+          playheadVisualX(currentTime, playheadTrackRef.current, pxPerSecRef.current) -
+          TRACK_HEADER_WIDTH;
         const visible = container.clientWidth - TRACK_HEADER_WIDTH;
         container.scrollLeft = Math.max(0, playheadX - visible / 2);
       }
@@ -161,6 +250,41 @@ function App() {
     const closeMenu = () => setContextMenu(null);
     window.addEventListener("click", closeMenu);
     return () => window.removeEventListener("click", closeMenu);
+  }, []);
+
+  // キーボードショートカット
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      const a = actionsRef.current;
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        e.shiftKey ? a.redo() : a.undo();
+      } else if (mod && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        a.redo();
+      } else if (e.code === "Space") {
+        e.preventDefault();
+        a.isPlaying ? a.stop() : void a.play();
+      } else if ((e.key === "r" || e.key === "R") && !mod) {
+        a.isRecording ? a.stopRecording() : void a.startRecording();
+      } else if (e.key === "Home") {
+        a.seek(0);
+      } else if ((e.key === "Delete" || e.key === "Backspace") && a.selectedTrackId != null) {
+        e.preventDefault();
+        a.deleteTrack(a.selectedTrackId);
+      } else if (e.key === "+" || e.key === "=") {
+        a.zoomBy(1.25);
+      } else if (e.key === "-" || e.key === "_") {
+        a.zoomBy(0.8);
+      } else if ((e.key === "l" || e.key === "L") && !mod) {
+        a.toggleLoop();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   const handlePanelResizeStart = (e: React.MouseEvent) => {
@@ -186,20 +310,67 @@ function App() {
     nextClickRef.current = Math.ceil(t / (60 / bpm)) * (60 / bpm);
     const container = scrollContainerRef.current;
     if (container) {
-      const playheadX = playheadVisualX(t, playheadTrack) - TRACK_HEADER_WIDTH;
+      const playheadX = playheadVisualX(t, playheadTrack, pxPerSec) - TRACK_HEADER_WIDTH;
       const visible = container.clientWidth - TRACK_HEADER_WIDTH;
       if (playheadX < container.scrollLeft || playheadX > container.scrollLeft + visible) {
         container.scrollLeft = Math.max(0, playheadX - 100);
       }
     }
   };
+  const seekFnRef = useRef(seekToTime);
+  seekFnRef.current = seekToTime;
 
   const clientXToTime = (clientX: number) => {
     const el = scrollContainerRef.current;
     if (!el) return 0;
     const rect = el.getBoundingClientRect();
     const x = clientX - rect.left + el.scrollLeft;
-    return timeFromTimelineX(x);
+    return timeFromTimelineX(x, pxPerSec);
+  };
+
+  // ズーム
+  const clampPps = (v: number) => Math.max(MIN_PX_PER_SEC, Math.min(MAX_PX_PER_SEC, v));
+  const zoomBy = (factor: number) => setPxPerSec((p) => clampPps(Math.round(p * factor)));
+  const fitToWidth = () => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const visible = el.clientWidth - TRACK_HEADER_WIDTH - 24;
+    const dur = Math.max(8, maxDuration);
+    setPxPerSec(clampPps(visible / dur));
+  };
+
+  // トラック並び替え
+  const moveTrack = (id: number, dir: -1 | 1) => {
+    pushHistory();
+    setTracks((prev) => {
+      const i = prev.findIndex((t) => t.id === id);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  };
+
+  // 録音前カウントイン（4拍）
+  const playCountIn = async () => {
+    await audioEngine.ensureRunning();
+    const { ctx } = audioEngine.getContext();
+    const beat = 60 / bpm;
+    const beats = 4;
+    for (let i = 0; i < beats; i++) {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.frequency.value = i === 0 ? 1500 : 1000;
+      osc.connect(g);
+      g.connect(ctx.destination);
+      const t0 = ctx.currentTime + i * beat;
+      g.gain.setValueAtTime(0.5, t0);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.09);
+      osc.start(t0);
+      osc.stop(t0 + 0.1);
+    }
+    await new Promise((r) => setTimeout(r, beats * beat * 1000));
   };
 
   const handlePlayheadDragStart = (e: React.MouseEvent) => {
@@ -372,6 +543,7 @@ function App() {
     const list = Array.from(files).filter((f) => f.type.startsWith("audio/") || /\.(wav|mp3|ogg|m4a|flac|webm)$/i.test(f.name));
     if (list.length === 0) return alert("音声ファイルを選択してください。");
 
+    pushHistory();
     setTracks((prev) => {
       const added = list.map((file, i) =>
         createTrack({
@@ -419,6 +591,7 @@ function App() {
         const offset = recordOffsetRef.current;
         const targetId = recordTargetRef.current;
 
+        pushHistory();
         setTracks((prev) => {
           if (targetId != null && prev.some((t) => t.id === targetId)) {
             return prev.map((t) =>
@@ -440,12 +613,17 @@ function App() {
         });
       };
 
-      recordOffsetRef.current = globalTimeRef.current;
-      recorder.start(250);
-
       if (monitorOnRef.current) {
         await audioEngine.startMonitor(stream);
       }
+
+      if (countInOn) {
+        await playCountIn();
+        if (mediaRecorderRef.current !== recorder) return; // 停止された
+      }
+
+      recordOffsetRef.current = globalTimeRef.current;
+      recorder.start(250);
 
       setIsRecording(true);
       setIsPlayingGlobal(true);
@@ -465,11 +643,13 @@ function App() {
   };
 
   const deleteTrack = (id: number) => {
+    pushHistory();
     setTracks((prev) => prev.filter((t) => t.id !== id));
     if (selectedTrackId === id) setSelectedTrackId(null);
   };
 
-  const duplicateTrack = (track: Track) =>
+  const duplicateTrack = (track: Track) => {
+    pushHistory();
     setTracks((prev) => [
       ...prev,
       {
@@ -479,6 +659,7 @@ function App() {
         clips: track.clips.map((c) => makeClip({ url: c.url, offset: c.offset, duration: c.duration })),
       },
     ]);
+  };
 
   const loopTrackAudio = async (trackId: number, times: number) => {
     const track = tracks.find((t) => t.id === trackId);
@@ -499,6 +680,7 @@ function App() {
       }
       const wavBlob = audioBufferToWav(newBuf);
       const url = URL.createObjectURL(wavBlob);
+      pushHistory();
       setTracks((prev) =>
         prev.map((t) =>
           t.id === trackId
@@ -517,6 +699,46 @@ function App() {
   };
 
   const timelineTicks = Array.from({ length: Math.ceil(maxDuration) + 21 }, (_, i) => i);
+
+  // ズームに応じたルーラー目盛り間隔（秒）
+  const tickStep = (() => {
+    const target = 56; // 目盛り間の最小px
+    const raw = target / pxPerSec;
+    return [1, 2, 5, 10, 15, 30, 60].find((s) => s >= raw) ?? 60;
+  })();
+
+  // 小節/拍グリッド線
+  const gridLines: { t: number; bar: boolean }[] = [];
+  {
+    const beatLen = 60 / bpm;
+    const beatPx = beatLen * pxPerSec;
+    if (beatPx >= 4) {
+      const showBeats = beatPx >= 14;
+      const total = Math.ceil(maxDuration / beatLen);
+      for (let i = 0; i <= total && gridLines.length < 2000; i++) {
+        const bar = i % 4 === 0;
+        if (showBeats || bar) gridLines.push({ t: i * beatLen, bar });
+      }
+    }
+  }
+
+  // キーボードショートカットの最新ハンドラを保持
+  actionsRef.current = {
+    isPlaying: isPlayingGlobal,
+    isRecording,
+    selectedTrackId,
+    play: playAll,
+    stop: stopAll,
+    startRecording,
+    stopRecording,
+    seek: seekToTime,
+    deleteTrack,
+    undo,
+    redo,
+    zoomBy,
+    fit: fitToWidth,
+    toggleLoop: () => setLoopEnabled((v) => !v),
+  };
 
   return (
     <div className="app">
@@ -618,7 +840,9 @@ function App() {
                 }}
               />
             ) : (
-              <span className={isRecording ? "transport__time--rec" : ""}>{formatTime(globalTime)}</span>
+              <span className={isRecording ? "transport__time--rec" : ""}>
+                {showBarsBeats ? formatBarsBeats(globalTime, bpm) : formatTime(globalTime)}
+              </span>
             )}
           </div>
           {!isRecording ? (
@@ -662,13 +886,112 @@ function App() {
           >
             <Headphones size={18} />
           </button>
+
+          <div className="transport__divider" />
+
+          <button
+            type="button"
+            className={`transport__btn-ghost tooltip ${loopEnabled ? "transport__btn-ghost--on" : ""}`}
+            data-tooltip="ループ再生 ON/OFF（A〜B区間を繰り返す・Lキー）"
+            onClick={() => setLoopEnabled((v) => !v)}
+          >
+            <Repeat size={18} />
+          </button>
+          <button
+            type="button"
+            className="transport__ab tooltip"
+            data-tooltip="ループ始点(A)を再生位置に設定"
+            onClick={() => {
+              setLoopStart(globalTime);
+              if (globalTime >= loopEnd) setLoopEnd(globalTime + 4);
+              setLoopEnabled(true);
+            }}
+          >
+            A
+          </button>
+          <button
+            type="button"
+            className="transport__ab tooltip"
+            data-tooltip="ループ終点(B)を再生位置に設定"
+            onClick={() => {
+              setLoopEnd(Math.max(globalTime, loopStart + 0.1));
+              setLoopEnabled(true);
+            }}
+          >
+            B
+          </button>
+          <button
+            type="button"
+            className={`transport__btn-ghost tooltip ${snapOn ? "transport__btn-ghost--on" : ""}`}
+            data-tooltip="スナップ：クリップ移動を拍にぴったり吸着"
+            onClick={() => setSnapOn((v) => !v)}
+          >
+            <Magnet size={18} />
+          </button>
+          <button
+            type="button"
+            className={`transport__btn-ghost tooltip ${countInOn ? "transport__btn-ghost--on" : ""}`}
+            data-tooltip="カウントイン：録音前に4拍カウント"
+            onClick={() => setCountInOn((v) => !v)}
+          >
+            <Timer size={18} />
+          </button>
         </div>
 
         <div className="toolbar__right">
+          <button
+            type="button"
+            className="toolbar__icon tooltip"
+            data-tooltip="元に戻す (Ctrl+Z)"
+            disabled={pastRef.current.length === 0}
+            onClick={undo}
+          >
+            <Undo2 size={16} />
+          </button>
+          <button
+            type="button"
+            className="toolbar__icon tooltip"
+            data-tooltip="やり直す (Ctrl+Shift+Z)"
+            disabled={futureRef.current.length === 0}
+            onClick={redo}
+          >
+            <Redo2 size={16} />
+          </button>
+          <div className="toolbar__divider" />
+          <div className="toolbar__zoom">
+            <button type="button" className="toolbar__icon tooltip" data-tooltip="ズームアウト (−)" onClick={() => zoomBy(0.8)}>
+              <ZoomOut size={16} />
+            </button>
+            <input
+              type="range"
+              min={MIN_PX_PER_SEC}
+              max={MAX_PX_PER_SEC}
+              step={1}
+              value={pxPerSec}
+              onChange={(e) => setPxPerSec(Number(e.target.value))}
+              className="toolbar__zoom-slider tooltip"
+              data-tooltip={`ズーム ${Math.round(pxPerSec)}px/秒`}
+            />
+            <button type="button" className="toolbar__icon tooltip" data-tooltip="ズームイン (+)" onClick={() => zoomBy(1.25)}>
+              <ZoomIn size={16} />
+            </button>
+            <button type="button" className="toolbar__icon tooltip" data-tooltip="画面幅に合わせる" onClick={fitToWidth}>
+              <Maximize size={16} />
+            </button>
+          </div>
+          <div className="toolbar__divider" />
           <label className="toolbar__bpm">
             BPM
             <input type="number" min={40} max={240} value={bpm} onChange={(e) => setBpm(Number(e.target.value))} />
           </label>
+          <button
+            type="button"
+            className={`toolbar__icon tooltip ${showBarsBeats ? "toolbar__icon--on" : ""}`}
+            data-tooltip={showBarsBeats ? "表示：小節:拍（クリックで秒に）" : "表示：秒（クリックで小節:拍に）"}
+            onClick={() => setShowBarsBeats((v) => !v)}
+          >
+            <Clock size={16} />
+          </button>
           <button
             type="button"
             className={`toolbar__metro ${metronomeOn ? "toolbar__metro--on" : ""}`}
@@ -676,6 +999,7 @@ function App() {
           >
             {metronomeOn ? <Bell size={18} /> : <BellOff size={18} />}
           </button>
+          <MasterMeter />
           <label className="toolbar__master tooltip" data-tooltip="マスター音量">
             <Volume2 size={16} />
             <input
@@ -691,21 +1015,50 @@ function App() {
       </header>
 
       <div ref={scrollContainerRef} className="workspace" onClick={handleTimelineClick}>
-        <div className="workspace__inner" style={{ minWidth: `${timelineX(maxDuration)}px` }}>
+        <div className="workspace__inner" style={{ minWidth: `${timelineX(maxDuration, pxPerSec)}px` }}>
           <div className="timeline-ruler">
             <div className="timeline-ruler__label">TIMELINE</div>
             <div className="timeline-ruler__ticks">
-              {timelineTicks.map((t) => (
-                <div
-                  key={t}
-                  className={`timeline-tick ${t % 5 === 0 ? "timeline-tick--major" : ""}`}
-                  style={{ left: `${TIMELINE_PAD + t * PIXELS_PER_SECOND}px` }}
-                >
-                  {t % 5 === 0 ? `${t}s` : null}
-                </div>
-              ))}
+              {timelineTicks
+                .filter((t) => t % tickStep === 0)
+                .map((t) => (
+                  <div
+                    key={t}
+                    className={`timeline-tick ${t % (tickStep * 5) === 0 ? "timeline-tick--major" : ""}`}
+                    style={{ left: `${TIMELINE_PAD + t * pxPerSec}px` }}
+                  >
+                    {t % (tickStep * 5) === 0
+                      ? showBarsBeats
+                        ? formatBarsBeats(t, bpm).split(".")[0]
+                        : `${t}s`
+                      : null}
+                  </div>
+                ))}
             </div>
           </div>
+
+          {tracks.length > 0 && (
+            <div className="timeline-grid" aria-hidden>
+              {gridLines.map((g) => (
+                <div
+                  key={g.t}
+                  className={`timeline-grid__line ${g.bar ? "timeline-grid__line--bar" : ""}`}
+                  style={{ left: `${timelineX(g.t, pxPerSec)}px` }}
+                />
+              ))}
+            </div>
+          )}
+
+          {loopEnabled && loopEnd > loopStart && (
+            <div
+              className="loop-region"
+              aria-hidden
+              style={{
+                left: `${timelineX(loopStart, pxPerSec)}px`,
+                width: `${(loopEnd - loopStart) * pxPerSec}px`,
+              }}
+            />
+          )}
 
           {tracks.length === 0 ? (
             <EmptyWorkspace
@@ -714,19 +1067,25 @@ function App() {
               onRecord={() => void startRecording()}
             />
           ) : (
-            tracks.map((track) => (
+            tracks.map((track, idx) => (
               <TrackItem
                 key={track.id}
                 track={track}
                 isSelected={selectedTrackId === track.id}
                 hasSolo={hasSolo}
                 globalTime={globalTime}
+                pxPerSec={pxPerSec}
+                snapSeconds={snapOn ? 60 / bpm : 0}
+                index={idx}
+                total={tracks.length}
+                onMove={moveTrack}
                 onSelect={setSelectedTrackId}
                 onDelete={deleteTrack}
                 onDuplicate={duplicateTrack}
                 onUpdate={updateTrack}
                 onUpdateClip={updateClip}
                 onDeleteClip={deleteClip}
+                onClipDragStart={pushHistory}
                 onContextMenu={(e, id) => {
                   e.preventDefault();
                   setContextMenu({ x: e.pageX, y: e.pageY, trackId: id });
@@ -737,7 +1096,7 @@ function App() {
 
           <div
             className="playhead"
-            style={{ left: `${playheadVisualX(globalTime, playheadTrack)}px` }}
+            style={{ left: `${playheadVisualX(globalTime, playheadTrack, pxPerSec)}px` }}
             onMouseDown={handlePlayheadDragStart}
             onClick={(e) => e.stopPropagation()}
             title="ドラッグして再生位置を移動"

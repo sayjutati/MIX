@@ -1,17 +1,20 @@
 export const PROJECT_VERSION = 4;
+/** 既定のズーム（1秒あたりのpx） */
 export const PIXELS_PER_SECOND = 50;
+export const MIN_PX_PER_SEC = 12;
+export const MAX_PX_PER_SEC = 320;
 /** 左サイドバー（トラックヘッダー）幅 */
 export const TRACK_HEADER_WIDTH = 250;
 /** 波形エリア左パディング — ルーラー・プレイヘッド・クリップで共通（0で原点を揃える） */
 export const TIMELINE_PAD = 0;
 
 /** 秒 → ワークスペース内 X 座標（px） */
-export const timelineX = (seconds: number) =>
-  TRACK_HEADER_WIDTH + TIMELINE_PAD + seconds * PIXELS_PER_SECOND;
+export const timelineX = (seconds: number, pps: number = PIXELS_PER_SECOND) =>
+  TRACK_HEADER_WIDTH + TIMELINE_PAD + seconds * pps;
 
 /** ワークスペース内 X → 秒 */
-export const timeFromTimelineX = (x: number) =>
-  Math.max(0, (x - TRACK_HEADER_WIDTH - TIMELINE_PAD) / PIXELS_PER_SECOND);
+export const timeFromTimelineX = (x: number, pps: number = PIXELS_PER_SECOND) =>
+  Math.max(0, (x - TRACK_HEADER_WIDTH - TIMELINE_PAD) / pps);
 
 export type TrackKind = "bgm" | "vocal";
 
@@ -71,18 +74,22 @@ export const trackTimelineEnd = (track: Track) =>
  * 緑プレイヘッドの X 座標（px）。
  * globalTime を含むクリップがあれば、その波形の白線と一致する位置を返す。
  */
-export const playheadVisualX = (globalTime: number, track?: Track) => {
-  if (!track) return timelineX(globalTime);
+export const playheadVisualX = (
+  globalTime: number,
+  track?: Track,
+  pps: number = PIXELS_PER_SECOND
+) => {
+  if (!track) return timelineX(globalTime, pps);
   for (const clip of track.clips) {
     const start = clipEffectiveOffset(track, clip);
     const playDur = clipPlayDuration(track, clip);
     if (playDur > 0 && globalTime >= start && globalTime <= start + playDur) {
       const local = globalTime - start;
       const waveLocal = Math.max(0, local * (track.speed ?? 1));
-      return TRACK_HEADER_WIDTH + TIMELINE_PAD + clip.offset * PIXELS_PER_SECOND + waveLocal * PIXELS_PER_SECOND;
+      return TRACK_HEADER_WIDTH + TIMELINE_PAD + clip.offset * pps + waveLocal * pps;
     }
   }
-  return timelineX(globalTime);
+  return timelineX(globalTime, pps);
 };
 
 export interface ProjectClip extends Clip {

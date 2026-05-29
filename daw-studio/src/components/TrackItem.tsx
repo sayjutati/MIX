@@ -1,14 +1,9 @@
 import { useEffect, useRef } from "react";
 import WaveSurfer from "wavesurfer.js";
-import { Copy, Trash2, Volume2, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, Trash2, Volume2, X } from "lucide-react";
 import { decodeAudioUrl } from "../audio/decode";
 import { audioEngine } from "../audio/engine";
-import {
-  PIXELS_PER_SECOND,
-  clipEffectiveOffset,
-  type Clip,
-  type Track,
-} from "../types";
+import { clipEffectiveOffset, type Clip, type Track } from "../types";
 
 type ClipViewProps = {
   track: Track;
@@ -17,7 +12,10 @@ type ClipViewProps = {
   effectiveMute: boolean;
   globalTime: number;
   canDelete: boolean;
+  pxPerSec: number;
+  snapSeconds: number;
   onSelect: () => void;
+  onDragStart: () => void;
   onUpdateClip: (clipId: number, field: keyof Clip, value: number) => void;
   onDeleteClip: (clipId: number) => void;
   onContextMenu: (e: React.MouseEvent) => void;
@@ -30,7 +28,10 @@ function ClipView({
   effectiveMute,
   globalTime,
   canDelete,
+  pxPerSec,
+  snapSeconds,
   onSelect,
+  onDragStart,
   onUpdateClip,
   onDeleteClip,
   onContextMenu,
@@ -39,8 +40,10 @@ function ClipView({
   const wavesurferRef = useRef<WaveSurfer | null>(null);
   const trackRef = useRef(track);
   const clipRef = useRef(clip);
+  const ppsRef = useRef(pxPerSec);
   trackRef.current = track;
   clipRef.current = clip;
+  ppsRef.current = pxPerSec;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -56,7 +59,7 @@ function ClipView({
       height: 80,
       url: clip.url,
       interact: false,
-      minPxPerSec: PIXELS_PER_SECOND,
+      minPxPerSec: ppsRef.current,
       fillParent: false,
       hideScrollbar: true,
     });
@@ -92,6 +95,17 @@ function ClipView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clip.url, clip.id]);
 
+  // ズーム変更時に波形を再スケール
+  useEffect(() => {
+    const ws = wavesurferRef.current;
+    if (!ws) return;
+    try {
+      ws.zoom(pxPerSec);
+    } catch {
+      /* 波形未準備時は無視 */
+    }
+  }, [pxPerSec]);
+
   // クリップ内の白線（再生位置）
   useEffect(() => {
     const ws = wavesurferRef.current;
@@ -115,10 +129,18 @@ function ClipView({
     onSelect();
     const startX = e.clientX;
     const startOffset = clip.offset;
+    let moved = false;
 
     const move = (ev: MouseEvent) => {
       const diffX = ev.clientX - startX;
-      onUpdateClip(clip.id, "offset", Math.max(0, startOffset + diffX / PIXELS_PER_SECOND));
+      if (!moved) {
+        if (Math.abs(diffX) < 3) return;
+        moved = true;
+        onDragStart(); // Undo履歴に記録
+      }
+      let next = Math.max(0, startOffset + diffX / ppsRef.current);
+      if (snapSeconds > 0) next = Math.round(next / snapSeconds) * snapSeconds;
+      onUpdateClip(clip.id, "offset", next);
     };
     const end = () => {
       window.removeEventListener("mousemove", move);
@@ -128,13 +150,13 @@ function ClipView({
     window.addEventListener("mouseup", end);
   };
 
-  const clipWidth = Math.max((clip.duration || 0) * PIXELS_PER_SECOND, 40);
+  const clipWidth = Math.max((clip.duration || 0) * pxPerSec, 40);
 
   return (
     <div
       className={`track-clip ${isSelected ? "track-clip--selected" : ""}`}
       style={{
-        left: `${clip.offset * PIXELS_PER_SECOND}px`,
+        left: `${clip.offset * pxPerSec}px`,
         width: `${clipWidth}px`,
         background: track.color,
         opacity: effectiveMute ? 0.35 : 1,
@@ -166,12 +188,18 @@ type Props = {
   isSelected: boolean;
   hasSolo: boolean;
   globalTime: number;
+  pxPerSec: number;
+  snapSeconds: number;
+  index: number;
+  total: number;
+  onMove: (id: number, dir: -1 | 1) => void;
   onSelect: (id: number) => void;
   onDelete: (id: number) => void;
   onDuplicate: (track: Track) => void;
   onUpdate: (id: number, field: keyof Track, value: Track[keyof Track]) => void;
   onUpdateClip: (trackId: number, clipId: number, field: keyof Clip, value: number) => void;
   onDeleteClip: (trackId: number, clipId: number) => void;
+  onClipDragStart: () => void;
   onContextMenu: (e: React.MouseEvent, trackId: number) => void;
 };
 
@@ -180,12 +208,18 @@ export function TrackItem({
   isSelected,
   hasSolo,
   globalTime,
+  pxPerSec,
+  snapSeconds,
+  index,
+  total,
+  onMove,
   onSelect,
   onDelete,
   onDuplicate,
   onUpdate,
   onUpdateClip,
   onDeleteClip,
+  onClipDragStart,
   onContextMenu,
 }: Props) {
   const trackRef = useRef(track);
@@ -272,6 +306,30 @@ export function TrackItem({
             <button
               type="button"
               className="tooltip"
+              data-tooltip="上に移動"
+              disabled={index === 0}
+              onClick={(e) => {
+                e.stopPropagation();
+                onMove(track.id, -1);
+              }}
+            >
+              <ChevronUp size={14} />
+            </button>
+            <button
+              type="button"
+              className="tooltip"
+              data-tooltip="下に移動"
+              disabled={index === total - 1}
+              onClick={(e) => {
+                e.stopPropagation();
+                onMove(track.id, 1);
+              }}
+            >
+              <ChevronDown size={14} />
+            </button>
+            <button
+              type="button"
+              className="tooltip"
               data-tooltip="複製"
               onClick={(e) => {
                 e.stopPropagation();
@@ -335,7 +393,10 @@ export function TrackItem({
             effectiveMute={effectiveMute}
             globalTime={globalTime}
             canDelete={canDeleteClip}
+            pxPerSec={pxPerSec}
+            snapSeconds={snapSeconds}
             onSelect={() => onSelect(track.id)}
+            onDragStart={onClipDragStart}
             onUpdateClip={(clipId, field, value) => onUpdateClip(track.id, clipId, field, value)}
             onDeleteClip={(clipId) => onDeleteClip(track.id, clipId)}
             onContextMenu={(e) => onContextMenu(e, track.id)}

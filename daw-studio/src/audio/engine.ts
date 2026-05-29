@@ -83,14 +83,33 @@ class AudioEngine {
     return new AudioContext({ latencyHint: "playback" });
   }
 
+  private analyser: AnalyserNode | null = null;
+  private analyserBuf: Float32Array | null = null;
+
   getContext(): { ctx: AudioContext; master: GainNode } {
     if (!this.ctx || this.ctx.state === "closed") {
       this.ctx = this.createContext();
       this.master = this.ctx.createGain();
       this.master.gain.value = this._masterVolume;
+      this.analyser = this.ctx.createAnalyser();
+      this.analyser.fftSize = 1024;
+      this.analyserBuf = new Float32Array(this.analyser.fftSize);
+      this.master.connect(this.analyser);
       this.master.connect(this.ctx.destination);
     }
     return { ctx: this.ctx, master: this.master! };
+  }
+
+  /** マスター出力のピークレベル（0〜1） */
+  getLevel(): number {
+    if (!this.analyser || !this.analyserBuf) return 0;
+    this.analyser.getFloatTimeDomainData(this.analyserBuf);
+    let peak = 0;
+    for (let i = 0; i < this.analyserBuf.length; i++) {
+      const v = Math.abs(this.analyserBuf[i]);
+      if (v > peak) peak = v;
+    }
+    return Math.min(1, peak);
   }
 
   private _masterVolume = 1;

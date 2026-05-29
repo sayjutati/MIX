@@ -173,6 +173,36 @@ input[type="number"] {
   border: none;
   color: #9ca3af;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 8px;
+}
+.transport__btn-ghost--on {
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.14);
+}
+.transport__divider {
+  width: 1px;
+  height: 24px;
+  background: #2a2a35;
+  margin: 0 2px;
+}
+.transport__ab {
+  background: #1c1c26;
+  border: 1px solid #3f3f4a;
+  color: #c7c7d1;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.transport__ab:hover {
+  border-color: #34d399;
+  color: #34d399;
 }
 .transport__btn-play,
 .transport__btn-stop,
@@ -830,4 +860,91 @@ input[type="number"] {
   font-size: 11px;
   line-height: 1.55;
   color: #d1d5db;
+}
+
+/* ===== ズーム / 並び替え / ループ / メーター ===== */
+.toolbar__icon {
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 5px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.toolbar__icon:hover:not(:disabled) {
+  color: #e5e7eb;
+  background: #23232e;
+}
+.toolbar__icon:disabled {
+  opacity: 0.32;
+  cursor: not-allowed;
+}
+.toolbar__icon--on {
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.14);
+}
+.toolbar__zoom {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.toolbar__zoom-slider {
+  width: 88px;
+  accent-color: #34d399;
+  cursor: pointer;
+}
+
+.master-meter {
+  width: 70px;
+  height: 10px;
+  border-radius: 5px;
+  background: #0a0a0e;
+  border: 1px solid #2a2a35;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.master-meter__fill {
+  height: 100%;
+  width: 0%;
+  background: #22c55e;
+  transition: width 0.05s linear;
+}
+
+.track-row__actions button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* ===== タイムライン グリッド / ループ区間 ===== */
+.timeline-grid {
+  position: absolute;
+  top: 32px;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+.timeline-grid__line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.045);
+}
+.timeline-grid__line--bar {
+  background: rgba(255, 255, 255, 0.11);
+}
+.loop-region {
+  position: absolute;
+  top: 32px;
+  bottom: 0;
+  z-index: 4;
+  background: rgba(52, 211, 153, 0.1);
+  border-left: 2px solid rgba(52, 211, 153, 0.6);
+  border-right: 2px solid rgba(52, 211, 153, 0.6);
+  pointer-events: none;
 }
