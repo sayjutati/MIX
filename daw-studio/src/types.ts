@@ -1,4 +1,4 @@
-export const PROJECT_VERSION = 4;
+export const PROJECT_VERSION = 5;
 /** 既定のズーム（1秒あたりのpx） */
 export const PIXELS_PER_SECOND = 50;
 export const MIN_PX_PER_SEC = 12;
@@ -18,6 +18,19 @@ export const timeFromTimelineX = (x: number, pps: number = PIXELS_PER_SECOND) =>
 
 export type TrackKind = "bgm" | "vocal";
 
+/** ピッチ編集の1ノート（クリップ内ローカル秒・MIDIノート番号） */
+export interface PitchNote {
+  id: number;
+  /** クリップ内の開始秒 */
+  start: number;
+  /** クリップ内の終了秒 */
+  end: number;
+  /** 検出された基準ピッチ（MIDIノート番号、四捨五入前の中央値） */
+  midi: number;
+  /** ユーザーによる補正量（半音、±limit にクランプ） */
+  shift: number;
+}
+
 /** 1つの音声クリップ（テイク）。1レーンに複数並べられる。 */
 export interface Clip {
   id: number;
@@ -26,6 +39,10 @@ export interface Clip {
   offset: number;
   /** 素材の長さ（秒） */
   duration: number;
+  /** ピッチ補正前の元音声（非破壊編集用）。未補正なら未設定 */
+  originalUrl?: string;
+  /** 検出＋編集されたピッチノート列。未解析なら未設定 */
+  notes?: PitchNote[];
 }
 
 /** トラック = レーン。FX・音量・Solo/Mute はレーン共通。 */
@@ -94,6 +111,8 @@ export const playheadVisualX = (
 
 export interface ProjectClip extends Clip {
   audioData?: string;
+  /** originalUrl の音声データ（base64） */
+  originalAudioData?: string;
 }
 
 export interface ProjectTrack extends Omit<Track, "clips"> {

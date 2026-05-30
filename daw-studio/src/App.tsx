@@ -21,15 +21,19 @@ import {
   Undo2,
   Redo2,
   Clock,
+  HelpCircle,
 } from "lucide-react";
 import { audioEngine } from "./audio/engine";
 import { createMediaRecorder, createMicStream } from "./audio/recording";
 import { encodeMixdown, EXPORT_FORMAT_OPTIONS, type ExportFormat } from "./audio/export";
 import { audioBufferToWav, renderMixdown } from "./audio/mixdown";
 import { EmptyWorkspace } from "./components/EmptyWorkspace";
-import { FxPanel } from "./components/FxPanel";
+import { FxPanel, type FxMode } from "./components/FxPanel";
+import { detectNotes, renderPitchCorrected } from "./audio/pitch";
 import { TrackItem } from "./components/TrackItem";
 import { MasterMeter } from "./components/MasterMeter";
+import { FxHelpContext } from "./components/FxHelpTooltip";
+import { GlobalTooltip } from "./components/GlobalTooltip";
 import {
   PROJECT_VERSION,
   PIXELS_PER_SECOND,
@@ -46,8 +50,10 @@ import {
   trackFxDefaults,
   TRACK_COLORS,
   type Clip,
+  type PitchNote,
   type Track,
   type ProjectFile,
+  type ProjectClip,
 } from "./types";
 import { formatTime, formatBarsBeats } from "./utils/time";
 import "./App.css";
@@ -112,6 +118,7 @@ function App() {
   const [snapOn, setSnapOn] = useState(false);
   const [countInOn, setCountInOn] = useState(false);
   const [showBarsBeats, setShowBarsBeats] = useState(false);
+  const [fxHelpOn, setFxHelpOn] = useState(true);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; trackId: number } | null>(
@@ -182,6 +189,127 @@ function App() {
     },
     [pushHistory]
   );
+
+  // ---- ピッチ編集モード ----
+  const [fxMode, setFxMode] = useState<FxMode>("fx");
+  const [pitchClipId, setPitchClipId] = useState<number | null>(null);
+  const [pitchLimit, setPitchLimit] = useState(2);
+  const [pitchAnalyzing, setPitchAnalyzing] = useState(false);
+  const [pitchApplying, setPitchApplying] = useState(false);
+
+  const patchClip = useCallback(
+    (trackId: number, clipId: number, patch: Partial<Clip>) => {
+      setTracks((prev) =>
+        prev.map((t) =>
+          t.id === trackId
+            ? { ...t, clips: t.clips.map((c) => (c.id === clipId ? { ...c, ...patch } : c)) }
+            : t
+        )
+      );
+    },
+    []
+  );
+
+  const pitchTrack = selectedTrack && selectedTrack.kind !== "bgm" ? selectedTrack : undefined;
+  const pitchClip = pitchTrack
+    ? pitchTrack.clips.find((c) => c.id === pitchClipId) ?? pitchTrack.clips[0]
+    : undefined;
+
+  const pitchPlayLocal = (() => {
+    if (!pitchTrack || !pitchClip) return null;
+    const speed = pitchTrack.speed ?? 1;
+    const local = (globalTime - pitchClip.offset) * speed;
+    return local >= 0 && local <= pitchClip.duration ? local : null;
+  })();
+
+  const analyzePitchClip = useCallback(
+    async (trackId: number, clipId: number) => {
+      const tr = tracksRef.current.find((t) => t.id === trackId);
+      const clip = tr?.clips.find((c) => c.id === clipId);
+      if (!clip) return;
+      setPitchAnalyzing(true);
+      try {
+        const { ctx } = audioEngine.getContext();
+        const srcUrl = clip.originalUrl ?? clip.url;
+        const buf = await ctx.decodeAudioData(await (await fetch(srcUrl)).arrayBuffer());
+        patchClip(trackId, clipId, { notes: detectNotes(buf) });
+      } catch (e) {
+        console.error("ピッチ解析に失敗:", e);
+        patchClip(trackId, clipId, { notes: [] });
+      } finally {
+        setPitchAnalyzing(false);
+      }
+    },
+    [patchClip]
+  );
+
+  // ピッチモードで未解析のクリップを自動解析
+  useEffect(() => {
+    if (fxMode !== "pitch" || !pitchTrack || !pitchClip) return;
+    if (pitchClip.notes === undefined && !pitchAnalyzing) {
+      void analyzePitchClip(pitchTrack.id, pitchClip.id);
+    }
+  }, [fxMode, pitchTrack, pitchClip, pitchAnalyzing, analyzePitchClip]);
+
+  const changePitchNotes = useCallback(
+    (notes: PitchNote[]) => {
+      if (!pitchTrack || !pitchClip) return;
+      patchClip(pitchTrack.id, pitchClip.id, { notes });
+    },
+    [pitchTrack, pitchClip, patchClip]
+  );
+
+  const handlePitchLimitChange = useCallback(
+    (n: number) => {
+      setPitchLimit(n);
+      if (pitchTrack && pitchClip?.notes) {
+        const clamped = pitchClip.notes.map((nt) => ({
+          ...nt,
+          shift: Math.max(-n, Math.min(n, nt.shift)),
+        }));
+        patchClip(pitchTrack.id, pitchClip.id, { notes: clamped });
+      }
+    },
+    [pitchTrack, pitchClip, patchClip]
+  );
+
+  const applyPitch = useCallback(async () => {
+    if (!pitchTrack || !pitchClip || !pitchClip.notes) return;
+    setPitchApplying(true);
+    try {
+      const { ctx } = audioEngine.getContext();
+      const original = pitchClip.originalUrl ?? pitchClip.url;
+      const buf = await ctx.decodeAudioData(await (await fetch(original)).arrayBuffer());
+      const rendered = renderPitchCorrected(buf, pitchClip.notes, pitchLimit);
+      const url = URL.createObjectURL(audioBufferToWav(rendered));
+      pushHistory();
+      patchClip(pitchTrack.id, pitchClip.id, {
+        url,
+        originalUrl: original,
+        duration: rendered.duration,
+      });
+    } catch (e) {
+      console.error("ピッチ適用に失敗:", e);
+      alert("ピッチ適用に失敗しました。");
+    } finally {
+      setPitchApplying(false);
+    }
+  }, [pitchTrack, pitchClip, pitchLimit, patchClip, pushHistory]);
+
+  const resetPitch = useCallback(() => {
+    if (!pitchTrack || !pitchClip) return;
+    const notes = (pitchClip.notes ?? []).map((n) => ({ ...n, shift: 0 }));
+    pushHistory();
+    patchClip(pitchTrack.id, pitchClip.id, {
+      notes,
+      url: pitchClip.originalUrl ?? pitchClip.url,
+    });
+  }, [pitchTrack, pitchClip, patchClip, pushHistory]);
+
+  const reanalyzePitch = useCallback(() => {
+    if (!pitchTrack || !pitchClip) return;
+    void analyzePitchClip(pitchTrack.id, pitchClip.id);
+  }, [pitchTrack, pitchClip, analyzePitchClip]);
 
   useEffect(() => {
     audioEngine.setMasterVolume(masterVolume);
@@ -429,7 +557,12 @@ function App() {
           const clips = await Promise.all(
             track.clips.map(async (c) => {
               const blob = await (await fetch(c.url)).blob();
-              return { ...c, audioData: await toDataUrl(blob) };
+              const clipData: ProjectClip = { ...c, audioData: await toDataUrl(blob) };
+              if (c.originalUrl) {
+                const ob = await (await fetch(c.originalUrl)).blob();
+                clipData.originalAudioData = await toDataUrl(ob);
+              }
+              return clipData;
             })
           );
           return { ...track, clips };
@@ -465,12 +598,18 @@ function App() {
             clips = await Promise.all(
               td.clips.map(async (pc) => {
                 const blob = await (await fetch(pc.audioData!)).blob();
-                return makeClip({
+                const clip = makeClip({
                   id: pc.id,
                   url: URL.createObjectURL(blob),
                   offset: pc.offset ?? 0,
                   duration: pc.duration ?? 0,
                 });
+                if (pc.notes) clip.notes = pc.notes;
+                if (pc.originalAudioData) {
+                  const ob = await (await fetch(pc.originalAudioData)).blob();
+                  clip.originalUrl = URL.createObjectURL(ob);
+                }
+                return clip;
               })
             );
           } else {
@@ -760,6 +899,8 @@ function App() {
   };
 
   return (
+    <FxHelpContext.Provider value={fxHelpOn}>
+    <GlobalTooltip enabled={fxHelpOn} />
     <div className="app">
       <header className="toolbar">
         <div className="toolbar__left">
@@ -960,6 +1101,15 @@ function App() {
         <div className="toolbar__right">
           <button
             type="button"
+            className={`toolbar__icon tooltip ${fxHelpOn ? "toolbar__icon--on" : ""}`}
+            data-tooltip={fxHelpOn ? "機能説明ポップアップ：ON（クリックでOFF）" : "機能説明ポップアップ：OFF（クリックでON）"}
+            onClick={() => setFxHelpOn((v) => !v)}
+          >
+            <HelpCircle size={16} />
+          </button>
+          <div className="toolbar__divider" />
+          <button
+            type="button"
             className="toolbar__icon tooltip"
             data-tooltip="元に戻す (Ctrl+Z)"
             disabled={pastRef.current.length === 0}
@@ -1130,6 +1280,19 @@ function App() {
         selectedTrack={selectedTrack}
         onResizeStart={handlePanelResizeStart}
         onUpdate={updateTrack}
+        fxMode={fxMode}
+        onFxModeChange={setFxMode}
+        pitchClipId={pitchClipId}
+        onSelectPitchClip={setPitchClipId}
+        playLocalTime={pitchPlayLocal}
+        pitchAnalyzing={pitchAnalyzing}
+        pitchApplying={pitchApplying}
+        pitchLimit={pitchLimit}
+        onPitchLimitChange={handlePitchLimitChange}
+        onChangeClipNotes={changePitchNotes}
+        onApplyPitch={applyPitch}
+        onResetPitch={resetPitch}
+        onReanalyzePitch={reanalyzePitch}
       />
 
       {contextMenu && (
@@ -1144,6 +1307,7 @@ function App() {
         </div>
       )}
     </div>
+    </FxHelpContext.Provider>
   );
 }
 

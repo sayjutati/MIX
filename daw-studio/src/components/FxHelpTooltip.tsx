@@ -1,5 +1,7 @@
 import {
+  createContext,
   useCallback,
+  useContext,
   useLayoutEffect,
   useRef,
   useState,
@@ -7,6 +9,9 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+
+/** 機能説明ポップアップの表示ON/OFF（既定: 表示） */
+export const FxHelpContext = createContext(true);
 
 type Props = {
   title: string;
@@ -54,6 +59,7 @@ const clampPopup = (anchor: DOMRect, popupW: number, popupH: number): Coords => 
 
 /** エフェクトノブ用 — ホバーで機能説明を表示（画面内に収める） */
 export function FxHelpTooltip({ title, description, children }: Props) {
+  const enabled = useContext(FxHelpContext);
   const anchorRef = useRef<HTMLDivElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -78,7 +84,9 @@ export function FxHelpTooltip({ title, description, children }: Props) {
     };
   }, [open, reposition, title, description]);
 
-  const show = () => setOpen(true);
+  const show = () => {
+    if (enabled) setOpen(true);
+  };
   const hide = () => {
     setOpen(false);
     setCoords(null);
@@ -97,6 +105,7 @@ export function FxHelpTooltip({ title, description, children }: Props) {
         {children}
       </div>
       {open &&
+        enabled &&
         createPortal(
           <div
             ref={popupRef}

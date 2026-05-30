@@ -1,31 +1,116 @@
-import { Sliders } from "lucide-react";
-import type { Track } from "../types";
+import { Sliders, Music2 } from "lucide-react";
+import type { PitchNote, Track } from "../types";
 import { trackTimelineEnd } from "../types";
 import { FX_TOOLTIPS } from "../data/fxTooltips";
 import { formatTime } from "../utils/time";
 import { EffectKnob } from "./EffectKnob";
+import { PitchEditor } from "./PitchEditor";
+
+export type FxMode = "fx" | "pitch";
 
 type Props = {
   height: number;
   selectedTrack: Track | undefined;
   onResizeStart: (e: React.MouseEvent) => void;
   onUpdate: (id: number, field: keyof Track, value: Track[keyof Track]) => void;
+  fxMode: FxMode;
+  onFxModeChange: (mode: FxMode) => void;
+  pitchClipId: number | null;
+  onSelectPitchClip: (id: number) => void;
+  playLocalTime: number | null;
+  pitchAnalyzing: boolean;
+  pitchApplying: boolean;
+  pitchLimit: number;
+  onPitchLimitChange: (n: number) => void;
+  onChangeClipNotes: (notes: PitchNote[]) => void;
+  onApplyPitch: () => void;
+  onResetPitch: () => void;
+  onReanalyzePitch: () => void;
 };
 
-export function FxPanel({ height, selectedTrack, onResizeStart, onUpdate }: Props) {
+export function FxPanel({
+  height,
+  selectedTrack,
+  onResizeStart,
+  onUpdate,
+  fxMode,
+  onFxModeChange,
+  pitchClipId,
+  onSelectPitchClip,
+  playLocalTime,
+  pitchAnalyzing,
+  pitchApplying,
+  pitchLimit,
+  onPitchLimitChange,
+  onChangeClipNotes,
+  onApplyPitch,
+  onResetPitch,
+  onReanalyzePitch,
+}: Props) {
   const pct = (v: number) => `${Math.round(v * 100)}%`;
+  const pitchAllowed = !!selectedTrack && selectedTrack.kind !== "bgm";
+  const mode: FxMode = pitchAllowed ? fxMode : "fx";
+  const pitchClip =
+    selectedTrack?.clips.find((c) => c.id === pitchClipId) ?? selectedTrack?.clips[0];
 
   return (
     <div className="fx-panel" style={{ height: `${height}px` }}>
       <div className="fx-panel__handle" onMouseDown={onResizeStart} title="ドラッグして高さを調整">
         <div className="fx-panel__handle-title">
-          <Sliders size={14} /> EFFECTS
+          {mode === "pitch" ? <Music2 size={14} /> : <Sliders size={14} />}
+          {mode === "pitch" ? "PITCH" : "EFFECTS"}
         </div>
+        {pitchAllowed && (
+          <div className="fx-panel__tabs" onMouseDown={(e) => e.stopPropagation()}>
+            <button
+              className={`fx-panel__tab${mode === "fx" ? " is-active" : ""}`}
+              onClick={() => onFxModeChange("fx")}
+            >
+              <Sliders size={12} /> エフェクト
+            </button>
+            <button
+              className={`fx-panel__tab${mode === "pitch" ? " is-active" : ""}`}
+              onClick={() => onFxModeChange("pitch")}
+            >
+              <Music2 size={12} /> ピッチ編集
+            </button>
+          </div>
+        )}
         <div className="fx-panel__handle-grip" />
       </div>
 
       <div className="fx-panel__body">
-        {selectedTrack ? (
+        {selectedTrack && mode === "pitch" && pitchClip ? (
+          <div className="fx-panel__pitch">
+            {selectedTrack.clips.length > 1 && (
+              <div className="fx-panel__takes">
+                <span>テイク</span>
+                {selectedTrack.clips.map((c, i) => (
+                  <button
+                    key={c.id}
+                    className={`fx-panel__take${c.id === pitchClip.id ? " is-active" : ""}`}
+                    onClick={() => onSelectPitchClip(c.id)}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+              </div>
+            )}
+            <PitchEditor
+              clip={pitchClip}
+              trackColor={selectedTrack.color}
+              playLocalTime={playLocalTime}
+              analyzing={pitchAnalyzing}
+              applying={pitchApplying}
+              limit={pitchLimit}
+              onLimitChange={onPitchLimitChange}
+              onChangeNotes={onChangeClipNotes}
+              onApply={onApplyPitch}
+              onReset={onResetPitch}
+              onReanalyze={onReanalyzePitch}
+            />
+          </div>
+        ) : selectedTrack ? (
           <div className="fx-panel__content">
             <div className="fx-panel__track-info">
               <div className="fx-panel__track-name" style={{ color: selectedTrack.color }}>
