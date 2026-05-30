@@ -80,9 +80,20 @@ function ClipView({
 
     const { ctx } = audioEngine.getContext();
     void decodeAudioUrl(clip.url, ctx)
-      .then((buffer) => {
+      .then(async (buffer) => {
         if (cancelled) return;
-        audioEngine.setClipBuffer(trackId, clipId, buffer);
+        let original: AudioBuffer | null = null;
+        if (clip.originalUrl) {
+          try {
+            original = await decodeAudioUrl(clip.originalUrl, ctx);
+          } catch {
+            /* noop */
+          }
+        }
+        audioEngine.setClipBuffer(trackId, clipId, buffer, {
+          original,
+          notes: clip.notes,
+        });
       })
       .catch((err) => console.error("Failed to decode clip audio:", err));
 
@@ -93,7 +104,12 @@ function ClipView({
       wavesurferRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clip.url, clip.id]);
+  }, [clip.url, clip.id, clip.originalUrl]);
+
+  // ピッチノート変更 → Worklet へリアルタイム反映
+  useEffect(() => {
+    audioEngine.setClipPitch(track.id, clip.id, clip.notes);
+  }, [track.id, clip.id, clip.notes]);
 
   // ズーム変更時に波形を再スケール
   useEffect(() => {

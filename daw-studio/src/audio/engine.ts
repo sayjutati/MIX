@@ -1,4 +1,4 @@
-import type { Track } from "../types";
+import type { Clip, PitchNote, Track } from "../types";
 import { clipEffectiveOffset } from "../types";
 import {
   applyTrackEffectParams,
@@ -6,6 +6,13 @@ import {
   createTrackEffectChain,
   type TrackEffectNodes,
 } from "./chain";
+import {
+  createPitchNode,
+  ensurePitchWorklet,
+  notesNeedWorklet,
+  resetPitchNode,
+  sendPitchConfig,
+} from "./pitchWorklet";
 
 export type TrackStateRef = {
   getTrack: () => Track;
@@ -14,7 +21,10 @@ export type TrackStateRef = {
 
 type ClipRuntime = {
   buffer: AudioBuffer | null;
+  originalBuffer: AudioBuffer | null;
+  pitchNotes: PitchNote[] | null;
   source: AudioBufferSourceNode | null;
+  pitchNode: AudioWorkletNode | null;
   gain: GainNode | null;
 };
 
@@ -134,6 +144,11 @@ class AudioEngine {
   }
 
   private _masterVolume = 1;
+  private _pitchLimit = 2;
+
+  setGlobalPitchLimit(n: number) {
+    this._pitchLimit = n;
+  }
 
   setMasterVolume(value: number) {
     this._masterVolume = value;
@@ -143,6 +158,7 @@ class AudioEngine {
   async ensureRunning() {
     const { ctx } = this.getContext();
     if (ctx.state === "suspended") await ctx.resume();
+    await ensurePitchWorklet(ctx);
   }
 
   register(id: number, state: TrackStateRef) {
@@ -179,22 +195,65 @@ class AudioEngine {
     rt.nodes = createTrackEffectChain(ctx, master, rt.state.getTrack());
   }
 
-  setClipBuffer(trackId: number, clipId: number, buffer: AudioBuffer) {
+  setClipBuffer(
+    trackId: number,
+    clipId: number,
+    buffer: AudioBuffer,
+    opts?: { original?: AudioBuffer | null; notes?: PitchNote[] }
+  ) {
     const rt = this.runtimes.get(trackId);
     if (!rt) return;
     this.ensureNodes(rt);
 
     let clipRt = rt.clips.get(clipId);
     if (!clipRt) {
-      clipRt = { buffer: null, source: null, gain: null };
+      clipRt = {
+        buffer: null,
+        originalBuffer: null,
+        pitchNotes: null,
+        source: null,
+        pitchNode: null,
+        gain: null,
+      };
       rt.clips.set(clipId, clipRt);
     }
     this.stopClipSource(clipRt);
     clipRt.buffer = buffer;
+    clipRt.originalBuffer = opts?.original ?? null;
+    clipRt.pitchNotes = opts?.notes ?? null;
 
     if (this.playing && this.ctx) {
       this.syncTrack(rt, this.currentGlobalTime(), this.ctx.currentTime + START_LOOKAHEAD);
     }
+  }
+
+  /** ピッチノート更新（編集中のリアルタイム試聴） */
+  setClipPitch(trackId: number, clipId: number, notes: PitchNote[] | undefined) {
+    const rt = this.runtimes.get(trackId);
+    const clipRt = rt?.clips.get(clipId);
+    if (!rt || !clipRt) return;
+    const prev = notesNeedWorklet(clipRt.pitchNotes ?? undefined);
+    clipRt.pitchNotes = notes ?? null;
+    const next = notesNeedWorklet(notes);
+
+    if (clipRt.pitchNode && notes) {
+      const track = rt.state.getTrack();
+      const clip = track.clips.find((c) => c.id === clipId);
+      const speed = track.speed || 1;
+      let localSec = 0;
+      if (clip && this.playing) {
+        localSec = Math.max(0, this.currentGlobalTime() - clip.offset);
+      }
+      sendPitchConfig(clipRt.pitchNode, {
+        notes,
+        limit: this._pitchLimit,
+        speed,
+        localTime: localSec,
+      });
+      resetPitchNode(clipRt.pitchNode, localSec, speed);
+    }
+
+    if (prev !== next) this.restartIfPlaying(trackId);
   }
 
   removeClip(trackId: number, clipId: number) {
@@ -228,6 +287,15 @@ class AudioEngine {
       }
       clipRt.source = null;
     }
+    if (clipRt.pitchNode) {
+      try {
+        clipRt.pitchNode.disconnect();
+        clipRt.pitchNode.port.close();
+      } catch {
+        /* noop */
+      }
+      clipRt.pitchNode = null;
+    }
     if (clipRt.gain) {
       try {
         clipRt.gain.disconnect();
@@ -246,6 +314,7 @@ class AudioEngine {
 
   private startClipSource(
     rt: Runtime,
+    clip: Clip,
     clipRt: ClipRuntime,
     localTime: number,
     when: number
@@ -253,24 +322,43 @@ class AudioEngine {
     if (!clipRt.buffer || !rt.nodes) return;
     const track = rt.state.getTrack();
     const speed = track.speed || 1;
+    const notes = clipRt.pitchNotes ?? clip.notes;
+    const usePitch = notesNeedWorklet(notes);
+    const playBuf =
+      usePitch && clipRt.originalBuffer ? clipRt.originalBuffer : clipRt.buffer;
 
     this.stopClipSource(clipRt);
 
     const bufferOffset = Math.max(0, localTime * speed);
-    const remain = clipRt.buffer.duration - bufferOffset;
+    const remain = playBuf.duration - bufferOffset;
     if (remain <= 0.001) return;
 
     const { ctx } = this.getContext();
     const src = ctx.createBufferSource();
-    src.buffer = clipRt.buffer;
+    src.buffer = playBuf;
     src.playbackRate.value = speed;
     src.detune.value = (track.pitch ?? 0) * 100;
 
     const gain = ctx.createGain();
-    src.connect(gain);
+
+    if (usePitch && notes) {
+      const pitchNode = createPitchNode(ctx);
+      sendPitchConfig(pitchNode, {
+        notes,
+        limit: this._pitchLimit,
+        speed,
+        localTime: Math.max(0, localTime),
+      });
+      src.connect(pitchNode);
+      pitchNode.connect(gain);
+      clipRt.pitchNode = pitchNode;
+    } else {
+      src.connect(gain);
+    }
+
     gain.connect(rt.nodes.input);
 
-    const playDur = clipRt.buffer.duration / speed;
+    const playDur = playBuf.duration / speed;
     scheduleClipFade(gain, track, localTime, playDur, when);
 
     src.onended = () => {
@@ -285,6 +373,7 @@ class AudioEngine {
       clipRt.gain = gain;
     } catch {
       src.disconnect();
+      clipRt.pitchNode?.disconnect();
       gain.disconnect();
     }
   }
@@ -310,7 +399,7 @@ class AudioEngine {
 
       if (local >= -0.02 && local < playDur) {
         if (!clipRt.source) {
-          this.startClipSource(rt, clipRt, Math.max(0, local), when);
+          this.startClipSource(rt, clip, clipRt, Math.max(0, local), when);
         }
       } else {
         this.stopClipSource(clipRt);

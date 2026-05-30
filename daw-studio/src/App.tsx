@@ -30,7 +30,8 @@ import { encodeMixdown, EXPORT_FORMAT_OPTIONS, type ExportFormat } from "./audio
 import { audioBufferToWav, renderMixdown } from "./audio/mixdown";
 import { EmptyWorkspace } from "./components/EmptyWorkspace";
 import { FxPanel, type FxMode } from "./components/FxPanel";
-import { detectNotes, renderPitchCorrected, renderWholeShift } from "./audio/pitch";
+import { bufferToMono, renderPitchCorrected, renderWholeShift } from "./audio/pitch";
+import { detectNotesAsync } from "./audio/pitchDetectClient";
 import { TrackItem } from "./components/TrackItem";
 import { MasterMeter } from "./components/MasterMeter";
 import { InputMeter } from "./components/InputMeter";
@@ -253,7 +254,11 @@ function App() {
         const { ctx } = audioEngine.getContext();
         const srcUrl = clip.originalUrl ?? clip.url;
         const buf = await ctx.decodeAudioData(await (await fetch(srcUrl)).arrayBuffer());
-        patchClip(trackId, clipId, { notes: detectNotes(buf) });
+        const notes = await detectNotesAsync(bufferToMono(buf), buf.sampleRate);
+        patchClip(trackId, clipId, {
+          notes,
+          originalUrl: clip.originalUrl ?? clip.url,
+        });
       } catch (e) {
         console.error("ピッチ解析に失敗:", e);
         patchClip(trackId, clipId, { notes: [] });
@@ -276,19 +281,26 @@ function App() {
     (notes: PitchNote[]) => {
       if (!pitchTrack || !pitchClip) return;
       patchClip(pitchTrack.id, pitchClip.id, { notes });
+      audioEngine.setClipPitch(pitchTrack.id, pitchClip.id, notes);
     },
     [pitchTrack, pitchClip, patchClip]
   );
 
+  useEffect(() => {
+    audioEngine.setGlobalPitchLimit(pitchLimit);
+  }, [pitchLimit]);
+
   const handlePitchLimitChange = useCallback(
     (n: number) => {
       setPitchLimit(n);
+      audioEngine.setGlobalPitchLimit(n);
       if (pitchTrack && pitchClip?.notes) {
         const clamped = pitchClip.notes.map((nt) => ({
           ...nt,
           shift: Math.max(-n, Math.min(n, nt.shift)),
         }));
         patchClip(pitchTrack.id, pitchClip.id, { notes: clamped });
+        audioEngine.setClipPitch(pitchTrack.id, pitchClip.id, clamped);
       }
     },
     [pitchTrack, pitchClip, patchClip]
@@ -308,6 +320,7 @@ function App() {
         url,
         originalUrl: original,
         duration: rendered.duration,
+        notes: pitchClip.notes.map((n) => ({ ...n, shift: 0 })),
       });
     } catch (e) {
       console.error("ピッチ適用に失敗:", e);
@@ -325,6 +338,7 @@ function App() {
       notes,
       url: pitchClip.originalUrl ?? pitchClip.url,
     });
+    audioEngine.setClipPitch(pitchTrack.id, pitchClip.id, notes);
   }, [pitchTrack, pitchClip, patchClip, pushHistory]);
 
   const reanalyzePitch = useCallback(() => {

@@ -14,8 +14,8 @@ export const midiToName = (m: number) => {
   return `${NOTE_NAMES[((r % 12) + 12) % 12]}${Math.floor(r / 12) - 1}`;
 };
 
-/** マルチチャンネルをモノラルに合成 */
-const toMono = (buffer: AudioBuffer): Float32Array => {
+/** マルチチャンネルをモノラルに合成（Worker 解析用にも export） */
+export const bufferToMono = (buffer: AudioBuffer): Float32Array => {
   const ch = buffer.numberOfChannels;
   const len = buffer.length;
   const out = new Float32Array(len);
@@ -26,6 +26,8 @@ const toMono = (buffer: AudioBuffer): Float32Array => {
   if (ch > 1) for (let i = 0; i < len; i++) out[i] /= ch;
   return out;
 };
+
+const toMono = bufferToMono;
 
 /** 単純平均によるダウンサンプル（ピッチ検出を高速化） */
 const downsample = (data: Float32Array, srcRate: number, dstRate: number): Float32Array => {
@@ -107,13 +109,11 @@ let noteSeq = 0;
 const nextNoteId = () => Date.now() * 1000 + (noteSeq++ % 1000);
 
 /**
- * 録音バッファを解析し、音程の安定区間を「ノート」として分割する。
- * 返り値の start/end はクリップ内ローカル秒。
+ * モノラル波形からピッチノートを検出（Worker / メイン両方から利用）
  */
-export const detectNotes = (buffer: AudioBuffer): PitchNote[] => {
-  const mono = toMono(buffer);
-  const ds = downsample(mono, buffer.sampleRate, DETECT_RATE);
-  const sr = Math.min(DETECT_RATE, buffer.sampleRate);
+export const detectNotesFromMono = (mono: Float32Array, sampleRate: number): PitchNote[] => {
+  const ds = downsample(mono, sampleRate, DETECT_RATE);
+  const sr = Math.min(DETECT_RATE, sampleRate);
 
   const frameSize = Math.round(sr * 0.06); // 60ms
   const hop = Math.round(sr * 0.012); // 12ms
@@ -186,50 +186,13 @@ export const detectNotes = (buffer: AudioBuffer): PitchNote[] => {
   return notes;
 };
 
-/* ---- グラニュラー・ピッチシフト（時間長を保持） ---- */
+/** 録音バッファを解析し、音程の安定区間を「ノート」として分割する。 */
+export const detectNotes = (buffer: AudioBuffer): PitchNote[] =>
+  detectNotesFromMono(toMono(buffer), buffer.sampleRate);
 
-const hannWindow = (n: number): Float32Array => {
-  const w = new Float32Array(n);
-  for (let i = 0; i < n; i++) w[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (n - 1));
-  return w;
-};
+/* ---- フォルマント保持位相ボコーダー（試聴 Worklet と同一コア） ---- */
 
-/**
- * input の絶対サンプル [startAbs, startAbs+regionLen) を ratio 倍にピッチシフトし、
- * 時間長を保ったまま region を返す（オーバーラップ加算）。
- */
-const granularShiftRegion = (
-  input: Float32Array,
-  startAbs: number,
-  regionLen: number,
-  ratio: number,
-  win: Float32Array,
-  hop: number
-): Float32Array => {
-  const N = win.length;
-  const out = new Float32Array(regionLen);
-  const norm = new Float32Array(regionLen);
-
-  for (let pos = 0; pos < regionLen; pos += hop) {
-    for (let j = 0; j < N; j++) {
-      const outIdx = pos + j;
-      if (outIdx >= regionLen) break;
-      const srcF = startAbs + pos + j * ratio;
-      const i0 = Math.floor(srcF);
-      const frac = srcF - i0;
-      const a = i0 >= 0 && i0 < input.length ? input[i0] : 0;
-      const b = i0 + 1 >= 0 && i0 + 1 < input.length ? input[i0 + 1] : 0;
-      const sample = a + (b - a) * frac;
-      const w = win[j];
-      out[outIdx] += sample * w;
-      norm[outIdx] += w;
-    }
-  }
-  for (let i = 0; i < regionLen; i++) {
-    if (norm[i] > 1e-6) out[i] /= norm[i];
-  }
-  return out;
-};
+import { renderChannelPitchNotes, renderChannelWholeShift } from "./pitchVocoderCore";
 
 /**
  * notes の shift に従って各セグメントをピッチシフトした新しい AudioBuffer を返す。
@@ -247,43 +210,15 @@ export const renderPitchCorrected = (
     sampleRate: sr,
   });
 
-  const N = 1024;
-  const win = hannWindow(N);
-  const hop = N / 4;
-  const fadeLen = Math.min(Math.round(sr * 0.006), 256);
-
-  const active = notes
-    .map((n) => ({
-      ...n,
-      shift: Math.max(-limit, Math.min(limit, Math.round(n.shift))),
-    }))
-    .filter((n) => n.shift !== 0 && n.end > n.start);
+  const clamped = notes.map((n) => ({
+    ...n,
+    shift: Math.max(-limit, Math.min(limit, Math.round(n.shift))),
+  }));
 
   for (let c = 0; c < buffer.numberOfChannels; c++) {
     const input = buffer.getChannelData(c);
-    const dst = out.getChannelData(c);
-    dst.set(input); // まず原音をコピー
-
-    for (const note of active) {
-      const startSample = Math.max(0, Math.floor(note.start * sr));
-      const endSample = Math.min(buffer.length, Math.ceil(note.end * sr));
-      const regionLen = endSample - startSample;
-      if (regionLen < N) continue;
-
-      const ratio = Math.pow(2, note.shift / 12);
-      const region = granularShiftRegion(input, startSample, regionLen, ratio, win, hop);
-
-      // 境界クロスフェード
-      const fl = Math.min(fadeLen, Math.floor(regionLen / 2));
-      for (let i = 0; i < fl; i++) {
-        const w = i / fl;
-        region[i] = input[startSample + i] * (1 - w) + region[i] * w;
-        const k = regionLen - 1 - i;
-        region[k] = input[startSample + k] * (1 - w) + region[k] * w;
-      }
-
-      dst.set(region, startSample);
-    }
+    const corrected = renderChannelPitchNotes(input, sr, clamped, limit);
+    out.getChannelData(c).set(corrected);
   }
 
   return out;
@@ -299,20 +234,9 @@ export const renderWholeShift = (buffer: AudioBuffer, semitones: number): AudioB
     numberOfChannels: buffer.numberOfChannels,
     sampleRate: buffer.sampleRate,
   });
-  if (semitones === 0) {
-    for (let c = 0; c < buffer.numberOfChannels; c++) {
-      out.getChannelData(c).set(buffer.getChannelData(c));
-    }
-    return out;
-  }
-  const N = 1024;
-  const win = hannWindow(N);
-  const hop = N / 4;
-  const ratio = Math.pow(2, semitones / 12);
   for (let c = 0; c < buffer.numberOfChannels; c++) {
     const input = buffer.getChannelData(c);
-    const region = granularShiftRegion(input, 0, buffer.length, ratio, win, hop);
-    out.getChannelData(c).set(region);
+    out.getChannelData(c).set(renderChannelWholeShift(input, buffer.sampleRate, semitones));
   }
   return out;
 };

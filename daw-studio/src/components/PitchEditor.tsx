@@ -137,7 +137,7 @@ export function PitchEditor({
       </div>
 
       <div className="pitch-editor__hint">
-        各ノートを上下にドラッグして半音単位で調整（ダブルクリックで 0 に戻す）。上限・下限の範囲内なので声が破綻しません。
+        各ノートを上下にドラッグ（半音単位）。ドラッグ中はリアルタイムで試聴できます。確定は「適用」で音に焼き込み。
       </div>
 
       {analyzing ? (
