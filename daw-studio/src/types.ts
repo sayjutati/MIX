@@ -69,6 +69,8 @@ export interface Track {
   /** 再生タイミング微調整（ms）。+で遅らせ / −で早める。レーン共通 */
   nudgeMs: number;
   tremolo: number;
+  /** ディエッサー量（0〜1）。歯擦音（サ行のシャリ）を動的に抑制 */
+  deEss: number;
   clips: Clip[];
 }
 
@@ -169,6 +171,7 @@ const FX_DEFAULTS = {
   isMuted: false,
   nudgeMs: 0,
   tremolo: 0,
+  deEss: 0,
 };
 
 /** 1クリップを持つ新規レーンを作成 */

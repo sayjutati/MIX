@@ -70,8 +70,9 @@ export const renderMixdown = async (
   tracks: Track[],
   hasSolo: boolean,
   masterVolume: number,
-  sampleRate = 44100
+  opts: { sampleRate?: number; normalize?: boolean } = {}
 ): Promise<AudioBuffer> => {
+  const sampleRate = opts.sampleRate ?? 44100;
   const ends = tracks.flatMap((t) =>
     t.clips.map((c) => clipEffectiveOffset(t, c) + clipPlayDuration(t, c))
   );
@@ -83,7 +84,16 @@ export const renderMixdown = async (
   );
   const master = offlineCtx.createGain();
   master.gain.value = masterVolume;
-  master.connect(offlineCtx.destination);
+
+  // マスターリミッター（音割れ防止）
+  const limiter = offlineCtx.createDynamicsCompressor();
+  limiter.threshold.value = -1;
+  limiter.knee.value = 0;
+  limiter.ratio.value = 20;
+  limiter.attack.value = 0.003;
+  limiter.release.value = 0.1;
+  master.connect(limiter);
+  limiter.connect(offlineCtx.destination);
 
   for (const track of tracks) {
     if (track.isMuted || (hasSolo && !track.isSolo)) continue;
@@ -118,5 +128,26 @@ export const renderMixdown = async (
     }
   }
 
-  return offlineCtx.startRendering();
+  const rendered = await offlineCtx.startRendering();
+
+  if (opts.normalize) {
+    let peak = 0;
+    for (let ch = 0; ch < rendered.numberOfChannels; ch++) {
+      const data = rendered.getChannelData(ch);
+      for (let i = 0; i < data.length; i++) {
+        const v = Math.abs(data[i]);
+        if (v > peak) peak = v;
+      }
+    }
+    const target = 0.89; // ≒ -1 dBFS
+    if (peak > 0.0001 && Math.abs(peak - target) > 0.01) {
+      const gain = target / peak;
+      for (let ch = 0; ch < rendered.numberOfChannels; ch++) {
+        const data = rendered.getChannelData(ch);
+        for (let i = 0; i < data.length; i++) data[i] *= gain;
+      }
+    }
+  }
+
+  return rendered;
 };

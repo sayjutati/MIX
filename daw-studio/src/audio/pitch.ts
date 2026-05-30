@@ -288,3 +288,31 @@ export const renderPitchCorrected = (
 
   return out;
 };
+
+/**
+ * バッファ全体を semitones 半音シフトした新しい AudioBuffer を返す（時間長は保持）。
+ * ハモリ生成などに使用。
+ */
+export const renderWholeShift = (buffer: AudioBuffer, semitones: number): AudioBuffer => {
+  const out = new AudioBuffer({
+    length: buffer.length,
+    numberOfChannels: buffer.numberOfChannels,
+    sampleRate: buffer.sampleRate,
+  });
+  if (semitones === 0) {
+    for (let c = 0; c < buffer.numberOfChannels; c++) {
+      out.getChannelData(c).set(buffer.getChannelData(c));
+    }
+    return out;
+  }
+  const N = 1024;
+  const win = hannWindow(N);
+  const hop = N / 4;
+  const ratio = Math.pow(2, semitones / 12);
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const input = buffer.getChannelData(c);
+    const region = granularShiftRegion(input, 0, buffer.length, ratio, win, hop);
+    out.getChannelData(c).set(region);
+  }
+  return out;
+};

@@ -1,0 +1,19 @@
+{
+  "name": "MIX DAW — ブラウザ完結スタジオ",
+  "short_name": "MIX DAW",
+  "description": "ブラウザだけで録音・ミックス・ピッチ補正・書き出しができる歌ってみたDAW",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f0f15",
+  "theme_color": "#0f0f15",
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "/vite.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

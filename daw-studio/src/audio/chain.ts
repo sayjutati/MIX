@@ -9,6 +9,15 @@ export type TrackEffectNodes = {
   eqTreble: BiquadFilterNode;
   noiseFilter: BiquadFilterNode;
   comp: DynamicsCompressorNode;
+  /** コンプ後のメイクアップゲイン（圧縮で下がった音量を持ち上げる） */
+  compMakeup: GainNode;
+  /** ディエッサー：高域側コンプ */
+  deEssComp: DynamicsCompressorNode;
+  /** ディエッサーのクロスオーバー（0時は完全バイパスして色付けを防ぐ） */
+  deEssLow1: BiquadFilterNode;
+  deEssHigh1: BiquadFilterNode;
+  deEssSum: GainNode;
+  deEssActive: boolean;
   tremoloNode: GainNode;
   tremoloDepth: GainNode;
   chorusGain: GainNode;
@@ -17,6 +26,13 @@ export type TrackEffectNodes = {
   /** エフェクトオフ時のバイパス */
   dryGain: GainNode;
   wetBus: GainNode;
+};
+
+/** コンプ量(0〜1)に対するメイクアップゲイン（倍率） */
+const makeupGainFor = (compressor: number) => {
+  if (compressor <= EPS) return 1;
+  // しきい値を下げるほど音量が落ちるので、その分を概算で補償
+  return Math.pow(10, (compressor * 9) / 20);
 };
 
 const EPS = 0.001;
@@ -54,14 +70,35 @@ export const applyTremoloModulation = (
   }
 };
 
+/**
+ * 改良リバーブIR：プリディレイ＋指数減衰＋ダンピング（高域を時間とともに減衰）＋
+ * 左右デコリレーションで、金属的にならない自然な響きにする。
+ */
 export const createBetterReverbIR = (ctx: BaseAudioContext) => {
   const sampleRate = ctx.sampleRate;
-  const length = sampleRate * 2;
+  const seconds = 2.4;
+  const length = Math.floor(sampleRate * seconds);
+  const preDelay = Math.floor(sampleRate * 0.02); // 20ms
   const impulse = ctx.createBuffer(2, length, sampleRate);
-  for (let i = 0; i < length; i++) {
-    const decay = Math.pow(1 - i / length, 3);
-    impulse.getChannelData(0)[i] = (Math.random() * 2 - 1) * decay;
-    impulse.getChannelData(1)[i] = (Math.random() * 2 - 1) * decay;
+
+  for (let ch = 0; ch < 2; ch++) {
+    const data = impulse.getChannelData(ch);
+    // 1次ローパスの状態（ダンピング用）。チャンネルでわずかに係数を変えてステレオ感を出す
+    let lp = 0;
+    const baseCoef = ch === 0 ? 0.34 : 0.38;
+    for (let i = 0; i < length; i++) {
+      if (i < preDelay) {
+        data[i] = 0;
+        continue;
+      }
+      const t = (i - preDelay) / (length - preDelay);
+      const decay = Math.pow(1 - t, 2.6); // 指数的減衰
+      // 時間が進むほどローパスを強くして高域を削る（ダンピング）
+      const coef = baseCoef + t * 0.5;
+      const white = Math.random() * 2 - 1;
+      lp = lp + (white - lp) * (1 - coef);
+      data[i] = lp * decay;
+    }
   }
   return impulse;
 };
@@ -99,6 +136,33 @@ export const createTrackEffectChain = (
   eqTreble.frequency.value = 4000;
   eqTreble.gain.value = 0;
 
+  const compMakeup = ctx.createGain();
+  compMakeup.gain.value = 1;
+
+  // ディエッサー（Linkwitz-Riley 風 4次クロスオーバー：オフ時は和がフラット）
+  const deEssFreq = 6500;
+  const deEssLow1 = ctx.createBiquadFilter();
+  const deEssLow2 = ctx.createBiquadFilter();
+  const deEssHigh1 = ctx.createBiquadFilter();
+  const deEssHigh2 = ctx.createBiquadFilter();
+  for (const f of [deEssLow1, deEssLow2]) {
+    f.type = "lowpass";
+    f.frequency.value = deEssFreq;
+    f.Q.value = 0.7071;
+  }
+  for (const f of [deEssHigh1, deEssHigh2]) {
+    f.type = "highpass";
+    f.frequency.value = deEssFreq;
+    f.Q.value = 0.7071;
+  }
+  const deEssComp = ctx.createDynamicsCompressor();
+  deEssComp.threshold.value = 0;
+  deEssComp.ratio.value = 1;
+  deEssComp.knee.value = 0;
+  deEssComp.attack.value = 0.001;
+  deEssComp.release.value = 0.05;
+  const deEssSum = ctx.createGain();
+
   const tremoloOsc = ctx.createOscillator();
   tremoloOsc.frequency.value = 5;
   const tremoloDepth = ctx.createGain();
@@ -119,8 +183,16 @@ export const createTrackEffectChain = (
   const wetBus = ctx.createGain();
   wetBus.gain.value = 1;
 
+  // 本物のコーラス：LFO で遅延時間を揺らして音程を微妙に変調
   const chorusDelay = ctx.createDelay(0.1);
   chorusDelay.delayTime.value = 0.025;
+  const chorusLfo = ctx.createOscillator();
+  chorusLfo.frequency.value = 0.8;
+  const chorusLfoDepth = ctx.createGain();
+  chorusLfoDepth.gain.value = 0.004; // ±4ms
+  chorusLfo.connect(chorusLfoDepth);
+  chorusLfoDepth.connect(chorusDelay.delayTime);
+  chorusLfo.start();
   const chorusGain = ctx.createGain();
   chorusGain.gain.value = 0;
 
@@ -128,6 +200,10 @@ export const createTrackEffectChain = (
   delay.delayTime.value = 0.35;
   const delayFeedback = ctx.createGain();
   delayFeedback.gain.value = 0.28;
+  // フィードバックの高域を削って自然な減衰に
+  const delayDamp = ctx.createBiquadFilter();
+  delayDamp.type = "lowpass";
+  delayDamp.frequency.value = 3200;
   const delayGain = ctx.createGain();
   delayGain.gain.value = 0;
 
@@ -136,11 +212,19 @@ export const createTrackEffectChain = (
   const reverbGain = ctx.createGain();
   reverbGain.gain.value = 0;
 
-  // クリーン経路: input → [HP?] → [comp?] → EQ → tremolo → pan → dry → fade → out
+  // クリーン経路: input → HP → comp → makeup → EQ → de-ess → tremolo → pan → dry → fade → out
   input.connect(noiseFilter);
   noiseFilter.connect(comp);
-  comp.connect(eqBass);
+  comp.connect(compMakeup);
+  compMakeup.connect(eqBass);
   eqBass.connect(eqTreble);
+  // de-esser は既定でバイパス（eqTreble → tremolo 直結）。
+  // 内部結線だけ作っておき、deEss>0 のとき applyTrackEffectParams で差し込む。
+  deEssLow1.connect(deEssLow2);
+  deEssLow2.connect(deEssSum);
+  deEssHigh1.connect(deEssHigh2);
+  deEssHigh2.connect(deEssComp);
+  deEssComp.connect(deEssSum);
   eqTreble.connect(tremoloNode);
   tremoloNode.connect(panner);
   panner.connect(dryGain);
@@ -153,7 +237,8 @@ export const createTrackEffectChain = (
 
   panner.connect(delay);
   delay.connect(delayFeedback);
-  delayFeedback.connect(delay);
+  delayFeedback.connect(delayDamp);
+  delayDamp.connect(delay);
   delay.connect(delayGain);
   delayGain.connect(wetBus);
 
@@ -174,6 +259,12 @@ export const createTrackEffectChain = (
     eqTreble,
     noiseFilter,
     comp,
+    compMakeup,
+    deEssComp,
+    deEssLow1,
+    deEssHigh1,
+    deEssSum,
+    deEssActive: false,
     tremoloNode,
     tremoloDepth,
     chorusGain,
@@ -215,6 +306,34 @@ export const applyTrackEffectParams = (
     nodes.comp.ratio.value = 1;
     nodes.comp.knee.value = 0;
   }
+  nodes.compMakeup.gain.value = makeupGainFor(track.compressor);
+
+  const deEss = track.deEss ?? 0;
+  const wantDeEss = deEss > EPS;
+  if (wantDeEss) {
+    nodes.deEssComp.threshold.value = -18 - deEss * 22; // -18〜-40dB
+    nodes.deEssComp.ratio.value = 2 + deEss * 10;
+    nodes.deEssComp.knee.value = 2;
+  }
+  // 0時は色付け（コンプ遅延によるコムフィルタ）を避けるため経路ごとバイパス
+  if (wantDeEss !== nodes.deEssActive) {
+    try {
+      if (wantDeEss) {
+        nodes.eqTreble.disconnect(nodes.tremoloNode);
+        nodes.eqTreble.connect(nodes.deEssLow1);
+        nodes.eqTreble.connect(nodes.deEssHigh1);
+        nodes.deEssSum.connect(nodes.tremoloNode);
+      } else {
+        nodes.eqTreble.disconnect(nodes.deEssLow1);
+        nodes.eqTreble.disconnect(nodes.deEssHigh1);
+        nodes.deEssSum.disconnect(nodes.tremoloNode);
+        nodes.eqTreble.connect(nodes.tremoloNode);
+      }
+      nodes.deEssActive = wantDeEss;
+    } catch {
+      /* 接続失敗時は deEssActive を変えず次回に再試行 */
+    }
+  }
 
   applyTremoloModulation(ctx, nodes.tremoloDepth, nodes.tremoloNode, track.tremolo);
 };
@@ -238,10 +357,13 @@ export const connectOfflineTrackChain = (
   if (track.compressor > EPS) {
     comp.threshold.value = track.compressor * -50;
     comp.ratio.value = 1 + track.compressor * 19;
+    comp.knee.value = 6;
   } else {
     comp.threshold.value = 0;
     comp.ratio.value = 1;
   }
+  const compMakeup = ctx.createGain();
+  compMakeup.gain.value = makeupGainFor(track.compressor);
 
   const eqBass = ctx.createBiquadFilter();
   eqBass.type = "lowshelf";
@@ -253,6 +375,36 @@ export const connectOfflineTrackChain = (
   eqTreble.frequency.value = 4000;
   eqTreble.gain.value = track.treble;
 
+  // ディエッサー（4次クロスオーバー）
+  const deEss = track.deEss ?? 0;
+  const deEssFreq = 6500;
+  const deEssLow1 = ctx.createBiquadFilter();
+  const deEssLow2 = ctx.createBiquadFilter();
+  const deEssHigh1 = ctx.createBiquadFilter();
+  const deEssHigh2 = ctx.createBiquadFilter();
+  for (const f of [deEssLow1, deEssLow2]) {
+    f.type = "lowpass";
+    f.frequency.value = deEssFreq;
+    f.Q.value = 0.7071;
+  }
+  for (const f of [deEssHigh1, deEssHigh2]) {
+    f.type = "highpass";
+    f.frequency.value = deEssFreq;
+    f.Q.value = 0.7071;
+  }
+  const deEssComp = ctx.createDynamicsCompressor();
+  if (deEss > EPS) {
+    deEssComp.threshold.value = -18 - deEss * 22;
+    deEssComp.ratio.value = 2 + deEss * 10;
+    deEssComp.knee.value = 2;
+    deEssComp.attack.value = 0.001;
+    deEssComp.release.value = 0.05;
+  } else {
+    deEssComp.threshold.value = 0;
+    deEssComp.ratio.value = 1;
+  }
+  const deEssSum = ctx.createGain();
+
   const panner = ctx.createStereoPanner();
   panner.pan.value = track.pan;
 
@@ -262,6 +414,13 @@ export const connectOfflineTrackChain = (
 
   const chorusDelay = ctx.createDelay(0.1);
   chorusDelay.delayTime.value = 0.025;
+  const chorusLfo = ctx.createOscillator();
+  chorusLfo.frequency.value = 0.8;
+  const chorusLfoDepth = ctx.createGain();
+  chorusLfoDepth.gain.value = 0.004;
+  chorusLfo.connect(chorusLfoDepth);
+  chorusLfoDepth.connect(chorusDelay.delayTime);
+  chorusLfo.start();
   const chorusGain = ctx.createGain();
   chorusGain.gain.value = track.chorus;
 
@@ -269,6 +428,9 @@ export const connectOfflineTrackChain = (
   delay.delayTime.value = 0.35;
   const fb = ctx.createGain();
   fb.gain.value = 0.28;
+  const delayDamp = ctx.createBiquadFilter();
+  delayDamp.type = "lowpass";
+  delayDamp.frequency.value = 3200;
   const delayGain = ctx.createGain();
   delayGain.gain.value = track.delay;
 
@@ -279,9 +441,21 @@ export const connectOfflineTrackChain = (
 
   input.connect(noiseFilter);
   noiseFilter.connect(comp);
-  comp.connect(eqBass);
+  comp.connect(compMakeup);
+  compMakeup.connect(eqBass);
   eqBass.connect(eqTreble);
-  eqTreble.connect(panner);
+  if (deEss > EPS) {
+    eqTreble.connect(deEssLow1);
+    deEssLow1.connect(deEssLow2);
+    deEssLow2.connect(deEssSum);
+    eqTreble.connect(deEssHigh1);
+    deEssHigh1.connect(deEssHigh2);
+    deEssHigh2.connect(deEssComp);
+    deEssComp.connect(deEssSum);
+    deEssSum.connect(panner);
+  } else {
+    eqTreble.connect(panner);
+  }
 
   panner.connect(fadeGain);
   panner.connect(chorusDelay);
@@ -289,7 +463,8 @@ export const connectOfflineTrackChain = (
   chorusGain.connect(fadeGain);
   panner.connect(delay);
   delay.connect(fb);
-  fb.connect(delay);
+  fb.connect(delayDamp);
+  delayDamp.connect(delay);
   delay.connect(delayGain);
   delayGain.connect(fadeGain);
   panner.connect(convolver);

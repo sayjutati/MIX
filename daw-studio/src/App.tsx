@@ -15,6 +15,7 @@ import {
   Repeat,
   Magnet,
   Timer,
+  Gauge,
   ZoomIn,
   ZoomOut,
   Maximize,
@@ -24,14 +25,15 @@ import {
   HelpCircle,
 } from "lucide-react";
 import { audioEngine } from "./audio/engine";
-import { createMediaRecorder, createMicStream } from "./audio/recording";
+import { createMediaRecorder, createMicStream, listMicDevices } from "./audio/recording";
 import { encodeMixdown, EXPORT_FORMAT_OPTIONS, type ExportFormat } from "./audio/export";
 import { audioBufferToWav, renderMixdown } from "./audio/mixdown";
 import { EmptyWorkspace } from "./components/EmptyWorkspace";
 import { FxPanel, type FxMode } from "./components/FxPanel";
-import { detectNotes, renderPitchCorrected } from "./audio/pitch";
+import { detectNotes, renderPitchCorrected, renderWholeShift } from "./audio/pitch";
 import { TrackItem } from "./components/TrackItem";
 import { MasterMeter } from "./components/MasterMeter";
+import { InputMeter } from "./components/InputMeter";
 import { FxHelpContext } from "./components/FxHelpTooltip";
 import { GlobalTooltip } from "./components/GlobalTooltip";
 import {
@@ -45,6 +47,8 @@ import {
   timeFromTimelineX,
   playheadVisualX,
   trackTimelineEnd,
+  clipEffectiveOffset,
+  clipPlayDuration,
   makeClip,
   createTrack,
   trackFxDefaults,
@@ -64,6 +68,7 @@ function App() {
   const [selectedTrackId, setSelectedTrackId] = useState<number | null>(null);
   const [exportFormat, setExportFormat] = useState<ExportFormat>("wav");
   const [mp3Bitrate, setMp3Bitrate] = useState(192);
+  const [normalizeExport, setNormalizeExport] = useState(true);
   const [fxPanelHeight, setFxPanelHeight] = useState(280);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -74,6 +79,11 @@ function App() {
   const [monitorOn, setMonitorOn] = useState(true);
   const monitorOnRef = useRef(monitorOn);
   monitorOnRef.current = monitorOn;
+  const [autoLatencyComp, setAutoLatencyComp] = useState(true);
+  const autoLatencyCompRef = useRef(autoLatencyComp);
+  autoLatencyCompRef.current = autoLatencyComp;
+  const [micDeviceId, setMicDeviceId] = useState<string>("");
+  const [micDevices, setMicDevices] = useState<MediaDeviceInfo[]>([]);
 
   const [globalTime, setGlobalTime] = useState(0);
   const globalTimeRef = useRef(0);
@@ -121,9 +131,12 @@ function App() {
   const [fxHelpOn, setFxHelpOn] = useState(true);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; trackId: number } | null>(
-    null
-  );
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    trackId: number;
+    clipId?: number;
+  } | null>(null);
 
   const hasSolo = tracks.some((t) => t.isSolo);
   const hasBgm = tracks.some((t) => t.kind === "bgm");
@@ -164,6 +177,14 @@ function App() {
   const updateTrack = useCallback((id: number, field: keyof Track, value: Track[keyof Track]) => {
     setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, [field]: value } : t)));
   }, []);
+
+  const applyPreset = useCallback(
+    (id: number, values: Partial<Track>) => {
+      pushHistory();
+      setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, ...values } : t)));
+    },
+    [pushHistory]
+  );
 
   const updateClip = useCallback(
     (trackId: number, clipId: number, field: keyof Clip, value: number) => {
@@ -314,6 +335,14 @@ function App() {
   useEffect(() => {
     audioEngine.setMasterVolume(masterVolume);
   }, [masterVolume]);
+
+  // マイク一覧の取得＆デバイス変更の監視
+  useEffect(() => {
+    void listMicDevices().then(setMicDevices);
+    const onChange = () => void listMicDevices().then(setMicDevices);
+    navigator.mediaDevices?.addEventListener?.("devicechange", onChange);
+    return () => navigator.mediaDevices?.removeEventListener?.("devicechange", onChange);
+  }, []);
 
   useEffect(() => {
     audioEngine.setGlobalTimeProvider(() => globalTimeRef.current);
@@ -499,15 +528,21 @@ function App() {
       osc.stop(t0 + 0.1);
     }
     await new Promise((r) => setTimeout(r, beats * beat * 1000));
+    // カウントイン分だけタイムラインを進める（録音開始位置を正しくする）
+    const dt = beats * beat;
+    const newTime = globalTimeRef.current + dt;
+    globalTimeRef.current = newTime;
+    setGlobalTime(newTime);
+    audioEngine.seek(newTime);
   };
 
-  const handlePlayheadDragStart = (e: React.MouseEvent) => {
+  const handlePlayheadDragStart = (e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX;
     let dragging = false;
 
-    const onMove = (ev: MouseEvent) => {
+    const onMove = (ev: PointerEvent) => {
       if (!dragging) {
         if (Math.abs(ev.clientX - startX) < 4) return;
         dragging = true;
@@ -517,11 +552,11 @@ function App() {
     };
     const onUp = () => {
       isDraggingPlayheadRef.current = false;
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
     };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   };
 
   const handleTimelineClick = (e: React.MouseEvent) => {
@@ -631,6 +666,7 @@ function App() {
             kind: rest.kind ?? "vocal",
             pitch: rest.pitch ?? 0,
             nudgeMs: rest.nudgeMs ?? 0,
+            deEss: rest.deEss ?? 0,
             isMuted: rest.isMuted ?? false,
           } as Track;
         })
@@ -656,7 +692,9 @@ function App() {
       return;
     }
     try {
-      const buffer = await renderMixdown(tracks, hasSolo, masterVolume);
+      const buffer = await renderMixdown(tracks, hasSolo, masterVolume, {
+        normalize: normalizeExport,
+      });
       const { blob, extension } = encodeMixdown(
         buffer,
         exportFormat,
@@ -706,8 +744,11 @@ function App() {
 
   const startRecording = async () => {
     try {
-      const stream = await createMicStream();
+      const stream = await createMicStream(micDeviceId || undefined);
       recordStreamRef.current = stream;
+      // 初回許可後にデバイス名が取れるので一覧を更新
+      void listMicDevices().then(setMicDevices);
+      await audioEngine.startInputMeter(stream);
       const recorder = createMediaRecorder(stream);
       mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
@@ -722,12 +763,24 @@ function App() {
       };
 
       recorder.onstop = async () => {
+        // レイテンシ自動補正：入出力遅延ぶん録音を前に詰めて BGM と揃える
+        let latencySec = 0;
+        if (autoLatencyCompRef.current) {
+          const settings = recordStreamRef.current?.getAudioTracks()[0]?.getSettings() as
+            | (MediaTrackSettings & { latency?: number })
+            | undefined;
+          const inputLatency = settings?.latency ?? 0;
+          latencySec = audioEngine.getOutputLatencySec() + inputLatency;
+          // ブラウザが latency を返さない場合の安全なフォールバック（約30ms）
+          if (latencySec < 0.005) latencySec = 0.03;
+        }
         recordStreamRef.current?.getTracks().forEach((t) => t.stop());
         recordStreamRef.current = null;
+        audioEngine.stopInputMeter();
         audioEngine.stopMonitor();
         const blobType = recorder.mimeType || "audio/webm";
         const rawBlob = new Blob(audioChunksRef.current, { type: blobType });
-        const offset = recordOffsetRef.current;
+        const offset = Math.max(0, recordOffsetRef.current - latencySec);
         const targetId = recordTargetRef.current;
 
         // 録音(webm/opus)を WAV に正規化：再生・波形・長さの取得をどの環境でも安定させる
@@ -775,6 +828,15 @@ function App() {
         await audioEngine.startMonitor(stream);
       }
 
+      // BGM を先に再生してからカウントイン（曲に合わせて歌い始められる）
+      const hasPlayable = tracks.some((t) => t.clips.length > 0);
+      if (hasPlayable) {
+        await audioEngine.ensureRunning();
+        await audioEngine.play(globalTimeRef.current);
+        setIsPlayingGlobal(true);
+        nextClickRef.current = Math.ceil(globalTimeRef.current / (60 / bpm)) * (60 / bpm);
+      }
+
       if (countInOn) {
         await playCountIn();
         if (mediaRecorderRef.current !== recorder) return; // 停止された
@@ -784,8 +846,7 @@ function App() {
       recorder.start(250);
 
       setIsRecording(true);
-      setIsPlayingGlobal(true);
-      nextClickRef.current = Math.ceil(globalTimeRef.current / (60 / bpm)) * (60 / bpm);
+      if (!hasPlayable) setIsPlayingGlobal(true);
     } catch {
       alert("マイクの使用が許可されていません。");
     }
@@ -814,12 +875,18 @@ function App() {
         ...track,
         id: Date.now(),
         name: `${track.name} (コピー)`,
-        clips: track.clips.map((c) => makeClip({ url: c.url, offset: c.offset, duration: c.duration })),
+        clips: track.clips.map((c) => {
+          const nc = makeClip({ url: c.url, offset: c.offset, duration: c.duration });
+          if (c.notes) nc.notes = c.notes.map((n, i) => ({ ...n, id: Date.now() * 1000 + i }));
+          if (c.originalUrl) nc.originalUrl = c.originalUrl;
+          return nc;
+        }),
       },
     ]);
   };
 
   const loopTrackAudio = async (trackId: number, times: number) => {
+    setContextMenu(null);
     const track = tracks.find((t) => t.id === trackId);
     const clip = track?.clips[0];
     if (!track || !clip || !window.confirm(`先頭テイクを ${times} 倍にループしますか？`)) return;
@@ -853,6 +920,148 @@ function App() {
       );
     } catch {
       alert("ループ処理に失敗しました。");
+    }
+  };
+
+  /** ピッチノート列を分割位置で2つに分ける（クリップ内ローカル秒） */
+  const splitNotesAt = (notes: PitchNote[] | undefined, at: number) => {
+    if (!notes?.length) return [undefined, undefined] as const;
+    const left = notes
+      .filter((n) => n.start < at - 0.01)
+      .map((n) => ({ ...n, end: Math.min(n.end, at) }))
+      .filter((n) => n.end - n.start > 0.01);
+    const right = notes
+      .filter((n) => n.end > at + 0.01)
+      .map((n, i) => ({
+        ...n,
+        id: Date.now() * 1000 + i,
+        start: Math.max(0, n.start - at),
+        end: n.end - at,
+      }))
+      .filter((n) => n.end - n.start > 0.01);
+    return [left.length ? left : undefined, right.length ? right : undefined] as const;
+  };
+
+  /** 再生ヘッド位置でクリップを2つに分割 */
+  const splitClipAtPlayhead = async (trackId: number, clipId: number) => {
+    const tr = tracksRef.current.find((t) => t.id === trackId);
+    const clip = tr?.clips.find((c) => c.id === clipId);
+    if (!tr || !clip) return;
+    const speed = tr.speed || 1;
+    const splitSource = (globalTimeRef.current - clipEffectiveOffset(tr, clip)) * speed;
+    if (splitSource <= 0.05 || splitSource >= clip.duration - 0.05) {
+      alert("再生ヘッドを、分割したいクリップの内側（端から少し離れた位置）に置いてください。");
+      return;
+    }
+    try {
+      const { ctx } = audioEngine.getContext();
+      const buf = await ctx.decodeAudioData(await (await fetch(clip.url)).arrayBuffer());
+      const sr = buf.sampleRate;
+      const splitSample = Math.min(buf.length - 1, Math.max(1, Math.floor(splitSource * sr)));
+      const makePart = (from: number, to: number) => {
+        const len = to - from;
+        const out = new AudioBuffer({
+          length: len,
+          numberOfChannels: buf.numberOfChannels,
+          sampleRate: sr,
+        });
+        for (let c = 0; c < buf.numberOfChannels; c++) {
+          out.getChannelData(c).set(buf.getChannelData(c).subarray(from, to));
+        }
+        return out;
+      };
+      const aBuf = makePart(0, splitSample);
+      const bBuf = makePart(splitSample, buf.length);
+      const aUrl = URL.createObjectURL(audioBufferToWav(aBuf));
+      const bUrl = URL.createObjectURL(audioBufferToWav(bBuf));
+      const [notesA, notesB] = splitNotesAt(clip.notes, splitSource);
+      pushHistory();
+      setTracks((prev) =>
+        prev.map((t) =>
+          t.id === trackId
+            ? {
+                ...t,
+                clips: t.clips.flatMap((c) =>
+                  c.id === clipId
+                    ? [
+                        (() => {
+                          const nc = makeClip({ url: aUrl, offset: c.offset, duration: aBuf.duration });
+                          if (notesA) nc.notes = notesA;
+                          return nc;
+                        })(),
+                        (() => {
+                          const nc = makeClip({
+                            url: bUrl,
+                            offset: c.offset + aBuf.duration / speed,
+                            duration: bBuf.duration,
+                          });
+                          if (notesB) nc.notes = notesB;
+                          return nc;
+                        })(),
+                      ]
+                    : [c]
+                ),
+              }
+            : t
+        )
+      );
+    } catch (e) {
+      console.error(e);
+      alert("分割に失敗しました。");
+    }
+  };
+
+  /** クリップを複製（同じレーンに少し右へ） */
+  const duplicateClip = (trackId: number, clipId: number) => {
+    const tr = tracksRef.current.find((t) => t.id === trackId);
+    const clip = tr?.clips.find((c) => c.id === clipId);
+    if (!tr || !clip) return;
+    pushHistory();
+    setTracks((prev) =>
+      prev.map((t) => {
+        if (t.id !== trackId) return t;
+        const nc = makeClip({
+          url: clip.url,
+          offset: clip.offset + clipPlayDuration(tr, clip),
+          duration: clip.duration,
+        });
+        if (clip.notes) nc.notes = clip.notes.map((n, i) => ({ ...n, id: Date.now() * 1000 + i }));
+        if (clip.originalUrl) nc.originalUrl = clip.originalUrl;
+        return { ...t, clips: [...t.clips, nc] };
+      })
+    );
+  };
+
+  /** ハモリ生成：クリップをピッチシフトして新規レーンを作る */
+  const generateHarmony = async (trackId: number, clipId: number, semitones: number) => {
+    const tr = tracksRef.current.find((t) => t.id === trackId);
+    const clip = tr?.clips.find((c) => c.id === clipId);
+    if (!tr || !clip) return;
+    try {
+      const { ctx } = audioEngine.getContext();
+      const src = clip.originalUrl ?? clip.url;
+      const buf = await ctx.decodeAudioData(await (await fetch(src)).arrayBuffer());
+      const shifted = renderWholeShift(buf, semitones);
+      const url = URL.createObjectURL(audioBufferToWav(shifted));
+      pushHistory();
+      setTracks((prev) => {
+        const nt = createTrack({
+          id: Date.now(),
+          url,
+          name: `${tr.name} ハモリ(${semitones > 0 ? "+" : ""}${semitones})`,
+          color: TRACK_COLORS[prev.length % TRACK_COLORS.length],
+          kind: "vocal",
+          offset: clipEffectiveOffset(tr, clip),
+          duration: shifted.duration,
+        });
+        nt.volume = 0.6;
+        nt.pan = semitones > 0 ? 0.25 : -0.25;
+        setSelectedTrackId(nt.id);
+        return [...prev, nt];
+      });
+    } catch (e) {
+      console.error(e);
+      alert("ハモリ生成に失敗しました。");
     }
   };
 
@@ -943,6 +1152,14 @@ function App() {
               <option value={320}>320 kbps</option>
             </select>
           )}
+          <label className="toolbar__check tooltip" data-tooltip="書き出し時に音量を自動最適化（−1dBまで持ち上げ）">
+            <input
+              type="checkbox"
+              checked={normalizeExport}
+              onChange={(e) => setNormalizeExport(e.target.checked)}
+            />
+            音量最適化
+          </label>
           <button type="button" className="btn btn--export tooltip" data-tooltip="全トラックをミックスして書き出し" onClick={exportMixdown}>
             <Download size={16} /> 書き出し
           </button>
@@ -1046,6 +1263,7 @@ function App() {
           >
             <Headphones size={18} />
           </button>
+          {isRecording && <InputMeter />}
 
           <div className="transport__divider" />
 
@@ -1099,6 +1317,30 @@ function App() {
         </div>
 
         <div className="toolbar__right">
+          <label className="toolbar__mic tooltip" data-tooltip="録音に使うマイクを選択">
+            <Mic size={14} />
+            <select value={micDeviceId} onChange={(e) => setMicDeviceId(e.target.value)}>
+              <option value="">既定のマイク</option>
+              {micDevices.map((d, i) => (
+                <option key={d.deviceId || i} value={d.deviceId}>
+                  {d.label || `マイク ${i + 1}`}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className={`toolbar__icon tooltip ${autoLatencyComp ? "toolbar__icon--on" : ""}`}
+            data-tooltip={
+              autoLatencyComp
+                ? "レイテンシ自動補正：ON（録音とBGMのズレを自動で詰める）"
+                : "レイテンシ自動補正：OFF"
+            }
+            onClick={() => setAutoLatencyComp((v) => !v)}
+          >
+            <Gauge size={16} />
+          </button>
+          <div className="toolbar__divider" />
           <button
             type="button"
             className={`toolbar__icon tooltip ${fxHelpOn ? "toolbar__icon--on" : ""}`}
@@ -1255,9 +1497,9 @@ function App() {
                 onUpdateClip={updateClip}
                 onDeleteClip={deleteClip}
                 onClipDragStart={pushHistory}
-                onContextMenu={(e, id) => {
+                onContextMenu={(e, id, clipId) => {
                   e.preventDefault();
-                  setContextMenu({ x: e.pageX, y: e.pageY, trackId: id });
+                  setContextMenu({ x: e.pageX, y: e.pageY, trackId: id, clipId });
                 }}
               />
             ))
@@ -1266,7 +1508,7 @@ function App() {
           <div
             className="playhead"
             style={{ left: `${playheadVisualX(globalTime, playheadTrack, pxPerSec)}px` }}
-            onMouseDown={handlePlayheadDragStart}
+            onPointerDown={handlePlayheadDragStart}
             onClick={(e) => e.stopPropagation()}
             title="ドラッグして再生位置を移動"
           >
@@ -1280,6 +1522,7 @@ function App() {
         selectedTrack={selectedTrack}
         onResizeStart={handlePanelResizeStart}
         onUpdate={updateTrack}
+        onApplyPreset={applyPreset}
         fxMode={fxMode}
         onFxModeChange={setFxMode}
         pitchClipId={pitchClipId}
@@ -1297,13 +1540,77 @@ function App() {
 
       {contextMenu && (
         <div className="context-menu" style={{ top: contextMenu.y, left: contextMenu.x }}>
-          <div className="context-menu__title">音声の編集</div>
-          <button type="button" onClick={() => loopTrackAudio(contextMenu.trackId, 2)}>
-            2倍にループ複製
-          </button>
-          <button type="button" onClick={() => loopTrackAudio(contextMenu.trackId, 4)}>
-            4倍にループ複製
-          </button>
+          {contextMenu.clipId != null ? (
+            <>
+              <div className="context-menu__title">クリップの編集</div>
+              <button
+                type="button"
+                onClick={() => {
+                  void splitClipAtPlayhead(contextMenu.trackId, contextMenu.clipId!);
+                  setContextMenu(null);
+                }}
+              >
+                ✂ 再生ヘッド位置で分割
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  duplicateClip(contextMenu.trackId, contextMenu.clipId!);
+                  setContextMenu(null);
+                }}
+              >
+                ⧉ このクリップを複製
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  deleteClip(contextMenu.trackId, contextMenu.clipId!);
+                  setContextMenu(null);
+                }}
+              >
+                🗑 このクリップを削除
+              </button>
+              <div className="context-menu__sep" />
+              <div className="context-menu__title">ハモリ生成（別レーン）</div>
+              <button
+                type="button"
+                onClick={() => {
+                  void generateHarmony(contextMenu.trackId, contextMenu.clipId!, 4);
+                  setContextMenu(null);
+                }}
+              >
+                ♪ ハモリ 上（+4半音 / 3度上）
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void generateHarmony(contextMenu.trackId, contextMenu.clipId!, -3);
+                  setContextMenu(null);
+                }}
+              >
+                ♪ ハモリ 下（−3半音 / 3度下）
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void generateHarmony(contextMenu.trackId, contextMenu.clipId!, 7);
+                  setContextMenu(null);
+                }}
+              >
+                ♪ ハモリ 上（+7半音 / 5度上）
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="context-menu__title">音声の編集</div>
+              <button type="button" onClick={() => loopTrackAudio(contextMenu.trackId, 2)}>
+                2倍にループ複製
+              </button>
+              <button type="button" onClick={() => loopTrackAudio(contextMenu.trackId, 4)}>
+                4倍にループ複製
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

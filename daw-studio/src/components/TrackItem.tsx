@@ -123,7 +123,8 @@ function ClipView({
     audioEngine.restartIfPlaying(track.id);
   }, [clip.offset, track.id]);
 
-  const handleDragStart = (e: React.MouseEvent) => {
+  const handleDragStart = (e: React.PointerEvent) => {
+    if (e.button === 2) return; // 右クリックはメニュー用
     e.preventDefault();
     e.stopPropagation();
     onSelect();
@@ -131,7 +132,7 @@ function ClipView({
     const startOffset = clip.offset;
     let moved = false;
 
-    const move = (ev: MouseEvent) => {
+    const move = (ev: PointerEvent) => {
       const diffX = ev.clientX - startX;
       if (!moved) {
         if (Math.abs(diffX) < 3) return;
@@ -143,11 +144,11 @@ function ClipView({
       onUpdateClip(clip.id, "offset", next);
     };
     const end = () => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", end);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
     };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", end);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
   };
 
   const clipWidth = Math.max((clip.duration || 0) * pxPerSec, 40);
@@ -160,8 +161,9 @@ function ClipView({
         width: `${clipWidth}px`,
         background: track.color,
         opacity: effectiveMute ? 0.35 : 1,
+        touchAction: "none",
       }}
-      onMouseDown={handleDragStart}
+      onPointerDown={handleDragStart}
       onContextMenu={onContextMenu}
     >
       <div ref={containerRef} className="track-clip__wave" />
@@ -200,7 +202,7 @@ type Props = {
   onUpdateClip: (trackId: number, clipId: number, field: keyof Clip, value: number) => void;
   onDeleteClip: (trackId: number, clipId: number) => void;
   onClipDragStart: () => void;
-  onContextMenu: (e: React.MouseEvent, trackId: number) => void;
+  onContextMenu: (e: React.MouseEvent, trackId: number, clipId?: number) => void;
 };
 
 export function TrackItem({
@@ -255,6 +257,7 @@ export function TrackItem({
     track.treble,
     track.compressor,
     track.noiseReduce,
+    track.deEss,
     track.chorus,
     track.delay,
     track.reverb,
@@ -401,7 +404,10 @@ export function TrackItem({
             onDragStart={onClipDragStart}
             onUpdateClip={(clipId, field, value) => onUpdateClip(track.id, clipId, field, value)}
             onDeleteClip={(clipId) => onDeleteClip(track.id, clipId)}
-            onContextMenu={(e) => onContextMenu(e, track.id)}
+            onContextMenu={(e) => {
+              e.stopPropagation();
+              onContextMenu(e, track.id, clip.id);
+            }}
           />
         ))}
       </div>

@@ -1464,3 +1464,89 @@ input[type="number"] {
 .spin {
   animation: spin 0.8s linear infinite;
 }
+
+/* ===== プリセット ===== */
+.fx-panel__preset {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.fx-panel__preset select {
+  height: var(--ctrl-h);
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+/* ===== マイク選択 / 書き出しチェック ===== */
+.toolbar__mic {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--ctrl-h);
+  padding: 0 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+}
+.toolbar__mic select {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 12px;
+  max-width: 130px;
+}
+.toolbar__check {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: var(--ctrl-h);
+  padding: 0 8px;
+  font-size: 12px;
+  color: var(--text-soft, #c9c9d4);
+  white-space: nowrap;
+}
+.toolbar__check input {
+  accent-color: var(--accent);
+}
+
+/* ===== 入力レベルメーター ===== */
+.input-meter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px;
+}
+.input-meter__icon {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+.input-meter__track {
+  width: 70px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.input-meter__fill {
+  height: 100%;
+  width: 0%;
+  background: var(--green);
+  border-radius: 4px;
+  transition: width 0.05s linear;
+}
+
+/* ===== コンテキストメニュー 区切り ===== */
+.context-menu__sep {
+  height: 1px;
+  margin: 6px 0;
+  background: var(--border);
+}

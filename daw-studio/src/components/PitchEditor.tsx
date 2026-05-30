@@ -66,12 +66,12 @@ export function PitchEditor({
     onChangeNotes(notes.map((n) => (n.id === id ? { ...n, shift } : n)));
   };
 
-  const handleDragStart = (e: React.MouseEvent, note: PitchNote) => {
+  const handleDragStart = (e: React.PointerEvent, note: PitchNote) => {
     e.preventDefault();
     e.stopPropagation();
     dragRef.current = { id: note.id, startY: e.clientY, baseShift: note.shift };
 
-    const onMove = (ev: MouseEvent) => {
+    const onMove = (ev: PointerEvent) => {
       const d = dragRef.current;
       if (!d) return;
       const dy = ev.clientY - d.startY;
@@ -81,11 +81,11 @@ export function PitchEditor({
     };
     const onUp = () => {
       dragRef.current = null;
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
     };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   };
 
   const handleDoubleClick = (note: PitchNote) => updateNote(note.id, 0);
@@ -207,8 +207,9 @@ export function PitchEditor({
                       top: yOf(note.midi + shift) - ROW_H / 2,
                       height: ROW_H,
                       background: trackColor,
+                      touchAction: "none",
                     }}
-                    onMouseDown={(e) => handleDragStart(e, note)}
+                    onPointerDown={(e) => handleDragStart(e, note)}
                     onDoubleClick={() => handleDoubleClick(note)}
                     title={`${midiToName(note.midi)} → ${midiToName(note.midi + shift)}`}
                   >

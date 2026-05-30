@@ -8,11 +8,22 @@ import { PitchEditor } from "./PitchEditor";
 
 export type FxMode = "fx" | "pitch";
 
+/** ワンタップで複数エフェクトをまとめて設定するプリセット */
+export const FX_PRESETS: { id: string; label: string; values: Partial<Track> }[] = [
+  { id: "reset", label: "リセット（素の音）", values: { bass: 0, treble: 0, compressor: 0, deEss: 0, noiseReduce: 0, reverb: 0, delay: 0, chorus: 0, tremolo: 0 } },
+  { id: "vocal", label: "ボーカル標準", values: { bass: 1, treble: 3, compressor: 0.45, deEss: 0.4, noiseReduce: 0.15, reverb: 0.18, delay: 0, chorus: 0 } },
+  { id: "pop", label: "ポップス（前に出す）", values: { bass: 2, treble: 4, compressor: 0.6, deEss: 0.5, noiseReduce: 0.1, reverb: 0.22, delay: 0.12, chorus: 0.15 } },
+  { id: "ballad", label: "バラード（広い響き）", values: { bass: 1, treble: 2, compressor: 0.35, deEss: 0.35, noiseReduce: 0.1, reverb: 0.4, delay: 0.18, chorus: 0.1 } },
+  { id: "natural", label: "ナチュラル（控えめ）", values: { bass: 0, treble: 1, compressor: 0.25, deEss: 0.25, noiseReduce: 0.08, reverb: 0.12, delay: 0, chorus: 0 } },
+  { id: "radio", label: "ラジオボイス（細い）", values: { bass: -8, treble: 5, compressor: 0.7, deEss: 0.3, noiseReduce: 0.2, reverb: 0, delay: 0, chorus: 0 } },
+];
+
 type Props = {
   height: number;
   selectedTrack: Track | undefined;
   onResizeStart: (e: React.MouseEvent) => void;
   onUpdate: (id: number, field: keyof Track, value: Track[keyof Track]) => void;
+  onApplyPreset: (id: number, values: Partial<Track>) => void;
   fxMode: FxMode;
   onFxModeChange: (mode: FxMode) => void;
   pitchClipId: number | null;
@@ -33,6 +44,7 @@ export function FxPanel({
   selectedTrack,
   onResizeStart,
   onUpdate,
+  onApplyPreset,
   fxMode,
   onFxModeChange,
   pitchClipId,
@@ -140,6 +152,26 @@ export function FxPanel({
               <p className="fx-panel__nudge-hint">
                 録音が BGM より遅れて聞こえる → マイナス方向へ（0.1 ms 刻み）
               </p>
+              <label className="fx-panel__preset">
+                <span>プリセット</span>
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const p = FX_PRESETS.find((x) => x.id === e.target.value);
+                    if (p) onApplyPreset(selectedTrack.id, p.values);
+                    e.target.value = "";
+                  }}
+                >
+                  <option value="" disabled>
+                    選んで一発設定…
+                  </option>
+                  {FX_PRESETS.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <div className="fx-panel__knob-row">
                 <EffectKnob
                   label="再生速度"
@@ -231,6 +263,18 @@ export function FxPanel({
                 defaultValue={0}
                 helpTitle={FX_TOOLTIPS.noiseReduce.title}
                 helpDescription={FX_TOOLTIPS.noiseReduce.description}
+              />
+              <EffectKnob
+                label="ディエッサー"
+                min="0"
+                max="1"
+                step="0.01"
+                value={selectedTrack.deEss ?? 0}
+                onChange={(v) => onUpdate(selectedTrack.id, "deEss", v)}
+                formatValue={pct}
+                defaultValue={0}
+                helpTitle={FX_TOOLTIPS.deEss.title}
+                helpDescription={FX_TOOLTIPS.deEss.description}
               />
               <div className="fx-panel__knob-divider" aria-hidden />
               <EffectKnob

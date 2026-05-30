@@ -85,19 +85,40 @@ class AudioEngine {
 
   private analyser: AnalyserNode | null = null;
   private analyserBuf: Float32Array | null = null;
+  private limiter: DynamicsCompressorNode | null = null;
 
   getContext(): { ctx: AudioContext; master: GainNode } {
     if (!this.ctx || this.ctx.state === "closed") {
       this.ctx = this.createContext();
       this.master = this.ctx.createGain();
       this.master.gain.value = this._masterVolume;
+
+      // マスターリミッター：音割れ（クリップ）を防ぐ最終段
+      this.limiter = this.ctx.createDynamicsCompressor();
+      this.limiter.threshold.value = -1;
+      this.limiter.knee.value = 0;
+      this.limiter.ratio.value = 20;
+      this.limiter.attack.value = 0.003;
+      this.limiter.release.value = 0.1;
+
       this.analyser = this.ctx.createAnalyser();
       this.analyser.fftSize = 1024;
       this.analyserBuf = new Float32Array(this.analyser.fftSize);
-      this.master.connect(this.analyser);
-      this.master.connect(this.ctx.destination);
+
+      this.master.connect(this.limiter);
+      this.limiter.connect(this.analyser);
+      this.limiter.connect(this.ctx.destination);
     }
     return { ctx: this.ctx, master: this.master! };
+  }
+
+  /** 出力レイテンシ（秒）の概算。録音の自動補正に使う。 */
+  getOutputLatencySec(): number {
+    const ctx = this.ctx;
+    if (!ctx) return 0;
+    const base = ctx.baseLatency || 0;
+    const out = (ctx as AudioContext & { outputLatency?: number }).outputLatency || 0;
+    return base + out;
   }
 
   /** マスター出力のピークレベル（0〜1） */
@@ -389,6 +410,47 @@ class AudioEngine {
 
   setMonitorVolume(value: number) {
     if (this.monitorGain) this.monitorGain.gain.value = value;
+  }
+
+  private inputSource: MediaStreamAudioSourceNode | null = null;
+  private inputAnalyser: AnalyserNode | null = null;
+  private inputBuf: Float32Array | null = null;
+
+  /** マイク入力のレベルメーター用にアナライザーを接続（音は出さない） */
+  async startInputMeter(stream: MediaStream) {
+    await this.ensureRunning();
+    const { ctx } = this.getContext();
+    this.stopInputMeter();
+    this.inputSource = ctx.createMediaStreamSource(stream);
+    this.inputAnalyser = ctx.createAnalyser();
+    this.inputAnalyser.fftSize = 1024;
+    this.inputBuf = new Float32Array(this.inputAnalyser.fftSize);
+    this.inputSource.connect(this.inputAnalyser);
+  }
+
+  stopInputMeter() {
+    if (this.inputSource) {
+      try {
+        this.inputSource.disconnect();
+      } catch {
+        /* noop */
+      }
+      this.inputSource = null;
+    }
+    this.inputAnalyser = null;
+    this.inputBuf = null;
+  }
+
+  /** マイク入力のピークレベル（0〜1） */
+  getInputLevel(): number {
+    if (!this.inputAnalyser || !this.inputBuf) return 0;
+    this.inputAnalyser.getFloatTimeDomainData(this.inputBuf);
+    let peak = 0;
+    for (let i = 0; i < this.inputBuf.length; i++) {
+      const v = Math.abs(this.inputBuf[i]);
+      if (v > peak) peak = v;
+    }
+    return Math.min(1, peak);
   }
 }
 
