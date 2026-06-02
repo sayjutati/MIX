@@ -1,5 +1,11 @@
 {
-  "dependencies": {
-    "lucide-react": "^1.16.0"
+  "name": "mix-studio",
+  "private": true,
+  "description": "MIX — DAW + Video Studio portal",
+  "scripts": {
+    "build": "node scripts/build-portal.mjs",
+    "dev": "npx --yes serve landing -l 3000",
+    "dev:daw": "npm run dev --prefix daw-studio",
+    "dev:video": "npm run dev --prefix video-studio"
   }
 }
