@@ -1,4 +1,4 @@
-import { originLabel, getClipOrigin } from "../audio/clipAudio";
+import { Plus, Upload } from "lucide-react";
 import type { EditorState } from "../types";
 
 interface Props {
@@ -8,56 +8,54 @@ interface Props {
   onAddToTimeline: (assetId: string) => void;
 }
 
-const assetBadge = (state: EditorState, assetId: string) => {
-  const asset = state.assets.find((a) => a.id === assetId);
-  if (!asset) return null;
-  if (asset.kind === "video") {
-    return asset.hasAudio === false ? "映像のみ" : "映像+音声";
-  }
-  if (asset.kind === "audio") return "音声";
+const badgeLabel = (state: EditorState, assetId: string) => {
+  const a = state.assets.find((x) => x.id === assetId);
+  if (!a) return "";
+  if (a.kind === "video") return a.hasAudio === false ? "映像のみ" : "映像+音声";
+  if (a.kind === "audio") return "音声";
   return "画像";
 };
 
 export const MediaLibrary = ({ state, onImport, onImportDaw, onAddToTimeline }: Props) => (
-  <aside className="media-lib">
-    <div className="panel__head">
-      <h2>メディア</h2>
-      <button type="button" className="btn btn--sm" onClick={onImport}>
-        ＋ 読込
+  <div className="media-lib">
+    <div className="media-lib__actions">
+      <button type="button" className="btn btn--primary btn--block" onClick={onImport}>
+        <Upload size={16} />
+        ファイルを追加
       </button>
-      <button type="button" className="btn btn--sm btn--daw" onClick={onImportDaw} title="DAW .daw → Audio 2">
-        DAW
+      <button type="button" className="btn btn--block btn--daw" onClick={onImportDaw}>
+        DAW ミックス (.daw)
       </button>
     </div>
-    <p className="media-lib__explain">
-      動画を追加すると <strong>映像トラック + 音声トラック（リンク）</strong> に分かれます。DAW
-      ミックスは別トラックで重ねます。
-    </p>
+
+    <h3 className="media-lib__heading">ライブラリ ({state.assets.length})</h3>
     <ul className="media-lib__list">
       {state.assets.length === 0 && (
-        <li className="media-lib__empty">動画・音声・画像、または DAW プロジェクト</li>
+        <li className="media-lib__empty card">
+          まだ素材がありません。上のボタンから動画や画像を追加してください。
+        </li>
       )}
       {state.assets.map((a) => (
-        <li key={a.id} className="media-lib__item">
-          <span className={`media-lib__badge media-lib__badge--${a.kind}`}>
-            {assetBadge(state, a.id)}
-          </span>
-          <span className="media-lib__name" title={a.name}>
-            {a.name}
-          </span>
+        <li key={a.id} className="media-lib__item card">
+          <div className="media-lib__meta">
+            <span className={`media-lib__badge media-lib__badge--${a.kind}`}>
+              {badgeLabel(state, a.id)}
+            </span>
+            <span className="media-lib__name" title={a.name}>
+              {a.name}
+            </span>
+          </div>
           <button
             type="button"
-            className="btn btn--sm"
+            className="btn btn--sm btn--primary"
             onClick={() => onAddToTimeline(a.id)}
-            title="タイムラインへ追加"
+            title="現在の再生位置に配置"
           >
-            追加
+            <Plus size={14} />
+            配置
           </button>
         </li>
       ))}
     </ul>
-    {state.clips.some((c) => getClipOrigin(c) === "daw") && (
-      <p className="media-lib__daw-note">DAW クリップ配置中 — {originLabel.daw}</p>
-    )}
-  </aside>
+  </div>
 );

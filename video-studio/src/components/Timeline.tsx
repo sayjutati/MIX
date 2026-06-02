@@ -15,23 +15,15 @@ export const Timeline = ({ state, editor }: Props) => {
 
   return (
     <section className="timeline">
-      <div className="timeline__toolbar">
-        <button type="button" className="btn btn--sm" onClick={() => editor.addTrack("video")}>
-          ＋ 映像
-        </button>
-        <button type="button" className="btn btn--sm" onClick={() => editor.addTrack("audio")}>
-          ＋ 音声
-        </button>
-        <button type="button" className="btn btn--sm" onClick={() => editor.splitAtPlayhead()}>
-          分割 (S)
-        </button>
+      <div className="timeline__head">
+        <h2 className="timeline__title">タイムライン</h2>
         <label className="timeline__snap">
           <input
             type="checkbox"
             checked={state.snapEnabled}
             onChange={(e) => editor.patch({ snapEnabled: e.target.checked })}
           />
-          スナップ
+          グリッドにスナップ
         </label>
       </div>
       <div className="timeline__scroll" ref={scrollRef}>
@@ -46,9 +38,7 @@ export const Timeline = ({ state, editor }: Props) => {
         ))}
         <div
           className="timeline__playhead-line"
-          style={{
-            left: timelineX(state.playhead, state.pxPerSec),
-          }}
+          style={{ left: timelineX(state.playhead, state.pxPerSec) }}
           onMouseDown={(e) => {
             const scroll = scrollRef.current;
             if (!scroll) return;

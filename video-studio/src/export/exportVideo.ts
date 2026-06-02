@@ -2,16 +2,32 @@ import { mixAudioOffline } from "../audio/mixOffline";
 import { renderFrame } from "../preview/compositor";
 import type { EditorState } from "../types";
 import { projectDuration } from "../types";
+import type { ExportFormat } from "./exportCapabilities";
+import {
+  getMp4ExportMethod,
+  pickNativeMp4Mime,
+  pickWebmMime,
+} from "./exportCapabilities";
+import { transcodeWebmToMp4 } from "./transcodeMp4";
+
+export type { ExportFormat } from "./exportCapabilities";
+export { exportFormatHint, getMp4ExportMethod } from "./exportCapabilities";
 
 export interface ExportOptions {
   fps?: number;
-  onProgress?: (p: number) => void;
+  onProgress?: (p: number, status?: string) => void;
 }
 
-export const exportToWebM = async (
+export interface ExportResult {
+  blob: Blob;
+  extension: ExportFormat;
+}
+
+const recordTimeline = async (
   canvas: HTMLCanvasElement,
   state: EditorState,
-  opts: ExportOptions = {}
+  mime: string,
+  opts: ExportOptions
 ): Promise<Blob> => {
   const fps = opts.fps ?? 30;
   const duration = projectDuration(state.clips, state.textClips);
@@ -25,15 +41,17 @@ export const exportToWebM = async (
     if (track) stream.addTrack(track);
   }
 
-  const mime = pickMime();
-  const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
+  const recorder = new MediaRecorder(stream, {
+    mimeType: mime,
+    videoBitsPerSecond: 8_000_000,
+  });
   const chunks: Blob[] = [];
 
   return new Promise((resolve, reject) => {
     recorder.ondataavailable = (e) => {
       if (e.data.size) chunks.push(e.data);
     };
-    recorder.onstop = () => resolve(new Blob(chunks, { type: mime }));
+    recorder.onstop = () => resolve(new Blob(chunks, { type: mime.split(";")[0] }));
     recorder.onerror = () => reject(new Error("MediaRecorder failed"));
 
     let frame = 0;
@@ -42,7 +60,7 @@ export const exportToWebM = async (
     const tick = () => {
       const t = frame / fps;
       renderFrame(ctx, state, t);
-      opts.onProgress?.(frame / totalFrames);
+      opts.onProgress?.(frame / totalFrames, "フレームを書き出し中…");
       frame++;
       if (frame <= totalFrames) {
         requestAnimationFrame(tick);
@@ -71,17 +89,46 @@ const bufferToStreamTrack = async (buffer: AudioBuffer): Promise<MediaStreamTrac
   }
 };
 
-const pickMime = (): string => {
-  const candidates = [
-    "video/webm;codecs=vp9,opus",
-    "video/webm;codecs=vp8,opus",
-    "video/webm",
-  ];
-  for (const m of candidates) {
-    if (MediaRecorder.isTypeSupported(m)) return m;
+/** 形式を選んで書き出し（MP4 は非対応ブラウザで自動変換） */
+export const exportVideo = async (
+  canvas: HTMLCanvasElement,
+  state: EditorState,
+  format: ExportFormat,
+  opts: ExportOptions = {}
+): Promise<ExportResult> => {
+  if (format === "webm") {
+    const blob = await recordTimeline(canvas, state, pickWebmMime(), opts);
+    return { blob, extension: "webm" };
   }
-  return "video/webm";
+
+  const nativeMime = pickNativeMp4Mime();
+  if (nativeMime && getMp4ExportMethod() === "native") {
+    try {
+      const blob = await recordTimeline(canvas, state, nativeMime, opts);
+      return { blob, extension: "mp4" };
+    } catch {
+      /* fall through to transcode */
+    }
+  }
+
+  const webmBlob = await recordTimeline(canvas, state, pickWebmMime(), {
+    ...opts,
+    onProgress: (p, status) => opts.onProgress?.(p * 0.65, status),
+  });
+
+  const mp4Blob = await transcodeWebmToMp4(webmBlob, (p, status) =>
+    opts.onProgress?.(0.65 + p * 0.35, status)
+  );
+
+  return { blob: mp4Blob, extension: "mp4" };
 };
+
+/** @deprecated exportVideo を使用 */
+export const exportToWebM = (
+  canvas: HTMLCanvasElement,
+  state: EditorState,
+  opts?: ExportOptions
+) => exportVideo(canvas, state, "webm", opts).then((r) => r.blob);
 
 export const downloadBlob = (blob: Blob, filename: string) => {
   const a = document.createElement("a");

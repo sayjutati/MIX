@@ -1,20 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import "./App.css";
+import { AppHeader } from "./components/AppHeader";
 import { AudioMixer } from "./components/AudioMixer";
+import { EditToolbar } from "./components/EditToolbar";
+import { HelpDialog } from "./components/HelpDialog";
 import { InspectorPanel } from "./components/InspectorPanel";
-import { MediaLibrary } from "./components/MediaLibrary";
 import { PreviewPanel } from "./components/PreviewPanel";
+import { Sidebar } from "./components/Sidebar";
+import { StatusBar } from "./components/StatusBar";
 import { Timeline } from "./components/Timeline";
 import { TransportBar } from "./components/TransportBar";
-import { downloadBlob, exportToWebM } from "./export/exportVideo";
+import { WelcomeScreen } from "./components/WelcomeScreen";
+import { downloadBlob, exportVideo } from "./export/exportVideo";
 import { useEditor } from "./hooks/useEditor";
 import { usePlayback } from "./hooks/usePlayback";
+import { useUiPrefs } from "./hooks/useUiPrefs";
 import { deserializeProject, downloadProject } from "./project";
-import { MAX_PX_PER_SEC, MIN_PX_PER_SEC, projectDuration } from "./types";
+import { projectDuration } from "./types";
 
 function App() {
   const editor = useEditor();
   const { state, patch } = editor;
+  const { prefs, setMode, patch: patchUi } = useUiPrefs();
   const fileRef = useRef<HTMLInputElement>(null);
   const dawRef = useRef<HTMLInputElement>(null);
   const projectRef = useRef<HTMLInputElement>(null);
@@ -23,8 +30,12 @@ function App() {
   const lastTick = useRef(0);
   const [exporting, setExporting] = useState(false);
   const [exportPct, setExportPct] = useState(0);
+  const [exportStatus, setExportStatus] = useState<string | undefined>();
 
   usePlayback(state);
+
+  const isEmpty = state.assets.length === 0 && state.clips.length === 0;
+  const isPro = prefs.mode === "pro";
 
   const tickPlay = useCallback(
     (now: number) => {
@@ -57,17 +68,23 @@ function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === "?" || (e.shiftKey && e.key === "/")) {
+        patchUi({ helpOpen: true });
+        return;
+      }
+      if (prefs.helpOpen && e.key === "Escape") {
+        patchUi({ helpOpen: false });
+        return;
+      }
       if (e.code === "Space") {
         e.preventDefault();
         patch({ isPlaying: !state.isPlaying });
       }
       if (e.key === "s" || e.key === "S") editor.splitAtPlayhead();
-      if (e.key === "+" || e.key === "=") patch({ pxPerSec: Math.min(MAX_PX_PER_SEC, state.pxPerSec + 8) });
-      if (e.key === "-") patch({ pxPerSec: Math.max(MIN_PX_PER_SEC, state.pxPerSec - 8) });
-      if (e.key === "Delete" && state.selectedClipId) editor.deleteClip(state.selectedClipId);
-      if ((e.key === "m" || e.key === "M") && state.selectedClipId) {
-        editor.toggleClipAudio(state.selectedClipId);
+      if (e.key === "m" || e.key === "M") {
+        if (state.selectedClipId) editor.toggleClipAudio(state.selectedClipId);
       }
+      if (e.key === "Delete" && state.selectedClipId) editor.deleteClip(state.selectedClipId);
       if (e.ctrlKey && e.key === "z") {
         e.preventDefault();
         editor.undo();
@@ -79,54 +96,171 @@ function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [state, editor, patch]);
+  }, [state, editor, patch, prefs.helpOpen, patchUi]);
 
-  const handleAddAsset = (assetId: string) => {
-    editor.addClipFromAsset(assetId);
-  };
+  useEffect(() => {
+    if (state.selectedClipId && prefs.inspectorTab === "project") {
+      patchUi({ inspectorTab: "basic" });
+    }
+  }, [state.selectedClipId, prefs.inspectorTab, patchUi]);
 
   const handleExport = async () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     setExporting(true);
     setExportPct(0);
+    setExportStatus(undefined);
     try {
-      const blob = await exportToWebM(canvas, { ...state, isPlaying: false }, {
-        onProgress: setExportPct,
-      });
-      downloadBlob(blob, `${state.title || "export"}.webm`);
+      const { blob, extension } = await exportVideo(
+        canvas,
+        { ...state, isPlaying: false },
+        prefs.exportFormat,
+        {
+          onProgress: (p, status) => {
+            setExportPct(p);
+            if (status) setExportStatus(status);
+          },
+        }
+      );
+      const base = (state.title || "export").replace(/\.(mp4|webm)$/i, "");
+      downloadBlob(blob, `${base}.${extension}`);
     } catch (err) {
       alert(err instanceof Error ? err.message : "書き出しに失敗しました");
     } finally {
       setExporting(false);
+      setExportStatus(undefined);
     }
   };
 
+  if (isEmpty) {
+    return (
+      <div className="app app--welcome">
+        <AppHeader
+          title={state.title}
+          mode={prefs.mode}
+          exporting={exporting}
+          exportPct={exportPct}
+          exportStatus={exportStatus}
+          exportFormat={prefs.exportFormat}
+          onExportFormat={(f) => patchUi({ exportFormat: f })}
+          onImport={() => fileRef.current?.click()}
+          onImportDaw={() => dawRef.current?.click()}
+          onOpen={() => projectRef.current?.click()}
+          onSave={() => downloadProject(state)}
+          onExport={handleExport}
+          onToggleMode={() => setMode(isPro ? "beginner" : "pro")}
+          onHelp={() => patchUi({ helpOpen: true })}
+        />
+        <WelcomeScreen
+          onImportMedia={() => fileRef.current?.click()}
+          onImportDaw={() => dawRef.current?.click()}
+          onOpenProject={() => projectRef.current?.click()}
+        />
+        <FileInputs
+          fileRef={fileRef}
+          dawRef={dawRef}
+          projectRef={projectRef}
+          editor={editor}
+        />
+        <HelpDialog open={prefs.helpOpen} onClose={() => patchUi({ helpOpen: false })} />
+      </div>
+    );
+  }
+
   return (
     <div className="app">
-      <header className="app__header">
-        <h1>MIX Video Studio</h1>
-        <div className="app__actions">
-          <button type="button" className="btn" onClick={() => fileRef.current?.click()}>
-            インポート
-          </button>
-          <button type="button" className="btn" onClick={() => projectRef.current?.click()}>
-            開く
-          </button>
-          <button type="button" className="btn" onClick={() => downloadProject(state)}>
-            保存
-          </button>
-          <button
-            type="button"
-            className="btn btn--primary"
-            disabled={exporting}
-            onClick={handleExport}
-          >
-            {exporting ? `書き出し ${Math.round(exportPct * 100)}%` : "書き出し WebM"}
-          </button>
-        </div>
-      </header>
+      <AppHeader
+        title={state.title}
+        mode={prefs.mode}
+        exporting={exporting}
+        exportPct={exportPct}
+        exportStatus={exportStatus}
+        exportFormat={prefs.exportFormat}
+        onExportFormat={(f) => patchUi({ exportFormat: f })}
+        onImport={() => fileRef.current?.click()}
+        onImportDaw={() => dawRef.current?.click()}
+        onOpen={() => projectRef.current?.click()}
+        onSave={() => downloadProject(state)}
+        onExport={handleExport}
+        onToggleMode={() => setMode(isPro ? "beginner" : "pro")}
+        onHelp={() => patchUi({ helpOpen: true })}
+      />
 
+      <FileInputs fileRef={fileRef} dawRef={dawRef} projectRef={projectRef} editor={editor} />
+
+      <TransportBar
+        state={state}
+        onPlay={() => patch({ isPlaying: !state.isPlaying })}
+        onStop={() => patch({ isPlaying: false, playhead: 0 })}
+        onSeek={(t) => patch({ playhead: t })}
+        onSetLoop={(which) => {
+          if (which === "A") patch({ loopA: state.playhead });
+          else patch({ loopB: state.playhead });
+        }}
+        onClearLoop={() => patch({ loopA: null, loopB: null })}
+        onMasterVolume={(v) => patch({ masterVolume: v })}
+        onToggleAudio={() => patch({ audioEnabled: !state.audioEnabled })}
+      />
+
+      <EditToolbar state={state} editor={editor} isPro={isPro} />
+
+      <AudioMixer
+        state={state}
+        editor={editor}
+        open={prefs.mixerOpen}
+        compact={!isPro}
+        onToggleOpen={() => patchUi({ mixerOpen: !prefs.mixerOpen })}
+      />
+
+      <div className="workspace">
+        <Sidebar
+          state={state}
+          tab={prefs.sidebarTab}
+          isPro={isPro}
+          onTab={(t) => patchUi({ sidebarTab: t })}
+          onImport={() => fileRef.current?.click()}
+          onImportDaw={() => dawRef.current?.click()}
+          onAddToTimeline={(id) => editor.addClipFromAsset(id)}
+        />
+        <div className="workspace__center">
+          <PreviewPanel
+            state={state}
+            onCanvasReady={(c) => {
+              canvasRef.current = c;
+            }}
+          />
+        </div>
+        <InspectorPanel
+          state={state}
+          editor={editor}
+          tab={prefs.inspectorTab}
+          onTab={(t) => patchUi({ inspectorTab: t })}
+          isPro={isPro}
+          exportFormat={prefs.exportFormat}
+          onExportFormat={(f) => patchUi({ exportFormat: f })}
+        />
+      </div>
+
+      <Timeline state={state} editor={editor} />
+      <StatusBar state={state} mode={prefs.mode} />
+      <HelpDialog open={prefs.helpOpen} onClose={() => patchUi({ helpOpen: false })} />
+    </div>
+  );
+}
+
+function FileInputs({
+  fileRef,
+  dawRef,
+  projectRef,
+  editor,
+}: {
+  fileRef: React.RefObject<HTMLInputElement | null>;
+  dawRef: React.RefObject<HTMLInputElement | null>;
+  projectRef: React.RefObject<HTMLInputElement | null>;
+  editor: ReturnType<typeof useEditor>;
+}) {
+  return (
+    <>
       <input
         ref={fileRef}
         type="file"
@@ -158,49 +292,14 @@ function App() {
           const f = e.target.files?.[0];
           if (!f) return;
           try {
-            const file = JSON.parse(await f.text());
-            editor.loadState(deserializeProject(file));
+            editor.loadState(deserializeProject(JSON.parse(await f.text())));
           } catch {
             alert("プロジェクトの読み込みに失敗しました");
           }
           e.target.value = "";
         }}
       />
-
-      <TransportBar
-        state={state}
-        onPlay={() => patch({ isPlaying: !state.isPlaying })}
-        onStop={() => patch({ isPlaying: false, playhead: 0 })}
-        onSeek={(t) => patch({ playhead: t })}
-        onZoom={(d) =>
-          patch({
-            pxPerSec: Math.min(MAX_PX_PER_SEC, Math.max(MIN_PX_PER_SEC, state.pxPerSec + d)),
-          })
-        }
-        onSetLoop={(which) => {
-          if (which === "A") patch({ loopA: state.playhead });
-          else patch({ loopB: state.playhead });
-        }}
-        onClearLoop={() => patch({ loopA: null, loopB: null })}
-        onMasterVolume={(v) => patch({ masterVolume: v })}
-        onToggleAudio={() => patch({ audioEnabled: !state.audioEnabled })}
-      />
-
-      <AudioMixer state={state} editor={editor} />
-
-      <div className="app__main">
-        <MediaLibrary
-          state={state}
-          onImport={() => fileRef.current?.click()}
-          onImportDaw={() => dawRef.current?.click()}
-          onAddToTimeline={handleAddAsset}
-        />
-        <PreviewPanel state={state} onCanvasReady={(c) => { canvasRef.current = c; }} />
-        <InspectorPanel state={state} editor={editor} />
-      </div>
-
-      <Timeline state={state} editor={editor} />
-    </div>
+    </>
   );
 }
 
