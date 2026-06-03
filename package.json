@@ -3,6 +3,7 @@
   "private": true,
   "description": "MIX — DAW + Video Studio portal",
   "scripts": {
+    "verify": "node scripts/verify-repo.mjs",
     "build": "node scripts/build-portal.mjs",
     "dev": "npx --yes serve landing -l 3000",
     "dev:daw": "npm run dev --prefix daw-studio",

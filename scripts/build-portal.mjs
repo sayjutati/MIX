@@ -15,7 +15,10 @@ const run = (cmd, cwd, env = {}) => {
   });
 };
 
-console.log("→ Building MIX portal…\n");
+console.log("→ verify-repo …");
+run("node scripts/verify-repo.mjs", root);
+
+console.log("\n→ Building MIX portal…\n");
 
 if (fs.existsSync(out)) fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(out, { recursive: true });
@@ -26,8 +29,11 @@ fs.cpSync(path.join(root, "landing"), out, { recursive: true });
 const buildApp = (name, dir, basePath, outSub) => {
   console.log(`\n━━ ${name} (${basePath}) ━━`);
   const appDir = path.join(root, dir);
-  console.log("  → npm install …");
-  run("npm install", appDir, { VITE_BASE: basePath });
+  const lock = path.join(appDir, "package-lock.json");
+  const useCi = process.env.CI === "true" || process.env.VERCEL === "1";
+  const installCmd = fs.existsSync(lock) && useCi ? "npm ci" : "npm install";
+  console.log(`  → ${installCmd} …`);
+  run(installCmd, appDir, { VITE_BASE: basePath });
   console.log("  → npm run build …");
   run("npm run build", appDir, { VITE_BASE: basePath });
   console.log(`  ✓ ${name} done\n`);

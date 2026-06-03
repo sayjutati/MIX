@@ -1,3 +1,7 @@
 dist/
 node_modules/
+daw-studio/node_modules/
+daw-studio/dist/
+video-studio/node_modules/
+video-studio/dist/
 *.local
