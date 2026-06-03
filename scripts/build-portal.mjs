@@ -24,9 +24,13 @@ console.log("  Landing page");
 fs.cpSync(path.join(root, "landing"), out, { recursive: true });
 
 const buildApp = (name, dir, basePath, outSub) => {
-  console.log(`  ${name} (${basePath})`);
+  console.log(`\n━━ ${name} (${basePath}) ━━`);
   const appDir = path.join(root, dir);
-  run("npm install && npm run build", appDir, { VITE_BASE: basePath });
+  console.log("  → npm install …");
+  run("npm install", appDir, { VITE_BASE: basePath });
+  console.log("  → npm run build …");
+  run("npm run build", appDir, { VITE_BASE: basePath });
+  console.log(`  ✓ ${name} done\n`);
   fs.cpSync(path.join(appDir, "dist"), path.join(out, outSub), { recursive: true });
 };
 
