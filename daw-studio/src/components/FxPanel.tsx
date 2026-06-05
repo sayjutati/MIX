@@ -150,7 +150,7 @@ export function FxPanel({
                 helpDescription={FX_TOOLTIPS.nudgeMs.description}
               />
               <p className="fx-panel__nudge-hint">
-                録音が BGM より遅れて聞こえる → マイナス方向へ（0.1 ms 刻み）
+                録音時に自動補正済み。まだズレるときだけ手動で微調整（遅れ→マイナス / 早い→プラス）
               </p>
               <label className="fx-panel__preset">
                 <span>プリセット</span>

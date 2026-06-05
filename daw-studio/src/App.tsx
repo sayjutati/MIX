@@ -31,6 +31,7 @@ import { audioBufferToWav, renderMixdown } from "./audio/mixdown";
 import { EmptyWorkspace } from "./components/EmptyWorkspace";
 import { FxPanel, type FxMode } from "./components/FxPanel";
 import { bufferToMono, renderPitchCorrected, renderWholeShift } from "./audio/pitch";
+import { alignVocalToBgm } from "./audio/autoAlign";
 import { detectNotesAsync } from "./audio/pitchDetectClient";
 import { TrackItem } from "./components/TrackItem";
 import { MasterMeter } from "./components/MasterMeter";
@@ -777,37 +778,51 @@ function App() {
       };
 
       recorder.onstop = async () => {
-        // レイテンシ自動補正：入出力遅延ぶん録音を前に詰めて BGM と揃える
-        let latencySec = 0;
+        const anchorSec = recordOffsetRef.current;
+        let latencyFallbackSec = 0;
         if (autoLatencyCompRef.current) {
           const settings = recordStreamRef.current?.getAudioTracks()[0]?.getSettings() as
             | (MediaTrackSettings & { latency?: number })
             | undefined;
           const inputLatency = settings?.latency ?? 0;
-          latencySec = audioEngine.getOutputLatencySec() + inputLatency;
-          // ブラウザが latency を返さない場合の安全なフォールバック（約30ms）
-          if (latencySec < 0.005) latencySec = 0.03;
+          latencyFallbackSec = audioEngine.getOutputLatencySec() + inputLatency;
+          if (latencyFallbackSec < 0.005) latencyFallbackSec = 0.03;
         }
+
         recordStreamRef.current?.getTracks().forEach((t) => t.stop());
         recordStreamRef.current = null;
         audioEngine.stopInputMeter();
         audioEngine.stopMonitor();
         const blobType = recorder.mimeType || "audio/webm";
         const rawBlob = new Blob(audioChunksRef.current, { type: blobType });
-        const offset = Math.max(0, recordOffsetRef.current - latencySec);
         const targetId = recordTargetRef.current;
 
-        // 録音(webm/opus)を WAV に正規化：再生・波形・長さの取得をどの環境でも安定させる
         let url: string;
         let duration = 0;
+        let offset = anchorSec;
         try {
           const { ctx } = audioEngine.getContext();
           const decoded = await ctx.decodeAudioData(await rawBlob.arrayBuffer());
           duration = decoded.duration;
+
+          if (autoLatencyCompRef.current) {
+            const aligned = await alignVocalToBgm(
+              tracksRef.current,
+              decoded,
+              anchorSec,
+              ctx,
+              latencyFallbackSec
+            );
+            offset = aligned.offsetSec;
+          }
+
           url = URL.createObjectURL(audioBufferToWav(decoded));
         } catch (err) {
           console.error("録音データのデコードに失敗。元データで保存します:", err);
           url = URL.createObjectURL(rawBlob);
+          if (autoLatencyCompRef.current) {
+            offset = Math.max(0, anchorSec - latencyFallbackSec);
+          }
         }
 
         pushHistory();
@@ -1347,8 +1362,8 @@ function App() {
             className={`toolbar__icon tooltip ${autoLatencyComp ? "toolbar__icon--on" : ""}`}
             data-tooltip={
               autoLatencyComp
-                ? "レイテンシ自動補正：ON（録音とBGMのズレを自動で詰める）"
-                : "レイテンシ自動補正：OFF"
+                ? "音ズレ自動補正：ON（録音後にBGMと照合して自動で合わせる）"
+                : "音ズレ自動補正：OFF"
             }
             onClick={() => setAutoLatencyComp((v) => !v)}
           >

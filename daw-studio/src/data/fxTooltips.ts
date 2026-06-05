@@ -5,7 +5,7 @@ export const FX_TOOLTIPS = {
   nudgeMs: {
     title: "タイミング補正",
     description:
-      "BGMと歌・録音のズレを0.1ms単位で微調整します。再生して遅れて聞こえるときはマイナス、早いときはプラスへ。",
+      "録音時はBGMと自動照合でほぼ合わせています。まだズレるときだけ、BGMと歌のズレを0.1ms単位で手動微調整します。",
   },
   speed: {
     title: "再生速度",
