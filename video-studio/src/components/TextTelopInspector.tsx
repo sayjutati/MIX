@@ -1,7 +1,7 @@
 import type { EditorApi } from "../hooks/useEditor";
 import type { TextClip } from "../types";
 import { TELOP_PRESETS } from "../text/telopPresets";
-import { FONT_OPTIONS, type TextAnimKind } from "../text/textStyle";
+import { FONT_OPTIONS, isScrollAnim, type TextAnimKind } from "../text/textStyle";
 
 const ANIM_IN: { value: TextAnimKind; label: string }[] = [
   { value: "none", label: "なし" },
@@ -14,9 +14,22 @@ const ANIM_IN: { value: TextAnimKind; label: string }[] = [
   { value: "typewriter", label: "タイプライター" },
   { value: "karaoke", label: "カラオケ（ワイプ）" },
   { value: "wipe", label: "ワイプ" },
+  { value: "scrollLeft", label: "横スクロール（右→左・流れ続ける）" },
+  { value: "scrollRight", label: "横スクロール（左→右）" },
+  { value: "scrollUp", label: "エンドロール（下→上・停止可）" },
+  { value: "scrollDown", label: "縦スクロール（上→下・停止可）" },
 ];
 
-const ANIM_OUT = ANIM_IN.filter((a) => a.value !== "typewriter" && a.value !== "karaoke" && a.value !== "wipe");
+const ANIM_OUT = ANIM_IN.filter(
+  (a) =>
+    a.value !== "typewriter" &&
+    a.value !== "karaoke" &&
+    a.value !== "wipe" &&
+    a.value !== "scrollLeft" &&
+    a.value !== "scrollRight" &&
+    a.value !== "scrollUp" &&
+    a.value !== "scrollDown"
+);
 
 interface Props {
   clip: TextClip;
@@ -25,6 +38,9 @@ interface Props {
 
 export const TextTelopInspector = ({ clip, editor }: Props) => {
   const st = clip.style;
+  const scrollIn = isScrollAnim(st.animation.in);
+  const creditsScroll = st.animation.in === "scrollUp" || st.animation.in === "scrollDown";
+  const marqueeScroll = st.animation.in === "scrollLeft" || st.animation.in === "scrollRight";
 
   return (
     <div className="telop-inspector">
@@ -354,8 +370,24 @@ export const TextTelopInspector = ({ clip, editor }: Props) => {
 
       <section className="telop-inspector__section">
         <h3 className="inspector__section-title">アニメーション</h3>
+        {scrollIn && (
+          <p className="telop-inspector__scroll-hint">
+            {marqueeScroll && (
+              <>
+                横位置は流れの高さ（縦位置スライダー）。<strong>クリップの長さ</strong>
+                で流れの終わりを決めます。抜け「フェード」で消えられます。
+              </>
+            )}
+            {creditsScroll && (
+              <>
+                <strong>縦位置＝止まる位置</strong>。入り時間＝流れる秒数、停止後の表示＝止まって見せる秒数。
+                クリップ長 ≥ 流れ＋停止＋抜け になるようタイムラインで調整してください。
+              </>
+            )}
+          </p>
+        )}
         <label className="field">
-          <span className="field__label">入り</span>
+          <span className="field__label">{scrollIn ? "動き" : "入り"}</span>
           <select
             value={st.animation.in}
             onChange={(e) =>
@@ -372,12 +404,14 @@ export const TextTelopInspector = ({ clip, editor }: Props) => {
           </select>
         </label>
         <label className="field">
-          <span className="field__label">入り時間（秒）</span>
+          <span className="field__label">
+            {creditsScroll ? "流れる時間（秒）" : marqueeScroll ? "参考（横断の目安・任意）" : "入り時間（秒）"}
+          </span>
           <input
             type="number"
             min={0}
-            max={10}
-            step={0.05}
+            max={120}
+            step={0.1}
             value={st.animation.inDuration}
             onChange={(e) =>
               editor.updateTextStyle(clip.id, {
@@ -386,6 +420,23 @@ export const TextTelopInspector = ({ clip, editor }: Props) => {
             }
           />
         </label>
+        {creditsScroll && (
+          <label className="field">
+            <span className="field__label">停止後の表示（秒）</span>
+            <input
+              type="number"
+              min={0}
+              max={60}
+              step={0.1}
+              value={st.animation.holdDuration ?? 2}
+              onChange={(e) =>
+                editor.updateTextStyle(clip.id, {
+                  animation: { ...st.animation, holdDuration: Number(e.target.value) },
+                })
+              }
+            />
+          </label>
+        )}
         <label className="field">
           <span className="field__label">抜け</span>
           <select

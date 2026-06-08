@@ -1,6 +1,6 @@
 import type { TextClip } from "../types";
 import { clipOpacityAt } from "../types";
-import type { TextStyle } from "./textStyle";
+import { isScrollAnim, type TextStyle } from "./textStyle";
 
 export interface TextBounds {
   left: number;
@@ -35,8 +35,9 @@ const linesOf = (text: string) => text.split("\n");
 export const computeTelopTransform = (
   clip: TextClip,
   localSec: number,
-  _w: number,
-  _h: number
+  w: number,
+  h: number,
+  blockSize?: { width: number; height: number }
 ): TelopTransform => {
   const anim = clip.style.animation;
   const dur = clip.duration;
@@ -46,6 +47,39 @@ export const computeTelopTransform = (
   let scale = 1;
   let reveal = 1;
   let visibleText = clip.text;
+
+  const blockW = blockSize?.width ?? 240;
+  const blockH = blockSize?.height ?? 80;
+  const holdDur = anim.holdDuration ?? 2;
+  const scrollDur = Math.max(0.1, anim.inDuration || dur * 0.65);
+  const outStart = dur - anim.outDuration;
+
+  if (anim.in === "scrollLeft" || anim.in === "scrollRight") {
+    const runEnd = anim.outDuration > 0 ? outStart : dur;
+    const travel = w + blockW;
+    const p = runEnd > 0 ? Math.min(1, Math.max(0, localSec / runEnd)) : 1;
+    if (anim.in === "scrollLeft") {
+      offsetX = w * 0.5 + blockW * 0.5 - p * travel;
+    } else {
+      offsetX = -(w * 0.5 + blockW * 0.5) + p * travel;
+    }
+    if (localSec < 0.35) opacity *= Math.min(1, localSec / 0.35);
+  } else if (anim.in === "scrollUp" || anim.in === "scrollDown") {
+    const holdEnd = scrollDur + holdDur;
+    if (localSec < scrollDur) {
+      const p = easeOutCubic(localSec / scrollDur);
+      if (anim.in === "scrollUp") {
+        const startOff = h - clip.y * h + blockH * 0.55;
+        offsetY = startOff * (1 - p);
+      } else {
+        const startOff = -(clip.y * h + blockH * 0.55);
+        offsetY = startOff * (1 - p);
+      }
+      if (localSec < 0.4) opacity *= Math.min(1, localSec / 0.4);
+    } else if (localSec < holdEnd) {
+      offsetY = 0;
+    }
+  }
 
   const applyIn = (kind: typeof anim.in, p: number) => {
     const e = easeOutCubic(Math.min(1, Math.max(0, p)));
@@ -120,7 +154,14 @@ export const computeTelopTransform = (
     }
   };
 
-  if (anim.in !== "none" && anim.inDuration > 0 && localSec < anim.inDuration) {
+  const skipClassicIn = isScrollAnim(anim.in);
+
+  if (
+    !skipClassicIn &&
+    anim.in !== "none" &&
+    anim.inDuration > 0 &&
+    localSec < anim.inDuration
+  ) {
     applyIn(anim.in, localSec / anim.inDuration);
   } else if (anim.in === "typewriter" && anim.inDuration > 0 && localSec < anim.inDuration) {
     applyIn("typewriter", localSec / anim.inDuration);
@@ -251,15 +292,17 @@ export const getTelopBounds = (
   w: number,
   h: number
 ): TextBounds => {
-  const tr = computeTelopTransform(clip, localSec, w, h);
   const style = clip.style;
   ctx.save();
   ctx.font = fontCss(style);
-  const { width, height } = measureTextBlock(ctx, tr.visibleText || " ", style);
+  const preText = clip.text;
+  const { width, height } = measureTextBlock(ctx, preText || " ", style);
+  const tr = computeTelopTransform(clip, localSec, w, h, { width, height });
+  const { width: tw, height: th } = measureTextBlock(ctx, tr.visibleText || " ", style);
   const padX = style.background.enabled ? style.background.paddingX : 0;
   const padY = style.background.enabled ? style.background.paddingY : 0;
-  const boxW = width + padX * 2;
-  const boxH = height + padY * 2;
+  const boxW = tw + padX * 2;
+  const boxH = th + padY * 2;
   const anchorX = clip.x * w + tr.offsetX;
   const anchorY = clip.y * h + tr.offsetY;
   let left = anchorX - boxW / 2;
@@ -296,16 +339,17 @@ export const drawTelop = (
   w: number,
   h: number
 ) => {
-  const tr = computeTelopTransform(clip, localSec, w, h);
+  const style = clip.style;
+  ctx.font = fontCss(style);
+  const { width: preW, height: preH } = measureTextBlock(ctx, clip.text || " ", style);
+  const tr = computeTelopTransform(clip, localSec, w, h, { width: preW, height: preH });
   if (tr.opacity <= 0.001) return;
 
-  const style = clip.style;
   const text = tr.visibleText;
   if (!text) return;
 
   ctx.save();
   ctx.globalAlpha *= tr.opacity;
-  ctx.font = fontCss(style);
 
   if (style.shadow.enabled) {
     ctx.shadowColor = style.shadow.color;

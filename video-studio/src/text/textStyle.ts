@@ -10,7 +10,18 @@ export type TextAnimKind =
   | "pop"
   | "typewriter"
   | "wipe"
-  | "karaoke";
+  | "karaoke"
+  /** 右→左に流れ続ける（クリップ長で終了） */
+  | "scrollLeft"
+  /** 左→右に流れ続ける */
+  | "scrollRight"
+  /** エンドロール風・下から上へ流れて停止位置で止まる */
+  | "scrollUp"
+  /** 上から下へ流れて停止 */
+  | "scrollDown";
+
+export const isScrollAnim = (k: TextAnimKind) =>
+  k === "scrollLeft" || k === "scrollRight" || k === "scrollUp" || k === "scrollDown";
 
 export interface TextStroke {
   enabled: boolean;
@@ -45,8 +56,11 @@ export interface TextGradient {
 export interface TextAnimation {
   in: TextAnimKind;
   out: TextAnimKind;
+  /** 入り・スクロール完了までの秒（エンドロールの流れ時間） */
   inDuration: number;
   outDuration: number;
+  /** 停止位置で止まって見せる秒（scrollUp/scrollDown） */
+  holdDuration?: number;
 }
 
 export interface TextStyle {
@@ -89,7 +103,7 @@ export const defaultTextStyle = (): TextStyle => ({
   shadow: { enabled: true, color: "rgba(0,0,0,0.55)", blur: 8, offsetX: 0, offsetY: 4 },
   background: { enabled: false, color: "#000000", opacity: 0.55, paddingX: 20, paddingY: 10, radius: 8 },
   gradient: { enabled: false, colorStart: "#ff6b9d", colorEnd: "#ffd93d", angle: 90 },
-  animation: { in: "pop", out: "fade", inDuration: 0.45, outDuration: 0.35 },
+  animation: { in: "pop", out: "fade", inDuration: 0.45, outDuration: 0.35, holdDuration: 2 },
 });
 
 export const mergeTextStyle = (base: TextStyle, patch: Partial<TextStyle>): TextStyle => ({
@@ -99,7 +113,11 @@ export const mergeTextStyle = (base: TextStyle, patch: Partial<TextStyle>): Text
   shadow: { ...base.shadow, ...patch.shadow },
   background: { ...base.background, ...patch.background },
   gradient: { ...base.gradient, ...patch.gradient },
-  animation: { ...base.animation, ...patch.animation },
+  animation: {
+    ...base.animation,
+    ...patch.animation,
+    holdDuration: patch.animation?.holdDuration ?? base.animation.holdDuration ?? 2,
+  },
 });
 
 /** v2 互換: 旧フィールドから style を組み立て */

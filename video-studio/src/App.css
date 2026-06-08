@@ -1494,3 +1494,14 @@ kbd {
 .preview__canvas--draggable:active {
   cursor: grabbing;
 }
+
+.telop-inspector__scroll-hint {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  font-size: 0.74rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
