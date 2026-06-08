@@ -1,5 +1,6 @@
-import type { ClipEffects, EditorState, MediaAsset, TextClip, TimelineClip } from "../types";
+import type { ClipEffects, EditorState, MediaAsset, TimelineClip } from "../types";
 import { clipOpacityAt, clipTimelineEnd } from "../types";
+import { drawTelop } from "../text/renderText";
 import { clipsOnTrack, transitionOverlap } from "../utils/timeline";
 
 const videoCache = new Map<string, HTMLVideoElement>();
@@ -83,24 +84,6 @@ const drawClipMedia = (
   ctx.restore();
 };
 
-const drawText = (
-  ctx: CanvasRenderingContext2D,
-  t: TextClip,
-  localSec: number,
-  w: number,
-  h: number
-) => {
-  const alpha = clipOpacityAt(t, localSec) / 100;
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.fillStyle = t.color;
-  ctx.font = `${t.fontSize}px ${t.fontFamily}`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(t.text, t.x * w, t.y * h);
-  ctx.restore();
-};
-
 export interface CompositeLayer {
   trackKind: string;
   z: number;
@@ -163,12 +146,12 @@ export const renderFrame = (
     }
   }
 
-  const textTrack = state.tracks.find((t) => t.kind === "text" && !t.hidden);
-  if (textTrack) {
-    for (const t of state.textClips.filter((c) => c.trackId === textTrack.id)) {
+  const textTracks = state.tracks.filter((t) => t.kind === "text" && !t.hidden);
+  for (const track of textTracks) {
+    for (const t of state.textClips.filter((c) => c.trackId === track.id)) {
       const end = clipTimelineEnd(t);
       if (time < t.start || time >= end) continue;
-      drawText(ctx, t, time - t.start, w, h);
+      drawTelop(ctx, t, time - t.start, w, h);
     }
   }
 };

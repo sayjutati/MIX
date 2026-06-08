@@ -8,6 +8,7 @@ import type {
   TimelineClip,
 } from "./types";
 import { PROJECT_VERSION, defaultEffects, projectDuration } from "./types";
+import { textStyleFromLegacy } from "./text/textStyle";
 
 const blobToBase64 = (blob: Blob): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -67,11 +68,9 @@ export const serializeProject = async (state: EditorState): Promise<ProjectFile>
       transitionOut: t.transitionOut,
       opacityKeyframes: t.opacityKeyframes,
       text: t.text,
-      fontSize: t.fontSize,
-      color: t.color,
       x: t.x,
       y: t.y,
-      fontFamily: t.fontFamily,
+      style: t.style,
     })),
   ];
 
@@ -117,11 +116,14 @@ export const deserializeProject = (file: ProjectFile): EditorState => {
         effects: c.effects ?? defaultEffects(),
         opacityKeyframes: c.opacityKeyframes ?? [],
         text: c.text,
-        fontSize: c.fontSize ?? 48,
-        color: c.color ?? "#ffffff",
         x: c.x ?? 0.5,
         y: c.y ?? 0.5,
-        fontFamily: c.fontFamily ?? "Inter, sans-serif",
+        style: textStyleFromLegacy({
+          style: c.style,
+          fontSize: c.fontSize,
+          color: c.color,
+          fontFamily: c.fontFamily,
+        }),
       });
     } else {
       clips.push({

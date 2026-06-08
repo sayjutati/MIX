@@ -46,6 +46,16 @@ export const HelpDialog = ({ open, onClose }: Props) => {
             </tbody>
           </table>
           <section className="dialog__section">
+            <h3>テロップ</h3>
+            <ul>
+              <li>Titles 行ダブルクリック → テキストクリップ追加</li>
+              <li>テンプレ（曲名・クレジット・歌詞など）をワンクリック適用</li>
+              <li>縁取り / 影 / グラデ / 背景ボックス / 8種フォント</li>
+              <li>入り・抜けアニメ（ポップ・スライド・タイプライター・カラオケ）</li>
+              <li>プレビューをドラッグで位置移動</li>
+            </ul>
+          </section>
+          <section className="dialog__section">
             <h3>音声トラックの見分け方</h3>
             <ul>
               <li>

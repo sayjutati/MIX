@@ -63,6 +63,18 @@ export const GuidePanel = ({ state, isPro, onImportMedia, onImportDaw, onFocusMe
       </div>
 
       <details className="guide__tips" open={!isPro}>
+        <summary>テロップ（歌ってみた向け）</summary>
+        <ul>
+          <li>
+            <strong>Titles</strong> 行をダブルクリックでテキスト追加
+          </li>
+          <li>右インスペクター <strong>テロップ</strong> タブでテンプレ・縁取り・影・アニメ</li>
+          <li>プレビュー上をドラッグして位置調整</li>
+          <li>歌詞は「カラオケ」アニメ＋クリップを歌詞ごとに分割</li>
+        </ul>
+      </details>
+
+      <details className="guide__tips" open={!isPro}>
         <summary>音声の仕組み（重要）</summary>
         <ul>
           <li>

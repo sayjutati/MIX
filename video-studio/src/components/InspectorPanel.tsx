@@ -4,6 +4,7 @@ import { exportFormatHint } from "../export/exportVideo";
 import type { InspectorTab } from "../hooks/useUiPrefs";
 import type { EditorApi } from "../hooks/useEditor";
 import type { EditorState, TextClip, TimelineClip } from "../types";
+import { TextTelopInspector } from "./TextTelopInspector";
 
 const FX_LABELS: Record<string, string> = {
   brightness: "明るさ",
@@ -48,6 +49,7 @@ export const InspectorPanel = ({
   const hasClip = !!clip;
 
   const tabs: { id: InspectorTab; label: string; show: boolean }[] = [
+    { id: "telop", label: "テロップ", show: !!textClip },
     { id: "basic", label: hasClip ? "クリップ" : "ようこそ", show: true },
     { id: "fx", label: "映像FX", show: hasClip && !isText },
     { id: "project", label: "プロジェクト", show: true },
@@ -171,36 +173,6 @@ export const InspectorPanel = ({
               </section>
             )}
 
-            {textClip && (
-              <section className="inspector__section">
-                <label className="field">
-                  <span className="field__label">テキスト</span>
-                  <input
-                    value={textClip.text}
-                    onChange={(e) => editor.updateClip(clip.id, { text: e.target.value })}
-                  />
-                </label>
-                <label className="field">
-                  <span className="field__label">サイズ</span>
-                  <input
-                    type="number"
-                    value={textClip.fontSize}
-                    onChange={(e) =>
-                      editor.updateClip(clip.id, { fontSize: Number(e.target.value) })
-                    }
-                  />
-                </label>
-                <label className="field">
-                  <span className="field__label">色</span>
-                  <input
-                    type="color"
-                    value={textClip.color}
-                    onChange={(e) => editor.updateClip(clip.id, { color: e.target.value })}
-                  />
-                </label>
-              </section>
-            )}
-
             <section className="inspector__section">
               <label className="field">
                 <span className="field__label">再生速度</span>
@@ -284,6 +256,10 @@ export const InspectorPanel = ({
               </button>
             </div>
           </>
+        )}
+
+        {textClip && tab === "telop" && (
+          <TextTelopInspector clip={textClip} editor={editor} />
         )}
 
         {hasClip && !isText && tab === "fx" && (

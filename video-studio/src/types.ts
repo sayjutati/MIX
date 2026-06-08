@@ -1,4 +1,6 @@
-export const PROJECT_VERSION = 2;
+import type { TextStyle } from "./text/textStyle";
+
+export const PROJECT_VERSION = 3;
 export const PIXELS_PER_SECOND = 40;
 export const MIN_PX_PER_SEC = 8;
 export const MAX_PX_PER_SEC = 200;
@@ -91,12 +93,10 @@ export interface TimelineClip {
 
 export interface TextClip extends TimelineClip {
   text: string;
-  fontSize: number;
-  color: string;
-  /** 0–1 正規化 */
+  /** 0–1 正規化アンカー */
   x: number;
   y: number;
-  fontFamily: string;
+  style: TextStyle;
 }
 
 export interface Track {
@@ -171,7 +171,7 @@ export const createDefaultTracks = (): Track[] => [
   { id: "v2", name: "Video 2", kind: "video", color: "#6366f1", height: 80, locked: false, muted: false, hidden: false, solo: false, volume: 1, clips: [] },
   { id: "a1", name: "Audio 1（主音声）", kind: "audio", color: "#22c55e", height: 64, locked: false, muted: false, hidden: false, solo: false, volume: 1, clips: [] },
   { id: "a2", name: "Audio 2（BGM/DAW）", kind: "audio", color: "#34d399", height: 64, locked: false, muted: false, hidden: false, solo: false, volume: 1, clips: [] },
-  { id: "t1", name: "Titles", kind: "text", color: "#f59e0b", height: 40, locked: false, muted: false, hidden: false, solo: false, volume: 1, clips: [] },
+  { id: "t1", name: "Titles", kind: "text", color: "#f59e0b", height: 52, locked: false, muted: false, hidden: false, solo: false, volume: 1, clips: [] },
   { id: "o1", name: "Overlay", kind: "overlay", color: "#ec4899", height: 48, locked: false, muted: false, hidden: false, solo: false, volume: 1, clips: [] },
 ];
 
@@ -221,10 +221,12 @@ export interface SerializedClip {
   transitionOut?: ClipTransition;
   opacityKeyframes: OpacityKeyframe[];
   text?: string;
-  fontSize?: number;
-  color?: string;
   x?: number;
   y?: number;
+  style?: TextStyle;
+  /** v2 互換 */
+  fontSize?: number;
+  color?: string;
   fontFamily?: string;
   audioMuted?: boolean;
   origin?: ClipOrigin;

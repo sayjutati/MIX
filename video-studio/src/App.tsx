@@ -99,10 +99,16 @@ function App() {
   }, [state, editor, patch, prefs.helpOpen, patchUi]);
 
   useEffect(() => {
-    if (state.selectedClipId && prefs.inspectorTab === "project") {
+    if (!state.selectedClipId) return;
+    const isText = state.textClips.some((c) => c.id === state.selectedClipId);
+    if (isText && (prefs.inspectorTab === "fx" || prefs.inspectorTab === "project")) {
+      patchUi({ inspectorTab: "telop" });
+    } else if (!isText && prefs.inspectorTab === "telop") {
+      patchUi({ inspectorTab: "basic" });
+    } else if (!isText && prefs.inspectorTab === "project") {
       patchUi({ inspectorTab: "basic" });
     }
-  }, [state.selectedClipId, prefs.inspectorTab, patchUi]);
+  }, [state.selectedClipId, state.textClips, prefs.inspectorTab, patchUi]);
 
   const handleExport = async () => {
     const canvas = canvasRef.current;
@@ -225,6 +231,7 @@ function App() {
         <div className="workspace__center">
           <PreviewPanel
             state={state}
+            editor={editor}
             onCanvasReady={(c) => {
               canvasRef.current = c;
             }}

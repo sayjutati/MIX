@@ -20,7 +20,7 @@
   --ctrl-h: 36px;
   --header-h: 52px;
   --sidebar-w: 260px;
-  --inspector-w: 300px;
+  --inspector-w: 340px;
   --shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
 }
 
@@ -1394,4 +1394,103 @@ kbd {
 ::-webkit-scrollbar-thumb {
   background: #3a3a48;
   border-radius: 999px;
+}
+
+/* ===== Telop / テロップ ===== */
+.telop-inspector__hint {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(91, 141, 239, 0.12);
+  border: 1px solid rgba(91, 141, 239, 0.25);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.telop-inspector__section {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.telop-inspector__section:last-child {
+  border-bottom: none;
+}
+
+.telop-inspector__row2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.telop-textarea {
+  width: 100%;
+  min-height: 72px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.85rem;
+  resize: vertical;
+}
+
+.telop-preset-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.telop-preset-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.telop-preset-btn:hover {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+}
+
+.telop-preset-btn__name {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.telop-preset-btn__desc {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.preview-panel__drag-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--amber);
+}
+
+.preview-panel__drag-hint--on {
+  color: var(--accent);
+}
+
+.preview__canvas--draggable {
+  cursor: grab;
+}
+
+.preview__canvas--draggable:active {
+  cursor: grabbing;
 }

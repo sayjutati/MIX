@@ -3,7 +3,7 @@ import type { ExportFormat } from "../export/exportCapabilities";
 
 export type UiMode = "beginner" | "pro";
 export type SidebarTab = "media" | "guide";
-export type InspectorTab = "basic" | "fx" | "project";
+export type InspectorTab = "basic" | "telop" | "fx" | "project";
 
 const KEY = "mix-video-studio-ui";
 

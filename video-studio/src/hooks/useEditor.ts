@@ -4,13 +4,10 @@ import { createHistory, pushHistory, redo, undo, type HistoryStack } from "../hi
 import { parseDawProject } from "../daw/import";
 import { fileToAsset } from "../media/probe";
 import type { ClipEffects, EditorState, MediaAsset, TextClip, TimelineClip, TrackKind } from "../types";
-import {
-  SNAP_GRID_SEC,
-  clipTimelineEnd,
-  defaultEffects,
-  initialEditorState,
-  projectDuration,
-} from "../types";
+import { SNAP_GRID_SEC, clipTimelineEnd, initialEditorState, projectDuration } from "../types";
+import { createTextClip } from "../text/createTextClip";
+import { getTelopPreset } from "../text/telopPresets";
+import { mergeTextStyle, type TextStyle } from "../text/textStyle";
 import { makeClip, makeVideoWithLinkedAudio } from "../utils/clipFactory";
 import { snapTime } from "../utils/time";
 import { canPlaceClip } from "../utils/timeline";
@@ -95,26 +92,7 @@ export const useEditor = () => {
         const track = trackId ? s.tracks.find((t) => t.id === trackId) : undefined;
         if (track?.kind === "text") {
           const start = snapTime(at ?? s.playhead, SNAP_GRID_SEC, s.snapEnabled);
-          const textClip: TextClip = {
-            id: uid(),
-            assetId: "text-internal",
-            trackId: track.id,
-            start,
-            duration: 3,
-            inPoint: 0,
-            speed: 1,
-            volume: 1,
-            opacity: 100,
-            audioMuted: true,
-            effects: defaultEffects(),
-            opacityKeyframes: [],
-            text: "タイトル",
-            fontSize: 48,
-            color: "#ffffff",
-            x: 0.5,
-            y: 0.5,
-            fontFamily: "Inter, sans-serif",
-          };
+          const textClip = createTextClip({ trackId: track.id, start });
           return { ...s, textClips: [...s.textClips, textClip], selectedClipId: textClip.id };
         }
 
@@ -264,12 +242,13 @@ export const useEditor = () => {
 
       if (s.textClips.some((c) => c.id === target.id)) {
         const [left, right] = splitOne(target, rightId);
+        const styleCopy = structuredClone((target as TextClip).style);
         return {
           ...s,
           textClips: [
             ...s.textClips.filter((c) => c.id !== target.id),
-            left as TextClip,
-            right as TextClip,
+            { ...(left as TextClip), style: styleCopy },
+            { ...(right as TextClip), style: structuredClone(styleCopy) },
           ],
         };
       }
@@ -319,10 +298,12 @@ export const useEditor = () => {
         const c = [...s.clips, ...s.textClips].find((x) => x.id === clipId);
         if (!c) return s;
         if (s.textClips.some((x) => x.id === clipId)) {
+          const src = c as TextClip;
           const copy: TextClip = {
-            ...(c as TextClip),
+            ...src,
             id: uid(),
             start: clipTimelineEnd(c),
+            style: structuredClone(src.style),
           };
           return { ...s, textClips: [...s.textClips, copy] };
         }
@@ -523,6 +504,66 @@ export const useEditor = () => {
     [commit]
   );
 
+  const updateTextStyle = useCallback(
+    (clipId: string, patch: Partial<TextStyle>) => {
+      commit((s) => ({
+        ...s,
+        textClips: s.textClips.map((c) =>
+          c.id === clipId ? { ...c, style: mergeTextStyle(c.style, patch) } : c
+        ),
+      }));
+    },
+    [commit]
+  );
+
+  const applyTelopPreset = useCallback(
+    (clipId: string, presetId: string) => {
+      const preset = getTelopPreset(presetId);
+      if (!preset) return;
+      commit((s) => ({
+        ...s,
+        textClips: s.textClips.map((c) =>
+          c.id === clipId
+            ? {
+                ...c,
+                text: preset.sampleText,
+                x: preset.x,
+                y: preset.y,
+                duration: preset.duration,
+                style: { ...preset.style },
+              }
+            : c
+        ),
+      }));
+    },
+    [commit]
+  );
+
+  const addTelopFromPreset = useCallback(
+    (presetId: string, trackId?: string) => {
+      const preset = getTelopPreset(presetId);
+      if (!preset) return;
+      commit((s) => {
+        const track =
+          (trackId ? s.tracks.find((t) => t.id === trackId) : undefined) ??
+          s.tracks.find((t) => t.kind === "text" && !t.locked);
+        if (!track) return s;
+        const start = snapTime(s.playhead, SNAP_GRID_SEC, s.snapEnabled);
+        const textClip = createTextClip({
+          trackId: track.id,
+          start,
+          duration: preset.duration,
+          text: preset.sampleText,
+          x: preset.x,
+          y: preset.y,
+          style: { ...preset.style },
+        });
+        return { ...s, textClips: [...s.textClips, textClip], selectedClipId: textClip.id };
+      });
+    },
+    [commit]
+  );
+
   const loadState = useCallback((next: EditorState) => {
     histRef.current = createHistory();
     setState(next);
@@ -552,6 +593,9 @@ export const useEditor = () => {
     toggleTrack,
     toggleSolo,
     setTrackVolume,
+    updateTextStyle,
+    applyTelopPreset,
+    addTelopFromPreset,
     loadState,
   };
 };
