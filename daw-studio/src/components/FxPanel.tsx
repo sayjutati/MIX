@@ -5,6 +5,7 @@ import { FX_TOOLTIPS } from "../data/fxTooltips";
 import { formatTime } from "../utils/time";
 import { EffectKnob } from "./EffectKnob";
 import { PitchEditor } from "./PitchEditor";
+import { TakeComp } from "./TakeComp";
 
 export type FxMode = "fx" | "pitch";
 
@@ -37,6 +38,9 @@ type Props = {
   onApplyPitch: () => void;
   onResetPitch: () => void;
   onReanalyzePitch: () => void;
+  onSelectTake: (trackId: number, clipId: number) => void;
+  onAuditionTake: (trackId: number, clipId: number) => void;
+  onToggleTakeMuted: (trackId: number, clipId: number) => void;
 };
 
 export function FxPanel({
@@ -58,6 +62,9 @@ export function FxPanel({
   onApplyPitch,
   onResetPitch,
   onReanalyzePitch,
+  onSelectTake,
+  onAuditionTake,
+  onToggleTakeMuted,
 }: Props) {
   const pct = (v: number) => `${Math.round(v * 100)}%`;
   const pitchAllowed = !!selectedTrack && selectedTrack.kind !== "bgm";
@@ -124,6 +131,12 @@ export function FxPanel({
           </div>
         ) : selectedTrack ? (
           <div className="fx-panel__content">
+            <TakeComp
+              track={selectedTrack}
+              onSelectTake={(clipId) => onSelectTake(selectedTrack.id, clipId)}
+              onAuditionTake={(clipId) => onAuditionTake(selectedTrack.id, clipId)}
+              onToggleTakeMuted={(clipId) => onToggleTakeMuted(selectedTrack.id, clipId)}
+            />
             <div className="fx-panel__track-info">
               <div className="fx-panel__track-name" style={{ color: selectedTrack.color }}>
                 {selectedTrack.name}

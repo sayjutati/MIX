@@ -176,13 +176,16 @@ function ClipView({
         left: `${clip.offset * pxPerSec}px`,
         width: `${clipWidth}px`,
         background: track.color,
-        opacity: effectiveMute ? 0.35 : 1,
+        opacity: effectiveMute || clip.muted ? 0.35 : 1,
         touchAction: "none",
       }}
       onPointerDown={handleDragStart}
       onContextMenu={onContextMenu}
     >
       <div ref={containerRef} className="track-clip__wave" />
+      {!clip.muted && track.clips.length > 1 && (
+        <span className="track-clip__take-badge">採用</span>
+      )}
       {canDelete && (
         <button
           type="button"

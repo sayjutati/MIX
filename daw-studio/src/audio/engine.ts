@@ -385,6 +385,7 @@ class AudioEngine {
     const track = rt.state.getTrack();
 
     for (const clip of track.clips) {
+      if (clip.muted) continue;
       const clipRt = rt.clips.get(clip.id);
       if (!clipRt || !clipRt.buffer) continue;
 

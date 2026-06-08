@@ -1,4 +1,4 @@
-export const PROJECT_VERSION = 5;
+export const PROJECT_VERSION = 6;
 /** 既定のズーム（1秒あたりのpx） */
 export const PIXELS_PER_SECOND = 50;
 export const MIN_PX_PER_SEC = 12;
@@ -43,6 +43,8 @@ export interface Clip {
   originalUrl?: string;
   /** 検出＋編集されたピッチノート列。未解析なら未設定 */
   notes?: PitchNote[];
+  /** テイク比較：true なら再生・書き出しから除外 */
+  muted?: boolean;
 }
 
 /** トラック = レーン。FX・音量・Solo/Mute はレーン共通。 */
@@ -81,6 +83,19 @@ export const clipEffectiveOffset = (track: Pick<Track, "nudgeMs">, clip: Pick<Cl
 /** クリップのタイムライン上の再生長（速度反映後の秒） */
 export const clipPlayDuration = (track: Pick<Track, "speed">, clip: Pick<Clip, "duration">) =>
   (clip.duration || 0) / (track.speed || 1);
+
+/** クリップのタイムライン上の区間 [start, end) */
+export const clipTimeRange = (track: Track, clip: Clip) => {
+  const start = clipEffectiveOffset(track, clip);
+  return { start, end: start + clipPlayDuration(track, clip) };
+};
+
+/** 2クリップがタイムライン上で重なるか */
+export const clipsOverlap = (track: Track, a: Clip, b: Clip) => {
+  const ra = clipTimeRange(track, a);
+  const rb = clipTimeRange(track, b);
+  return ra.start < rb.end && rb.start < ra.end;
+};
 
 /** レーンの末尾（タイムライン秒） */
 export const trackTimelineEnd = (track: Track) =>
@@ -131,6 +146,7 @@ export interface ProjectFile {
   bpm: number;
   masterVolume: number;
   globalTime?: number;
+  pitchLimit?: number;
   tracks: ProjectTrack[];
 }
 

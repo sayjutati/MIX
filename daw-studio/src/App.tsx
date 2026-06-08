@@ -27,7 +27,11 @@ import {
 import { audioEngine } from "./audio/engine";
 import { createMediaRecorder, createMicStream, listMicDevices } from "./audio/recording";
 import { encodeMixdown, EXPORT_FORMAT_OPTIONS, type ExportFormat } from "./audio/export";
-import { audioBufferToWav, renderMixdown } from "./audio/mixdown";
+import { audioBufferToWav, renderMixdown, renderTrackStem } from "./audio/mixdown";
+import { deserializeProject, serializeProject } from "./storage/projectIO";
+import { clearAutosave, loadAutosave } from "./storage/autosave";
+import { AutosaveScheduler } from "./storage/autosaveScheduler";
+import { bufferToBytes, downloadZip } from "./audio/zipExport";
 import { EmptyWorkspace } from "./components/EmptyWorkspace";
 import { FxPanel, type FxMode } from "./components/FxPanel";
 import { bufferToMono, renderPitchCorrected, renderWholeShift } from "./audio/pitch";
@@ -39,7 +43,6 @@ import { InputMeter } from "./components/InputMeter";
 import { FxHelpContext } from "./components/FxHelpTooltip";
 import { GlobalTooltip } from "./components/GlobalTooltip";
 import {
-  PROJECT_VERSION,
   PIXELS_PER_SECOND,
   MIN_PX_PER_SEC,
   MAX_PX_PER_SEC,
@@ -51,15 +54,14 @@ import {
   trackTimelineEnd,
   clipEffectiveOffset,
   clipPlayDuration,
+  clipsOverlap,
   makeClip,
   createTrack,
-  trackFxDefaults,
   TRACK_COLORS,
   type Clip,
   type PitchNote,
   type Track,
   type ProjectFile,
-  type ProjectClip,
 } from "./types";
 import { formatTime, formatBarsBeats } from "./utils/time";
 import "./App.css";
@@ -71,7 +73,10 @@ function App() {
   const [exportFormat, setExportFormat] = useState<ExportFormat>("wav");
   const [mp3Bitrate, setMp3Bitrate] = useState(192);
   const [normalizeExport, setNormalizeExport] = useState(true);
+  const [exportStems, setExportStems] = useState(false);
   const [fxPanelHeight, setFxPanelHeight] = useState(280);
+  const [autosaveReady, setAutosaveReady] = useState(false);
+  const autosaveSchedulerRef = useRef(new AutosaveScheduler());
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordStreamRef = useRef<MediaStream | null>(null);
@@ -95,6 +100,11 @@ function App() {
   const [masterVolume, setMasterVolume] = useState(1);
   const [bpm, setBpm] = useState(120);
   const [metronomeOn, setMetronomeOn] = useState(false);
+  const bpmRef = useRef(bpm);
+  const masterVolumeRef = useRef(masterVolume);
+  const pitchLimitRef = useRef(2);
+  bpmRef.current = bpm;
+  masterVolumeRef.current = masterVolume;
   const nextClickRef = useRef(0);
   const isDraggingPlayheadRef = useRef(false);
   const actionsRef = useRef<{
@@ -217,6 +227,7 @@ function App() {
   const [fxMode, setFxMode] = useState<FxMode>("fx");
   const [pitchClipId, setPitchClipId] = useState<number | null>(null);
   const [pitchLimit, setPitchLimit] = useState(2);
+  pitchLimitRef.current = pitchLimit;
   const [pitchAnalyzing, setPitchAnalyzing] = useState(false);
   const [pitchApplying, setPitchApplying] = useState(false);
 
@@ -492,6 +503,46 @@ function App() {
   const seekFnRef = useRef(seekToTime);
   seekFnRef.current = seekToTime;
 
+  // 起動時：自動保存があれば復元を提案
+  useEffect(() => {
+    void loadAutosave().then((saved) => {
+      if (!saved || tracksRef.current.length > 0) {
+        setAutosaveReady(true);
+        return;
+      }
+      const when = new Date(saved.savedAt).toLocaleString();
+      if (
+        window.confirm(
+          `前回の自動保存（${when}）が見つかりました。\n作業を復元しますか？`
+        )
+      ) {
+        setTracks(saved.data.tracks);
+        setBpm(saved.data.bpm);
+        setMasterVolume(saved.data.masterVolume);
+        setPitchLimit(saved.data.pitchLimit);
+        seekToTime(saved.data.globalTime);
+      }
+      setAutosaveReady(true);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!autosaveReady) return;
+    return autosaveSchedulerRef.current.start(() => ({
+      tracks: tracksRef.current,
+      bpm: bpmRef.current,
+      masterVolume: masterVolumeRef.current,
+      globalTime: globalTimeRef.current,
+      pitchLimit: pitchLimitRef.current,
+    }));
+  }, [autosaveReady]);
+
+  useEffect(() => {
+    if (!autosaveReady || tracks.length === 0) return;
+    autosaveSchedulerRef.current.schedule(4000);
+  }, [tracks, bpm, masterVolume, pitchLimit, autosaveReady]);
+
   const clientXToTime = (clientX: number) => {
     const el = scrollContainerRef.current;
     if (!el) return 0;
@@ -594,41 +645,13 @@ function App() {
 
   const saveProject = async () => {
     if (tracks.length === 0) return alert("保存するトラックがありません！");
-    const toDataUrl = (blob: Blob) =>
-      new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
     try {
-      const projectTracks = await Promise.all(
-        tracks.map(async (track) => {
-          const clips = await Promise.all(
-            track.clips.map(async (c) => {
-              const blob = await (await fetch(c.url)).blob();
-              const clipData: ProjectClip = { ...c, audioData: await toDataUrl(blob) };
-              if (c.originalUrl) {
-                const ob = await (await fetch(c.originalUrl)).blob();
-                clipData.originalAudioData = await toDataUrl(ob);
-              }
-              return clipData;
-            })
-          );
-          return { ...track, clips };
-        })
-      );
-      const data: ProjectFile = {
-        version: PROJECT_VERSION,
-        tracks: projectTracks,
-        bpm,
-        masterVolume,
-        globalTime,
-      };
+      const data = await serializeProject(tracks, bpm, masterVolume, globalTime, pitchLimit);
       const a = document.createElement("a");
       a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: "application/json" }));
       a.download = "my_project.daw";
       a.click();
+      void clearAutosave();
     } catch {
       alert("保存に失敗しました。");
     }
@@ -639,59 +662,26 @@ function App() {
     if (!file) return;
     try {
       const parsed = JSON.parse(await file.text()) as ProjectFile;
-      setBpm(parsed.bpm ?? 120);
-      setMasterVolume(parsed.masterVolume ?? 1);
-      const restored = await Promise.all(
-        parsed.tracks.map(async (td) => {
-          let clips: Clip[];
-          if (Array.isArray(td.clips)) {
-            clips = await Promise.all(
-              td.clips.map(async (pc) => {
-                const blob = await (await fetch(pc.audioData!)).blob();
-                const clip = makeClip({
-                  id: pc.id,
-                  url: URL.createObjectURL(blob),
-                  offset: pc.offset ?? 0,
-                  duration: pc.duration ?? 0,
-                });
-                if (pc.notes) clip.notes = pc.notes;
-                if (pc.originalAudioData) {
-                  const ob = await (await fetch(pc.originalAudioData)).blob();
-                  clip.originalUrl = URL.createObjectURL(ob);
-                }
-                return clip;
-              })
-            );
-          } else {
-            // 旧フォーマット（v3 以前）: 単一クリップへ移行
-            const blob = await (await fetch(td.audioData!)).blob();
-            clips = [
-              makeClip({
-                url: URL.createObjectURL(blob),
-                offset: td.offset ?? 0,
-                duration: td.duration ?? 0,
-              }),
-            ];
-          }
-          const { audioData: _a, url: _u, offset: _o, duration: _d, clips: _c, ...rest } = td;
-          return {
-            ...trackFxDefaults(),
-            ...rest,
-            clips,
-            kind: rest.kind ?? "vocal",
-            pitch: rest.pitch ?? 0,
-            nudgeMs: rest.nudgeMs ?? 0,
-            deEss: rest.deEss ?? 0,
-            isMuted: rest.isMuted ?? false,
-          } as Track;
-        })
-      );
-      setTracks(restored);
-      seekToTime(parsed.globalTime ?? 0);
+      const restored = await deserializeProject(parsed);
+      setTracks(restored.tracks);
+      setBpm(restored.bpm);
+      setMasterVolume(restored.masterVolume);
+      setPitchLimit(restored.pitchLimit);
+      seekToTime(restored.globalTime);
+      void clearAutosave();
     } catch {
       alert("プロジェクトの読み込みに失敗しました。");
     }
     e.target.value = "";
+  };
+
+  const downloadBuffer = (buffer: AudioBuffer, filename: string) => {
+    const { blob, extension } = encodeMixdown(buffer, exportFormat, mp3Bitrate);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${filename}.${extension}`;
+    a.click();
+    URL.revokeObjectURL(a.href);
   };
 
   const exportMixdown = async () => {
@@ -699,28 +689,43 @@ function App() {
     const formatLabel = exportFormat.toUpperCase();
     const extra =
       exportFormat === "mp3" ? `\nビットレート: ${mp3Bitrate} kbps` : "";
+    const stemNote = exportStems ? "\n＋ ステムを ZIP に同梱" : "";
     if (
       !window.confirm(
-        `全トラックをミックスして ${formatLabel} で書き出しますか？${extra}\n（エフェクト・パン・音量を反映）`
+        `全トラックをミックスして ${formatLabel} で書き出しますか？${extra}${stemNote}\n（FX・ピッチ編集・採用テイクを反映）`
       )
     ) {
       return;
     }
     try {
-      const buffer = await renderMixdown(tracks, hasSolo, masterVolume, {
-        normalize: normalizeExport,
-      });
-      const { blob, extension } = encodeMixdown(
-        buffer,
-        exportFormat,
-        mp3Bitrate
-      );
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `My_Mixdown.${extension}`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-      alert(`${formatLabel} の書き出しが完了しました！`);
+      const mixOpts = { normalize: normalizeExport, pitchLimit };
+      const buffer = await renderMixdown(tracks, hasSolo, masterVolume, mixOpts);
+      const ext = exportFormat === "mp3" ? "mp3" : "wav";
+
+      if (exportStems) {
+        const entries = [
+          {
+            name: `My_Mixdown.${ext}`,
+            data: await bufferToBytes(buffer, exportFormat, mp3Bitrate),
+          },
+        ];
+        for (const track of tracks) {
+          if (track.isMuted || track.clips.every((c) => c.muted)) continue;
+          const stem = await renderTrackStem(track, masterVolume, mixOpts);
+          if (!stem) continue;
+          const safe =
+            track.name.replace(/[^\w\u3040-\u30ff\u4e00-\u9faf-]+/g, "_") || "track";
+          entries.push({
+            name: `stems/${safe}.${ext}`,
+            data: await bufferToBytes(stem, exportFormat, mp3Bitrate),
+          });
+        }
+        downloadZip(entries, `My_Mix_Export.zip`);
+        alert(`ZIP（ミックス＋${entries.length - 1}ステム）の書き出しが完了しました！`);
+      } else {
+        downloadBuffer(buffer, "My_Mixdown");
+        alert(`${formatLabel} の書き出しが完了しました！`);
+      }
     } catch (err) {
       console.error(err);
       alert(
@@ -730,6 +735,61 @@ function App() {
       );
     }
   };
+
+  const selectTake = useCallback(
+    (trackId: number, clipId: number) => {
+      pushHistory();
+      setTracks((prev) =>
+        prev.map((t) => {
+          if (t.id !== trackId) return t;
+          const picked = t.clips.find((c) => c.id === clipId);
+          if (!picked) return t;
+          return {
+            ...t,
+            clips: t.clips.map((c) => {
+              if (c.id === clipId) return { ...c, muted: false };
+              if (clipsOverlap(t, c, picked)) return { ...c, muted: true };
+              return c;
+            }),
+          };
+        })
+      );
+      audioEngine.restartIfPlaying(trackId);
+      autosaveSchedulerRef.current.flush();
+    },
+    [pushHistory]
+  );
+
+  const toggleTakeMuted = useCallback(
+    (trackId: number, clipId: number) => {
+      pushHistory();
+      setTracks((prev) =>
+        prev.map((t) =>
+          t.id === trackId
+            ? {
+                ...t,
+                clips: t.clips.map((c) =>
+                  c.id === clipId ? { ...c, muted: !c.muted } : c
+                ),
+              }
+            : t
+        )
+      );
+      audioEngine.restartIfPlaying(trackId);
+      autosaveSchedulerRef.current.flush();
+    },
+    [pushHistory]
+  );
+
+  const auditionTake = useCallback((trackId: number, clipId: number) => {
+    const tr = tracksRef.current.find((t) => t.id === trackId);
+    const clip = tr?.clips.find((c) => c.id === clipId);
+    if (!tr || !clip) return;
+    seekFnRef.current(clipEffectiveOffset(tr, clip));
+    void audioEngine.ensureRunning().then(() => {
+      setIsPlayingGlobal(true);
+    });
+  }, []);
 
   const addTracksFromFiles = (files: FileList | File[], kind: Track["kind"] = "bgm") => {
     const list = Array.from(files).filter((f) => f.type.startsWith("audio/") || /\.(wav|mp3|ogg|m4a|flac|webm)$/i.test(f.name));
@@ -830,7 +890,13 @@ function App() {
           if (targetId != null && prev.some((t) => t.id === targetId)) {
             return prev.map((t) =>
               t.id === targetId
-                ? { ...t, clips: [...t.clips, makeClip({ url, offset, duration })] }
+                ? {
+                    ...t,
+                    clips: [
+                      ...t.clips.map((c) => ({ ...c, muted: true })),
+                      makeClip({ url, offset, duration }),
+                    ],
+                  }
                 : t
             );
           }
@@ -851,6 +917,7 @@ function App() {
         setGlobalTime(offset);
         globalTimeRef.current = offset;
         audioEngine.seek(offset);
+        autosaveSchedulerRef.current.flush();
       };
 
       if (monitorOnRef.current) {
@@ -1181,6 +1248,14 @@ function App() {
               <option value={320}>320 kbps</option>
             </select>
           )}
+          <label className="toolbar__check tooltip" data-tooltip="ミックス＋トラック別ステムを1つのZIPで書き出す（動画編集向け）">
+            <input
+              type="checkbox"
+              checked={exportStems}
+              onChange={(e) => setExportStems(e.target.checked)}
+            />
+            ステム
+          </label>
           <label className="toolbar__check tooltip" data-tooltip="書き出し時に音量を自動最適化（−1dBまで持ち上げ）">
             <input
               type="checkbox"
@@ -1565,6 +1640,9 @@ function App() {
         onApplyPitch={applyPitch}
         onResetPitch={resetPitch}
         onReanalyzePitch={reanalyzePitch}
+        onSelectTake={selectTake}
+        onAuditionTake={auditionTake}
+        onToggleTakeMuted={toggleTakeMuted}
       />
 
       {contextMenu && (

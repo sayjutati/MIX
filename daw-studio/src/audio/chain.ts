@@ -405,6 +405,16 @@ export const connectOfflineTrackChain = (
   }
   const deEssSum = ctx.createGain();
 
+  const tremoloOsc = ctx.createOscillator();
+  tremoloOsc.frequency.value = 5;
+  const tremoloDepth = ctx.createGain();
+  const tremoloNode = ctx.createGain();
+  tremoloNode.gain.value = 1;
+  tremoloOsc.connect(tremoloDepth);
+  tremoloDepth.connect(tremoloNode.gain);
+  tremoloOsc.start(0);
+  applyTremoloModulation(ctx, tremoloDepth, tremoloNode, track.tremolo);
+
   const panner = ctx.createStereoPanner();
   panner.pan.value = track.pan;
 
@@ -452,10 +462,11 @@ export const connectOfflineTrackChain = (
     deEssHigh1.connect(deEssHigh2);
     deEssHigh2.connect(deEssComp);
     deEssComp.connect(deEssSum);
-    deEssSum.connect(panner);
+    deEssSum.connect(tremoloNode);
   } else {
-    eqTreble.connect(panner);
+    eqTreble.connect(tremoloNode);
   }
+  tremoloNode.connect(panner);
 
   panner.connect(fadeGain);
   panner.connect(chorusDelay);

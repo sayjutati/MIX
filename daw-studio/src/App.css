@@ -1291,6 +1291,92 @@ input[type="number"] {
   color: #fff;
 }
 
+.take-comp {
+  margin: 0 16px 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.take-comp__title {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-bottom: 8px;
+}
+.take-comp__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.take-comp__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.15);
+}
+.take-comp__row--active {
+  outline: 1px solid var(--accent, #4f8cff);
+}
+.take-comp__label {
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.take-comp__meta {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.take-comp__actions {
+  display: flex;
+  gap: 4px;
+}
+.take-comp__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.take-comp__btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.take-comp__btn--pick.is-on {
+  background: var(--accent, #4f8cff);
+  border-color: var(--accent, #4f8cff);
+  color: #fff;
+}
+.take-comp__badge {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--accent, #4f8cff);
+  color: #fff;
+}
+.track-clip__take-badge {
+  position: absolute;
+  top: 4px;
+  left: 6px;
+  z-index: 2;
+  font-size: 9px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  pointer-events: none;
+}
+
 .pitch-editor {
   display: flex;
   flex-direction: column;

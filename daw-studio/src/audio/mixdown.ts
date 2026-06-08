@@ -1,6 +1,7 @@
-import type { Track } from "../types";
+import type { Clip, Track } from "../types";
 import { clipEffectiveOffset, clipPlayDuration } from "../types";
 import { connectOfflineTrackChain } from "./chain";
+import { renderPitchCorrected } from "./pitch";
 
 export const audioBufferToWav = (buffer: AudioBuffer) => {
   const numChannels = buffer.numberOfChannels;
@@ -66,15 +67,46 @@ const applyOfflineFade = (
   }
 };
 
+const notesNeedPitch = (clip: Clip) =>
+  !!clip.notes?.some((n) => Math.round(n.shift) !== 0);
+
+/** 書き出し用バッファ（ピッチ編集は「適用」不要で反映） */
+const resolveClipBuffer = async (
+  clip: Clip,
+  offlineCtx: OfflineAudioContext,
+  pitchLimit: number
+): Promise<AudioBuffer> => {
+  const loadUrl = async (url: string) => {
+    const res = await fetch(url);
+    return offlineCtx.decodeAudioData(await res.arrayBuffer());
+  };
+
+  if (notesNeedPitch(clip) && clip.notes) {
+    const srcUrl = clip.originalUrl ?? clip.url;
+    const src = await loadUrl(srcUrl);
+    return renderPitchCorrected(src, clip.notes, pitchLimit);
+  }
+  return loadUrl(clip.url);
+};
+
+export type MixdownOpts = {
+  sampleRate?: number;
+  normalize?: boolean;
+  pitchLimit?: number;
+};
+
 export const renderMixdown = async (
   tracks: Track[],
   hasSolo: boolean,
   masterVolume: number,
-  opts: { sampleRate?: number; normalize?: boolean } = {}
+  opts: MixdownOpts = {}
 ): Promise<AudioBuffer> => {
   const sampleRate = opts.sampleRate ?? 44100;
+  const pitchLimit = opts.pitchLimit ?? 2;
   const ends = tracks.flatMap((t) =>
-    t.clips.map((c) => clipEffectiveOffset(t, c) + clipPlayDuration(t, c))
+    t.clips
+      .filter((c) => !c.muted)
+      .map((c) => clipEffectiveOffset(t, c) + clipPlayDuration(t, c))
   );
   const totalDur = Math.max(1, ...ends);
   const offlineCtx = new OfflineAudioContext(
@@ -85,7 +117,6 @@ export const renderMixdown = async (
   const master = offlineCtx.createGain();
   master.gain.value = masterVolume;
 
-  // マスターリミッター（音割れ防止）
   const limiter = offlineCtx.createDynamicsCompressor();
   limiter.threshold.value = -1;
   limiter.knee.value = 0;
@@ -97,15 +128,14 @@ export const renderMixdown = async (
 
   for (const track of tracks) {
     if (track.isMuted || (hasSolo && !track.isSolo)) continue;
-    if (track.clips.length === 0) continue;
+    const activeClips = track.clips.filter((c) => !c.muted);
+    if (activeClips.length === 0) continue;
 
-    // レーンにつき1本の FX チェーン（クリップを合算して通す）
     const clipBus = offlineCtx.createGain();
     connectOfflineTrackChain(offlineCtx, clipBus, track, master);
 
-    for (const clip of track.clips) {
-      const res = await fetch(clip.url);
-      const buf = await offlineCtx.decodeAudioData(await res.arrayBuffer());
+    for (const clip of activeClips) {
+      const buf = await resolveClipBuffer(clip, offlineCtx, pitchLimit);
       const clipDur = buf.duration / track.speed;
 
       const src = offlineCtx.createBufferSource();
@@ -139,7 +169,7 @@ export const renderMixdown = async (
         if (v > peak) peak = v;
       }
     }
-    const target = 0.89; // ≒ -1 dBFS
+    const target = 0.89;
     if (peak > 0.0001 && Math.abs(peak - target) > 0.01) {
       const gain = target / peak;
       for (let ch = 0; ch < rendered.numberOfChannels; ch++) {
@@ -150,4 +180,14 @@ export const renderMixdown = async (
   }
 
   return rendered;
+};
+
+/** 1トラックをステムとして書き出し */
+export const renderTrackStem = async (
+  track: Track,
+  masterVolume: number,
+  opts: MixdownOpts = {}
+): Promise<AudioBuffer | null> => {
+  if (track.clips.every((c) => c.muted)) return null;
+  return renderMixdown([track], false, masterVolume, opts);
 };
