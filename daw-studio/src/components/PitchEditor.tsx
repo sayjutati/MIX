@@ -137,7 +137,7 @@ export function PitchEditor({
       </div>
 
       <div className="pitch-editor__hint">
-        各ノートを上下にドラッグ（半音単位）。ドラッグ中はリアルタイムで試聴できます。確定は「適用」で音に焼き込み。
+        各ノートを上下にドラッグ（半音単位）。ノート間は自動で滑らかにつながります。確定は「適用」で音に焼き込み。
       </div>
 
       {analyzing ? (

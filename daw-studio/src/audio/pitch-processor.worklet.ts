@@ -52,24 +52,10 @@ class PitchProcessor extends AudioWorkletProcessor {
 
     const chN = Math.min(2, input.length, output.length);
     const block = input[0].length;
-    const sr = sampleRate;
     const startSample = this.bufferPos;
 
     for (let c = 0; c < chN; c++) {
       const voc = this.getVocoder(c);
-      const hasShift = (() => {
-        for (let i = 0; i < block; i++) {
-          const sec = (startSample + i * this.speed) / sr / this.speed;
-          if (Math.abs(this.shiftAt(sec)) >= 0.001) return true;
-        }
-        return false;
-      })();
-
-      if (!hasShift) {
-        output[c].set(input[c]);
-        continue;
-      }
-
       voc.processBlock(
         input[c],
         output[c],

@@ -4,6 +4,10 @@ import type { PitchNote } from "../types";
 export const VOCODER_FFT_SIZE = 2048;
 export const VOCODER_HOP = 256;
 export const VOCODER_LATENCY = VOCODER_FFT_SIZE - VOCODER_HOP;
+/** ノート境界のクロスフェード（秒） */
+export const NOTE_BLEND_SEC = 0.06;
+/** シフト量のスムージング（秒）— 音のつながりを滑らかに */
+export const SHIFT_SLEW_SEC = 0.045;
 
 const TWO_PI = Math.PI * 2;
 
@@ -83,23 +87,37 @@ const spectralEnvelope = (mag: Float32Array, half: number, radius: number): Floa
   return env;
 };
 
-/** ノート境界をクロスフェードした半音シフト量 */
+/**
+ * 全ノートを重み付け合成 — 複数ノート・境界でも滑らかにブレンド
+ */
 export const shiftAtNotes = (
   notes: PitchNote[],
   timeSec: number,
   limit: number,
-  fadeSec = 0.015
+  blendSec = NOTE_BLEND_SEC
 ): number => {
+  let weighted = 0;
+  let totalW = 0;
+
   for (const n of notes) {
     const raw = Math.max(-limit, Math.min(limit, Math.round(n.shift)));
-    if (raw === 0) continue;
-    if (timeSec < n.start - fadeSec || timeSec > n.end + fadeSec) continue;
+    if (Math.abs(raw) < 0.001) continue;
+
+    const a = n.start - blendSec;
+    const b = n.end + blendSec;
+    if (timeSec < a || timeSec > b) continue;
+
     let w = 1;
-    if (timeSec < n.start) w = (timeSec - (n.start - fadeSec)) / fadeSec;
-    else if (timeSec > n.end) w = (n.end + fadeSec - timeSec) / fadeSec;
-    return raw * Math.max(0, Math.min(1, w));
+    if (timeSec < n.start) w = (timeSec - a) / blendSec;
+    else if (timeSec > n.end) w = (b - timeSec) / blendSec;
+    w = Math.max(0, Math.min(1, w));
+    if (w <= 0) continue;
+
+    weighted += raw * w;
+    totalW += w;
   }
-  return 0;
+
+  return totalW > 1e-6 ? weighted / totalW : 0;
 };
 
 export class PitchVocoderStream {
@@ -113,11 +131,16 @@ export class PitchVocoderStream {
   private readonly synthPhase: Float32Array;
   private readonly fifo: Float32Array;
   private readonly ola: Float32Array;
+  private readonly dryRing: Float32Array;
   private fifoLen = 0;
   private olaWrite = 0;
   private olaRead = 0;
+  private dryPos = 0;
   private samplePos = 0;
+  private speed = 1;
+  private smoothShift = 0;
   private shiftFn: ((sec: number) => number) | null = null;
+  private readonly slewAlpha: number;
 
   constructor(private readonly sampleRate: number) {
     const n = VOCODER_FFT_SIZE;
@@ -133,15 +156,20 @@ export class PitchVocoderStream {
     this.synthPhase = new Float32Array(half);
     this.fifo = new Float32Array(n * 8);
     this.ola = new Float32Array(n * 16);
+    this.dryRing = new Float32Array(VOCODER_LATENCY + 4);
+    this.slewAlpha = 1 - Math.exp(-1 / (sampleRate * SHIFT_SLEW_SEC));
   }
 
   reset(localSample = 0) {
     this.fifoLen = 0;
     this.olaWrite = 0;
     this.olaRead = 0;
+    this.dryPos = 0;
     this.ola.fill(0);
+    this.dryRing.fill(0);
     this.prevPhase.fill(0);
     this.synthPhase.fill(0);
+    this.smoothShift = 0;
     this.samplePos = localSample;
     this.shiftFn = null;
   }
@@ -154,6 +182,7 @@ export class PitchVocoderStream {
     speed = 1
   ) {
     this.shiftFn = shiftAt;
+    this.speed = speed;
     for (let i = 0; i < input.length; i++) {
       this.samplePos = startMaterialSample + i * speed;
       const sec = this.samplePos / this.sampleRate / speed;
@@ -161,24 +190,57 @@ export class PitchVocoderStream {
     }
   }
 
-  private pushSample(input: number, shiftSemitones: number): number {
-    this.fifo[this.fifoLen++] = input;
-    this.drainFrames(shiftSemitones);
-    if (this.olaRead < this.olaWrite) {
-      return this.ola[this.olaRead++];
-    }
-    return 0;
+  private timelineSec() {
+    return this.samplePos / this.sampleRate / this.speed;
   }
 
-  private drainFrames(fallbackShift: number) {
+  private pushSample(input: number, targetShift: number): number {
+    this.dryRing[this.dryPos % this.dryRing.length] = input;
+    this.dryPos++;
+
+    this.smoothShift += (targetShift - this.smoothShift) * this.slewAlpha;
+
+    const dryDelayed =
+      this.dryRing[(this.dryPos - VOCODER_LATENCY + this.dryRing.length) % this.dryRing.length] ??
+      input;
+
+    if (Math.abs(this.smoothShift) < 0.001) {
+      this.trimFifo();
+      return dryDelayed;
+    }
+
+    this.fifo[this.fifoLen++] = input;
+    this.drainFrames(this.smoothShift);
+
+    let wet: number;
+    if (this.olaRead < this.olaWrite) {
+      wet = this.ola[this.olaRead++];
+    } else {
+      wet = dryDelayed;
+    }
+
+    const wetMix = Math.min(1, Math.abs(this.smoothShift) / 0.5);
+    return dryDelayed * (1 - wetMix) + wet * wetMix;
+  }
+
+  private trimFifo() {
+    const hop = VOCODER_HOP;
+    while (this.fifoLen > VOCODER_FFT_SIZE) {
+      this.fifo.copyWithin(0, hop);
+      this.fifoLen -= hop;
+    }
+  }
+
+  private drainFrames(shiftSemitones: number) {
     const n = VOCODER_FFT_SIZE;
     const hop = VOCODER_HOP;
     const half = n / 2;
 
     while (this.fifoLen >= n) {
-      const frameSec = (this.samplePos - (n - hop)) / this.sampleRate;
-      const shiftSemitones = this.shiftFn ? this.shiftFn(Math.max(0, frameSec)) : fallbackShift;
-      const ratio = Math.abs(shiftSemitones) < 0.001 ? 1 : Math.pow(2, shiftSemitones / 12);
+      const frameSec = this.shiftFn
+        ? this.shiftFn(Math.max(0, this.timelineSec() - (n - hop) / this.sampleRate / this.speed))
+        : shiftSemitones;
+      const ratio = Math.abs(frameSec) < 0.001 ? 1 : Math.pow(2, frameSec / 12);
 
       this.frameRe.fill(0);
       this.frameIm.fill(0);
@@ -196,7 +258,7 @@ export class PitchVocoderStream {
       this.outRe.fill(0);
       this.outIm.fill(0);
 
-      if (Math.abs(shiftSemitones) < 0.001) {
+      if (Math.abs(frameSec) < 0.001) {
         for (let k = 0; k < half; k++) {
           this.outRe[k] = this.frameRe[k];
           this.outIm[k] = this.frameIm[k];
@@ -211,7 +273,7 @@ export class PitchVocoderStream {
           const src = k / ratio;
           const i0 = Math.floor(src);
           const frac = src - i0;
-          if (i0 >= half - 1) continue;
+          if (i0 < 0 || i0 >= half - 1) continue;
 
           const omega = (TWO_PI * k) / n;
           const phaseDiff = princarg(phase[i0] - this.prevPhase[i0] - omega * hop);
@@ -219,9 +281,7 @@ export class PitchVocoderStream {
           this.synthPhase[k] += instFreq * ratio * hop;
           this.prevPhase[i0] = phase[i0];
 
-          const m0 = mag[i0];
-          const m1 = mag[i0 + 1];
-          shiftedMag[k] = m0 + (m1 - m0) * frac;
+          shiftedMag[k] = mag[i0] + (mag[i0 + 1] - mag[i0]) * frac;
           this.outMag[k] = shiftedMag[k];
           this.outRe[k] = shiftedMag[k] * Math.cos(this.synthPhase[k]);
           this.outIm[k] = shiftedMag[k] * Math.sin(this.synthPhase[k]);

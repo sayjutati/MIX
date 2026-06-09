@@ -10,7 +10,6 @@ import {
   createPitchNode,
   ensurePitchWorklet,
   notesNeedWorklet,
-  resetPitchNode,
   sendPitchConfig,
 } from "./pitchWorklet";
 
@@ -250,7 +249,6 @@ class AudioEngine {
         speed,
         localTime: localSec,
       });
-      resetPitchNode(clipRt.pitchNode, localSec, speed);
     }
 
     if (prev !== next) this.restartIfPlaying(trackId);
