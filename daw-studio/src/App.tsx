@@ -785,8 +785,11 @@ function App() {
     const tr = tracksRef.current.find((t) => t.id === trackId);
     const clip = tr?.clips.find((c) => c.id === clipId);
     if (!tr || !clip) return;
-    seekFnRef.current(clipEffectiveOffset(tr, clip));
-    void audioEngine.ensureRunning().then(() => {
+    const offset = clipEffectiveOffset(tr, clip);
+    seekFnRef.current(offset);
+    globalTimeRef.current = offset;
+    setGlobalTime(offset);
+    void audioEngine.auditionClip(trackId, clipId, offset).then(() => {
       setIsPlayingGlobal(true);
     });
   }, []);

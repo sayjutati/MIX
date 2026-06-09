@@ -101,8 +101,10 @@ const renderBgmWindow = async (
   let hits = 0;
 
   for (const track of bgmTracks) {
+    if (track.isMuted) continue;
     const speed = track.speed || 1;
     for (const clip of track.clips) {
+      if (clip.muted) continue;
       const clipStart = clipEffectiveOffset(track, clip);
       const clipEnd = clipStart + clip.duration / speed;
       const winStart = startSec;

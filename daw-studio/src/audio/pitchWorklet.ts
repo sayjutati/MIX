@@ -31,7 +31,8 @@ export type PitchWorkletConfig = {
   notes: PitchNote[];
   limit: number;
   speed: number;
-  localTime: number;
+  /** 省略時は vocoder のタイムラインを維持（編集中の連続再生用） */
+  localTime?: number;
 };
 
 export function sendPitchConfig(node: AudioWorkletNode, cfg: PitchWorkletConfig) {

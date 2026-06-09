@@ -10,6 +10,7 @@ import {
   createPitchNode,
   ensurePitchWorklet,
   notesNeedWorklet,
+  resetPitchNode,
   sendPitchConfig,
 } from "./pitchWorklet";
 
@@ -69,6 +70,8 @@ class AudioEngine {
   private anchorGlobalTime = 0;
   private anchorCtxTime = 0;
   private getGlobalTime: (() => number) | null = null;
+  /** テイク試聴: 指定クリップだけ muted でも再生 */
+  private audition: { trackId: number; clipId: number } | null = null;
 
   private monitorSource: MediaStreamAudioSourceNode | null = null;
   private monitorGain: GainNode | null = null;
@@ -237,17 +240,12 @@ class AudioEngine {
 
     if (clipRt.pitchNode && notes) {
       const track = rt.state.getTrack();
-      const clip = track.clips.find((c) => c.id === clipId);
       const speed = track.speed || 1;
-      let localSec = 0;
-      if (clip && this.playing) {
-        localSec = Math.max(0, this.currentGlobalTime() - clip.offset);
-      }
+      // localTime は送らない — 編集中も vocoder タイムラインを連続させる
       sendPitchConfig(clipRt.pitchNode, {
         notes,
         limit: this._pitchLimit,
         speed,
-        localTime: localSec,
       });
     }
 
@@ -341,12 +339,14 @@ class AudioEngine {
 
     if (usePitch && notes) {
       const pitchNode = createPitchNode(ctx);
+      const localSec = Math.max(0, localTime);
       sendPitchConfig(pitchNode, {
         notes,
         limit: this._pitchLimit,
         speed,
-        localTime: Math.max(0, localTime),
+        localTime: localSec,
       });
+      resetPitchNode(pitchNode, localSec, speed);
       src.connect(pitchNode);
       pitchNode.connect(gain);
       clipRt.pitchNode = pitchNode;
@@ -383,7 +383,10 @@ class AudioEngine {
     const track = rt.state.getTrack();
 
     for (const clip of track.clips) {
-      if (clip.muted) continue;
+      const isAuditionTarget =
+        this.audition?.trackId === rt.id && this.audition.clipId === clip.id;
+      if (this.audition?.trackId === rt.id && !isAuditionTarget) continue;
+      if (clip.muted && !isAuditionTarget) continue;
       const clipRt = rt.clips.get(clip.id);
       if (!clipRt || !clipRt.buffer) continue;
 
@@ -423,10 +426,11 @@ class AudioEngine {
     return t;
   }
 
-  async play(fromGlobalTime: number) {
+  async play(fromGlobalTime: number, keepAudition = false) {
     await this.ensureRunning();
     const { ctx } = this.getContext();
 
+    if (!keepAudition) this.audition = null;
     this.stopAllSources();
     this.anchorGlobalTime = fromGlobalTime;
     this.anchorCtxTime = ctx.currentTime;
@@ -436,14 +440,22 @@ class AudioEngine {
     this.syncAllSources(fromGlobalTime, when);
   }
 
+  /** muted テイクをその位置から試聴（他トラックは通常再生） */
+  async auditionClip(trackId: number, clipId: number, globalTime: number) {
+    this.audition = { trackId, clipId };
+    await this.play(globalTime, true);
+  }
+
   stop() {
     this.playing = false;
+    this.audition = null;
     this.stopAllSources();
   }
 
   seek(globalTime: number) {
     this.anchorGlobalTime = globalTime;
     if (this.ctx) this.anchorCtxTime = this.ctx.currentTime;
+    this.audition = null;
     this.stopAllSources();
     if (this.playing && this.ctx) {
       this.syncAllSources(globalTime, this.ctx.currentTime + START_LOOKAHEAD);
