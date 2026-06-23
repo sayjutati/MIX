@@ -6,7 +6,8 @@
     "verify": "node scripts/verify-repo.mjs",
     "test": "npm run test --prefix dtm-studio && npm run test --prefix video-studio",
     "build": "node scripts/build-portal.mjs",
-    "dev": "npx --yes serve landing -l 3000",
+    "dev": "node scripts/dev-portal.mjs",
+    "dev:landing": "npx --yes serve landing -l 3000",
     "dev:daw": "npm run dev --prefix daw-studio",
     "dev:dtm": "npm run dev --prefix dtm-studio",
     "dev:video": "npm run dev --prefix video-studio"

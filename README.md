@@ -35,34 +35,38 @@ CI: `.github/workflows/ci.yml`（`main` の push / PR）
 
 ## ローカル開発
 
+### ルーティング（本番 = Vercel = `npm run build` 後の `dist/`）
+
+| URL | 実体 |
+|-----|------|
+| `/` | `landing/` |
+| `/dtm/` | `dtm-studio/dist/` をビルドして配置 |
+| `/daw/` | `daw-studio/dist/` をビルドして配置 |
+| `/video/` | `video-studio/dist/` をビルドして配置 |
+
+**`npm run dev` だけでは `/dtm/` は存在しません。** TOP（landing）のリンクはビルド済みポータル向けです。
+
+### おすすめ
+
 ```bash
-# TOP ページのみ（静的）
+# ポータル全体（TOP + /dtm/ + /daw/ + /video/）— 初回は自動 build
 npm run dev
-# → http://localhost:3000
+# → http://localhost:3000/dtm/ など全部使える
 
-# 各アプリ（従来どおりルートパス）
-cd dtm-studio && npm install && npm run dev    # :1440
-cd daw-studio && npm install && npm run dev    # :1420
-cd video-studio && npm install && npm run dev  # :1430
+# 各アプリ単体（ホットリロード・開発向け）
+npm run dev:dtm    # http://localhost:1440
+npm run dev:daw    # http://localhost:1420
+npm run dev:video  # http://localhost:1430
+
+# TOP ページだけ編集（/dtm/ は 404 のまま）
+npm run dev:landing
 ```
 
-またはルートから:
-
-```bash
-npm run dev:dtm
-npm run dev:daw
-npm run dev:video
-```
-
-サブパス付きでまとめて試す場合:
+手動でまとめて試す場合:
 
 ```bash
 npm run build
 npx serve dist -l 3000
-# TOP   http://localhost:3000/
-# DTM   http://localhost:3000/dtm/
-# DAW   http://localhost:3000/daw/
-# Video http://localhost:3000/video/
 ```
 
 ## 典型フロー
