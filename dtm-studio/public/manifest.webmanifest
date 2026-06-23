@@ -1,0 +1,17 @@
+{
+  "name": "MIX DTM Studio",
+  "short_name": "MIX DTM",
+  "description": "ブラウザ完結 MIDI 制作スタジオ",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0c0c11",
+  "theme_color": "#0c0c11",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

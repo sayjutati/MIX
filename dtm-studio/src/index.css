@@ -383,7 +383,7 @@ input[type="number"] {
 
 /* Track list */
 .track-list {
-  width: 196px;
+  width: 220px;
   flex-shrink: 0;
   background: var(--surface-1);
   border-right: 1px solid var(--border);
@@ -431,18 +431,135 @@ input[type="number"] {
   background: rgba(79, 140, 247, 0.08);
 }
 
+.track-list__hint {
+  margin: 0;
+  padding: 0 12px 8px;
+  font-size: 9px;
+  color: var(--text-faint);
+  line-height: 1.4;
+}
+
+.track-list li.is-overlay:not(.is-selected) {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.track-list__row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.track-list__num {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 800;
+  border-radius: 4px;
+  background: var(--surface-3);
+  color: var(--text-muted);
+}
+
 .track-list__item {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 100%;
+  gap: 6px;
   border: none;
   background: transparent;
   color: inherit;
-  padding: 8px 12px;
+  padding: 8px 8px 8px 10px;
   cursor: pointer;
   text-align: left;
 }
+
+.track-list__badge {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--accent);
+  background: rgba(79, 140, 247, 0.15);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.track-list__overlay-toggle {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--text-faint);
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  cursor: pointer;
+  user-select: none;
+}
+.track-list__overlay-toggle.is-on {
+  color: var(--green-soft);
+  border-color: rgba(52, 211, 153, 0.4);
+  background: rgba(52, 211, 153, 0.1);
+}
+.track-list__overlay-toggle input {
+  accent-color: var(--green-soft);
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  cursor: pointer;
+}
+
+.piano-roll__overlay-picks {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 2px 8px 2px 0;
+  border-right: 1px solid var(--border-soft);
+  margin-right: 4px;
+}
+
+.piano-roll__overlay-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-faint);
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+.piano-roll__overlay-pill {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.piano-roll__overlay-pill:hover {
+  border-color: #3a3a48;
+}
+.piano-roll__overlay-pill.is-on {
+  background: color-mix(in srgb, var(--pill-color, #6c8cff) 35%, transparent);
+  border-color: var(--pill-color, #6c8cff);
+  color: #fff;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--pill-color, #6c8cff) 40%, transparent);
+}
+.piano-roll__overlay-pill.is-edit {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .track-list__item:hover {
   background: var(--surface-hover);
 }
@@ -569,6 +686,144 @@ input[type="number"] {
   color: var(--text-faint);
 }
 
+.piano-roll__tool--check {
+  gap: 4px;
+  cursor: pointer;
+}
+.piano-roll__tool--check input {
+  accent-color: var(--green-soft);
+}
+
+/* FL Studio 風ピアノロール */
+.roll-viewport {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  grid-template-rows: 30px 1fr;
+  min-height: 0;
+  background: var(--bg);
+  border-top: 1px solid var(--border-soft);
+}
+
+.roll-viewport__corner {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-1);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.roll-viewport__corner-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-faint);
+  writing-mode: vertical-rl;
+}
+
+.beat-ruler-wrap {
+  grid-column: 2;
+  grid-row: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+}
+
+.beat-ruler {
+  position: relative;
+  height: 30px;
+  min-width: 100%;
+}
+
+.beat-ruler__bar {
+  position: absolute;
+  top: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-faint);
+}
+
+.beat-ruler__loop {
+  position: absolute;
+  top: 4px;
+  height: 22px;
+  background: rgba(52, 211, 153, 0.1);
+  border: 1px solid rgba(52, 211, 153, 0.25);
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.beat-ruler__handle {
+  position: absolute;
+  top: 3px;
+  width: 7px;
+  height: 24px;
+  border-radius: 2px;
+  cursor: ew-resize;
+  z-index: 2;
+}
+.beat-ruler__handle--start {
+  background: var(--green-soft);
+}
+.beat-ruler__handle--end {
+  background: var(--accent);
+}
+
+.piano-keyboard-wrap {
+  grid-column: 1;
+  grid-row: 2;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: #0a0a0e;
+  border-right: 1px solid var(--border);
+}
+
+.piano-keyboard {
+  position: relative;
+}
+
+.piano-key {
+  display: block;
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.35);
+  background: linear-gradient(180deg, #f0f0f4 0%, #dcdce4 100%);
+  cursor: pointer;
+  padding: 0;
+  position: relative;
+}
+.piano-key:hover {
+  filter: brightness(1.05);
+}
+.piano-key--black {
+  background: linear-gradient(180deg, #3a3a44 0%, #18181f 100%);
+  width: 65%;
+  margin-left: auto;
+  border-left: 1px solid #000;
+  z-index: 2;
+}
+.piano-key.is-active,
+.piano-key--black.is-active {
+  background: linear-gradient(180deg, #6ee7b7 0%, #34d399 100%);
+}
+
+.roll-grid-scroll {
+  grid-column: 2;
+  grid-row: 2;
+  overflow: auto;
+  min-height: 0;
+}
+
+.piano-roll__canvas {
+  display: block;
+  cursor: crosshair;
+  touch-action: none;
+  background: #12121a;
+}
+
 .piano-roll__keys {
   flex: 1;
   display: flex;
@@ -576,78 +831,11 @@ input[type="number"] {
 }
 
 .piano-roll__pitch-labels {
-  width: 40px;
-  flex-shrink: 0;
-  background: var(--surface-1);
-  border-right: 1px solid var(--border);
-  overflow: hidden;
-}
-
-.piano-roll__pitch-label {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding-right: 4px;
-  font-size: 10px;
-  color: var(--text-faint);
-}
-
-.piano-roll__pitch-label--c {
-  color: var(--text-muted);
+  display: none;
 }
 
 .piano-roll__scroll {
-  flex: 1;
-  overflow: auto;
-}
-
-.piano-roll__canvas {
-  display: block;
-  cursor: crosshair;
-  touch-action: none;
-}
-
-/* Loop ruler */
-.loop-ruler {
-  position: relative;
-  height: 24px;
-  background: var(--surface-1);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.loop-ruler__region {
-  position: absolute;
-  top: 4px;
-  height: 16px;
-  background: rgba(52, 211, 153, 0.12);
-  border: 1px solid rgba(52, 211, 153, 0.28);
-  border-radius: 3px;
-  pointer-events: none;
-}
-
-.loop-ruler__handle {
-  position: absolute;
-  top: 2px;
-  width: 8px;
-  height: 20px;
-  background: var(--green-soft);
-  border-radius: 2px;
-  cursor: ew-resize;
-  z-index: 2;
-}
-
-.loop-ruler__handle--end {
-  background: var(--accent);
-}
-
-.loop-ruler__label {
-  position: absolute;
-  right: 8px;
-  top: 4px;
-  font-size: 10px;
-  color: var(--text-faint);
-  pointer-events: none;
+  display: none;
 }
 
 /* Mixer */
@@ -767,7 +955,7 @@ input[type="number"] {
 
 /* Synth panel */
 .synth-panel {
-  width: 176px;
+  width: 200px;
   flex-shrink: 0;
   background: var(--surface-1);
   border-left: 1px solid var(--border);
@@ -775,12 +963,26 @@ input[type="number"] {
   overflow-y: auto;
 }
 
-.synth-panel__title {
-  font-size: 11px;
+.synth-panel__section {
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.06em;
-  color: var(--text-faint);
-  margin-bottom: 12px;
+  color: var(--accent);
+  margin: 14px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.synth-panel__title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.synth-panel__subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
 }
 
 .synth-panel__row {

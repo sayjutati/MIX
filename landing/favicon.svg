@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="MIX">
+  <defs>
+    <linearGradient id="m" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#818cf8"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="9" fill="#07070c"/>
+  <rect x="1" y="1" width="30" height="30" rx="8" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+  <rect x="5" y="5" width="22" height="22" rx="7" fill="url(#m)"/>
+  <text x="16" y="22" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" font-weight="800" fill="#07070c">M</text>
+  <!-- 3¹¿¸ªrÉÃÈ -->
+  <circle cx="9" cy="27" r="1.6" fill="#6ee7b7"/>
+  <circle cx="16" cy="27" r="1.6" fill="#60a5fa"/>
+  <circle cx="23" cy="27" r="1.6" fill="#c084fc"/>
+</svg>

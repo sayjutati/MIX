@@ -16,7 +16,9 @@ export function SynthPanel({ params, instrumentName, instrumentKind, onChange }:
 
   return (
     <aside className="synth-panel">
-      <div className="synth-panel__title">シンセ · {displayName}</div>
+      <div className="synth-panel__title">音色エディタ</div>
+      <div className="synth-panel__subtitle">{displayName}</div>
+      <div className="synth-panel__section">オシレーター</div>
       <label className="synth-panel__row tooltip" data-tooltip="基本波形の種類">
         波形
         <select
@@ -30,6 +32,7 @@ export function SynthPanel({ params, instrumentName, instrumentKind, onChange }:
           ))}
         </select>
       </label>
+      <div className="synth-panel__section">エンベロープ（ADSR）</div>
       {(["attack", "decay", "sustain", "release"] as const).map((key) => (
         <label
           key={key}

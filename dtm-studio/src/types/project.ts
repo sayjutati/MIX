@@ -64,19 +64,19 @@ export const DEFAULT_INSTRUMENTS: Instrument[] = [
   {
     id: "inst-basic",
     kind: "basic",
-    name: "Basic",
+    name: "ベーシック",
     params: { waveform: "saw", attack: 0.01, decay: 0.15, sustain: 0.6, release: 0.2 },
   },
   {
     id: "inst-bright",
     kind: "bright",
-    name: "Bright",
+    name: "ブライト",
     params: { waveform: "square", attack: 0.005, decay: 0.1, sustain: 0.4, release: 0.15 },
   },
   {
     id: "inst-warm",
     kind: "warm",
-    name: "Warm",
+    name: "ウォーム",
     params: { waveform: "sine", attack: 0.02, decay: 0.2, sustain: 0.75, release: 0.35 },
   },
 ];

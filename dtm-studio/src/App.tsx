@@ -5,7 +5,7 @@ import { downloadBlob, encodeExport, safeFilename, type ExportFormat } from "./a
 import { normalizeBuffer, renderProjectOffline } from "./audio/offlineRender";
 import { GlobalTooltip } from "./components/GlobalTooltip";
 import { MixerPanel } from "./components/Mixer/MixerPanel";
-import { PianoRollCanvas } from "./components/PianoRoll/PianoRollCanvas";
+import { PianoRollView } from "./components/PianoRoll/PianoRollView";
 import { PianoRollToolbar } from "./components/PianoRoll/PianoRollToolbar";
 import { ProjectBrowser } from "./components/ProjectBrowser/ProjectBrowser";
 import { SynthPanel } from "./components/Synth/SynthPanel";
@@ -25,8 +25,11 @@ import {
   loadProject,
   saveProject,
 } from "./storage/projectStorage";
+import { previewNote } from "./audio/previewNote";
 import type { Project, Track } from "./types/project";
 import type { QuantizeGrid } from "./utils/quantize";
+import { snapBeat } from "./utils/quantize";
+import { pitchFromComputerKey } from "./utils/computerPiano";
 import { importMidiAsNewTrack, mergeMidiIntoProject, midiFilename, parseMidi, projectToMidi } from "./utils/midi";
 import "./index.css";
 
@@ -58,6 +61,11 @@ export default function App() {
 
   const quantizeGrid = useEditorStore((s) => s.quantizeGrid);
   const setQuantizeGrid = useEditorStore((s) => s.setQuantizeGrid);
+  const stepRecord = useEditorStore((s) => s.stepRecord);
+  const setStepRecord = useEditorStore((s) => s.setStepRecord);
+  const overlayTrackIds = useEditorStore((s) => s.overlayTrackIds);
+  const toggleOverlayTrack = useEditorStore((s) => s.toggleOverlayTrack);
+  const clearOverlayTracks = useEditorStore((s) => s.clearOverlayTracks);
 
   const playing = useTransportStore((s) => s.playing);
   const playheadBeat = useTransportStore((s) => s.playheadBeat);
@@ -66,6 +74,29 @@ export default function App() {
 
   const track = useSelectedTrack();
   const selectedNotes = useSelectedNotes();
+
+  const overlayTracks = useMemo(
+    () =>
+      project.tracks.filter(
+        (t) => overlayTrackIds.has(t.id) && t.id !== selectedTrackId
+      ),
+    [project.tracks, overlayTrackIds, selectedTrackId]
+  );
+
+  const handleToggleOverlay = useCallback(
+    (trackId: string) => {
+      toggleOverlayTrack(trackId);
+    },
+    [toggleOverlayTrack]
+  );
+
+  const handleRemoveTrack = useCallback(
+    (trackId: string) => {
+      if (overlayTrackIds.has(trackId)) toggleOverlayTrack(trackId);
+      removeTrack(trackId);
+    },
+    [overlayTrackIds, toggleOverlayTrack, removeTrack]
+  );
   const [exporting, setExporting] = useState(false);
   const [exportFormat, setExportFormat] = useState<ExportFormat>("wav");
   const [helpOn, setHelpOn] = useState(() => {
@@ -78,6 +109,9 @@ export default function App() {
   const [projectBrowserOpen, setProjectBrowserOpen] = useState(false);
   const [savedProjects, setSavedProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(false);
+  const [activePitches, setActivePitches] = useState<Set<number>>(() => new Set());
+  const computerKeysDown = useRef<Set<string>>(new Set());
+  const keyRecordRef = useRef<Map<number, { id: string; t0: number }>>(new Map());
   const clockUnsub = useRef<(() => void) | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevTempo = useRef(project.tempo);
@@ -107,6 +141,10 @@ export default function App() {
     bindSchedulerProject(() => useProjectStore.getState().project);
     void initAudioGraph().catch(() => {});
   }, []);
+
+  useEffect(() => {
+    clearOverlayTracks();
+  }, [project.id, clearOverlayTracks]);
 
   useEffect(() => {
     if (restored.current) return;
@@ -289,18 +327,57 @@ export default function App() {
     [track, updateInstrumentForTrack]
   );
 
-  const handleAddNote = useCallback(
-    (pitch: number, start: number) => {
-      if (!track) return;
+  const handleCreateNote = useCallback(
+    (pitch: number, start: number, duration: number): string | null => {
+      if (!track) return null;
+      const id = `n-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       addNote(track.id, {
+        id,
         pitch,
         start,
-        duration: Math.max(quantizeGrid, 0.125),
+        duration,
         velocity: 100,
       });
       touch();
+      return id;
     },
-    [track, addNote, touch, quantizeGrid]
+    [track, addNote, touch]
+  );
+
+  const playAndMaybeRecord = useCallback(
+    (pitch: number) => {
+      if (!track || !currentInstrument) return;
+      void previewNote(pitch, 100, currentInstrument, track);
+      setActivePitches((prev) => new Set(prev).add(pitch));
+      if (stepRecord) {
+        const beat = useTransportStore.getState().playheadBeat;
+        const start = Math.max(0, snapBeat(beat, quantizeGrid));
+        const id = handleCreateNote(pitch, start, quantizeGrid);
+        if (id) keyRecordRef.current.set(pitch, { id, t0: performance.now() });
+      }
+    },
+    [track, currentInstrument, stepRecord, quantizeGrid, handleCreateNote]
+  );
+
+  const releasePitch = useCallback(
+    (pitch: number) => {
+      setActivePitches((prev) => {
+        const next = new Set(prev);
+        next.delete(pitch);
+        return next;
+      });
+      const rec = keyRecordRef.current.get(pitch);
+      if (rec && stepRecord && track) {
+        const elapsedSec = (performance.now() - rec.t0) / 1000;
+        const beatDur = Math.max(
+          quantizeGrid,
+          snapBeat((elapsedSec * project.tempo) / 60, quantizeGrid)
+        );
+        updateNotes(track.id, [{ noteId: rec.id, patch: { duration: beatDur } }]);
+        keyRecordRef.current.delete(pitch);
+      }
+    },
+    [stepRecord, track, project.tempo, quantizeGrid, updateNotes]
   );
 
   const handleDeleteSelected = useCallback(() => {
@@ -324,21 +401,43 @@ export default function App() {
   );
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
+    const onKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      if (e.repeat) return;
+
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
         handleDeleteSelected();
+        return;
       }
       if (e.code === "Space") {
         e.preventDefault();
         if (useTransportStore.getState().playing) void handleStop();
         else void handlePlay();
+        return;
+      }
+
+      const pitch = pitchFromComputerKey(e.code);
+      if (pitch != null && !computerKeysDown.current.has(e.code)) {
+        e.preventDefault();
+        computerKeysDown.current.add(e.code);
+        playAndMaybeRecord(pitch);
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [handleDeleteSelected, handlePlay, handleStop]);
+    const onKeyUp = (e: KeyboardEvent) => {
+      const pitch = pitchFromComputerKey(e.code);
+      if (pitch != null) {
+        computerKeysDown.current.delete(e.code);
+        releasePitch(pitch);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, [handleDeleteSelected, handlePlay, handleStop, playAndMaybeRecord, releasePitch]);
 
   if (!track) {
     return <div className="app app--empty">トラックがありません</div>;
@@ -398,34 +497,46 @@ export default function App() {
           tracks={project.tracks}
           instruments={project.instruments}
           selectedId={selectedTrackId}
+          overlayTrackIds={overlayTrackIds}
           onSelect={selectTrack}
+          onToggleOverlay={handleToggleOverlay}
           onAddTrack={addTrack}
-          onRemoveTrack={removeTrack}
+          onRemoveTrack={handleRemoveTrack}
           onUpdateTrack={handleMixerUpdate}
         />
         <main className="piano-roll">
           <PianoRollToolbar
+            tracks={project.tracks}
+            editTrackId={selectedTrackId}
+            overlayTrackIds={overlayTrackIds}
+            onToggleOverlay={handleToggleOverlay}
             quantizeGrid={quantizeGrid}
             onQuantizeGridChange={(g) => setQuantizeGrid(g as QuantizeGrid)}
             selectedCount={selectedNoteIds.size}
             velocity={avgVelocity}
+            stepRecord={stepRecord}
+            onStepRecordChange={setStepRecord}
             onVelocityChange={handleVelocity}
             onQuantize={handleQuantize}
             onDelete={handleDeleteSelected}
           />
-          <PianoRollCanvas
-            track={track}
+          <PianoRollView
+            editTrack={track}
+            overlayTracks={overlayTracks}
             playheadBeat={playheadBeat}
             loopStart={project.loopStart}
             loopEnd={project.loopEnd}
             beatsVisible={BEATS_VISIBLE}
             quantizeGrid={quantizeGrid}
             selectedNoteIds={selectedNoteIds}
-            onAddNote={handleAddNote}
+            activePitches={activePitches}
+            onCreateNote={handleCreateNote}
             onSelectNotes={selectNotes}
             onToggleNote={toggleNoteSelection}
             onUpdateNotes={(updates) => updateNotes(track.id, updates)}
             onLoopChange={setLoop}
+            onPianoKeyDown={playAndMaybeRecord}
+            onPianoKeyUp={releasePitch}
           />
         </main>
         {currentInstrument && (
