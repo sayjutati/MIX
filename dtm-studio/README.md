@@ -7,24 +7,19 @@ Web 版 DTM（MIDI シーケンス制作）。MIX ポータル `/dtm/` 配下で
 ```bash
 npm install
 npm run dev    # http://localhost:1440
-# ポータル経由: リポジトリルートで npm run build → http://localhost:3000/dtm/
+npm run test   # ユニットテスト
 ```
 
-## 実装済み（MVP）
+## 実装済み
 
-- マルチトラック + ピアノロール（Canvas）
-- ノート追加・移動・リサイズ・削除（Del）
-- 複数選択（Shift+クリック）
-- クオンタイズ（Grid 1/4〜1/32、Quantize ボタン）
-- ベロシティ編集（選択ノート）
+- マルチトラック + Canvas ピアノロール（移動・リサイズ・削除・クオンタイズ・ベロシティ）
 - ミキサー（Volume / Pan / Mute / Solo）
-- 内蔵シンセ 3 種（トラックごとに切替）
-- Transport（Play / Stop / BPM / Loop）
-- IndexedDB 自動保存
-
-## 次の実装ステップ
-
-- ループ範囲の UI 編集
-- シンセパラメータ UI（ADSR / Waveform）
-- プロジェクト名・一覧・新規作成
-- オフライン WAV 書き出し
+- 内蔵シンセ 3 種 + ADSR / Waveform パネル
+- ループ範囲 UI（ルーラードラッグ + Transport 数値入力）
+- Transport（Play / Stop / BPM / Space）
+- **WAV / MP3 書き出し**（オフラインシンセ・ノーマライズ）
+- **MIDI ファイル import / export**（SMF format 1）
+- **プロジェクト一覧**（IndexedDB 複数プロジェクトの開く・削除）
+- プロジェクト名・新規作成
+- IndexedDB 自動保存・起動時復元
+- ループ時 cycle ID による再スケジュール

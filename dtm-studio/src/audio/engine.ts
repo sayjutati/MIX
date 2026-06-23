@@ -127,7 +127,8 @@ export function buildNoteSchedules(
   beatWindowEnd: number,
   anchorCtxTime: number,
   anchorBeat: number,
-  tempo: number
+  tempo: number,
+  cycleId = 0
 ): NoteSchedulePayload[] {
   const hasSolo = project.tracks.some((t) => t.solo);
   const out: NoteSchedulePayload[] = [];
@@ -146,7 +147,7 @@ export function buildNoteSchedules(
       const ctxTime = anchorCtxTime + beatToSec(beatOffset, tempo);
       const durationSec = beatToSec(note.duration, tempo);
       out.push({
-        noteId: `${track.id}:${note.id}`,
+        noteId: `${cycleId}:${track.id}:${note.id}`,
         ctxTime,
         pitch: note.pitch,
         velocity: note.velocity,

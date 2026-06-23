@@ -17,5 +17,5 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src"],
-  "exclude": ["src/**/*.worklet.ts"]
+  "exclude": ["src/**/*.test.ts", "src/**/*.worklet.ts"]
 }

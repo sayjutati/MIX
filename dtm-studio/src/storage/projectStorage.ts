@@ -41,6 +41,13 @@ export async function listProjects(): Promise<Project[]> {
   return db.getAllFromIndex("projects", "by-updated");
 }
 
+/** 最終更新プロジェクトを復元用に取得 */
+export async function loadLatestProject(): Promise<Project | null> {
+  const all = await listProjects();
+  if (all.length === 0) return null;
+  return all[all.length - 1] ?? null;
+}
+
 export async function deleteProject(id: string): Promise<void> {
   const db = await getDb();
   await db.delete("projects", id);

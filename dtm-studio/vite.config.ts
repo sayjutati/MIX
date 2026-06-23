@@ -4,6 +4,9 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   base: process.env.VITE_BASE ?? "/",
   plugins: [react()],
+  optimizeDeps: {
+    include: ["lamejs"],
+  },
   server: {
     port: 1440,
     strictPort: true,

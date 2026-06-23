@@ -3,8 +3,10 @@ import {
   makeNote,
   makeProject,
   makeTrack,
+  type Instrument,
   type MidiNote,
   type Project,
+  type SynthParams,
   type Track,
 } from "../types/project";
 import { snapBeat } from "../utils/quantize";
@@ -30,6 +32,9 @@ type ProjectState = {
   setNotesVelocity: (trackId: string, noteIds: string[], velocity: number) => void;
   setTempo: (tempo: number) => void;
   setLoop: (start: number, end: number) => void;
+  setProjectName: (name: string) => void;
+  newProject: () => void;
+  updateInstrumentForTrack: (trackId: string, patch: Partial<SynthParams>) => void;
   addTrack: () => void;
   removeTrack: (trackId: string) => void;
   updateTrack: (trackId: string, patch: Partial<Track>) => void;
@@ -186,10 +191,62 @@ export const useProjectStore = create<ProjectState>((set) => ({
     set((s) => ({
       project: touchProject({
         ...s.project,
-        loopStart: start,
-        loopEnd: Math.max(start + 0.25, end),
+        loopStart: Math.max(0, start),
+        loopEnd: Math.max(Math.max(0, start) + 0.25, end),
       }),
     })),
+
+  setProjectName: (name) =>
+    set((s) => ({
+      project: touchProject({ ...s.project, name: name.trim() || "Untitled" }),
+    })),
+
+  newProject: () => {
+    const p = makeProject();
+    return set({
+      project: p,
+      selectedTrackId: p.tracks[0]?.id ?? null,
+      selectedNoteIds: new Set(),
+    });
+  },
+
+  updateInstrumentForTrack: (trackId, patch) =>
+    set((s) => {
+      const track = s.project.tracks.find((t) => t.id === trackId);
+      if (!track) return s;
+      const inst = s.project.instruments.find((i) => i.id === track.instrumentId);
+      if (!inst) return s;
+
+      const shared =
+        s.project.tracks.filter((t) => t.instrumentId === inst.id).length > 1;
+
+      if (shared) {
+        const cloned: Instrument = {
+          ...inst,
+          id: `inst-${Date.now()}`,
+          name: `${inst.name}*`,
+          params: { ...inst.params, ...patch },
+        };
+        return {
+          project: touchProject({
+            ...s.project,
+            instruments: [...s.project.instruments, cloned],
+            tracks: s.project.tracks.map((t) =>
+              t.id === trackId ? { ...t, instrumentId: cloned.id } : t
+            ),
+          }),
+        };
+      }
+
+      return {
+        project: touchProject({
+          ...s.project,
+          instruments: s.project.instruments.map((i) =>
+            i.id === inst.id ? { ...i, params: { ...i.params, ...patch } } : i
+          ),
+        }),
+      };
+    }),
 
   addTrack: () =>
     set((s) => {

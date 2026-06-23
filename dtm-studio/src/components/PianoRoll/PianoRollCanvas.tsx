@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { MidiNote, Track } from "../../types/project";
 import { snapBeat } from "../../utils/quantize";
+import { LoopRuler } from "./LoopRuler";
 
 const ROW_H = 16;
 const BEAT_W = 48;
@@ -24,6 +25,7 @@ type Props = {
   onSelectNotes: (ids: string[]) => void;
   onToggleNote: (id: string) => void;
   onUpdateNotes: (updates: Array<{ noteId: string; patch: Partial<MidiNote> }>) => void;
+  onLoopChange: (start: number, end: number) => void;
 };
 
 export function PianoRollCanvas({
@@ -38,6 +40,7 @@ export function PianoRollCanvas({
   onSelectNotes,
   onToggleNote,
   onUpdateNotes,
+  onLoopChange,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -48,6 +51,8 @@ export function PianoRollCanvas({
     startY: number;
     origins: Map<string, { start: number; pitch: number; duration: number }>;
   } | null>(null);
+  const pendingDrag = useRef<Array<{ noteId: string; patch: Partial<MidiNote> }> | null>(null);
+  const dragRaf = useRef(0);
 
   const width = beatsVisible * BEAT_W;
   const height = PITCH_COUNT * ROW_H;
@@ -143,10 +148,9 @@ export function PianoRollCanvas({
     return { beat, pitch, x, y };
   };
 
-  const hitNote = (pitch: number, x: number, y: number) => {
+  const hitNote = (x: number, y: number) => {
     for (let i = track.notes.length - 1; i >= 0; i--) {
       const n = track.notes[i];
-      if (n.pitch !== pitch) continue;
       const r = noteRect(n);
       if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
         const resize = x >= r.x + r.w - RESIZE_HANDLE;
@@ -154,6 +158,27 @@ export function PianoRollCanvas({
       }
     }
     return null;
+  };
+
+  const flushDrag = (immediate = false) => {
+    const run = () => {
+      if (pendingDrag.current) {
+        onUpdateNotes(pendingDrag.current);
+        pendingDrag.current = null;
+      }
+      dragRaf.current = 0;
+    };
+    if (immediate) {
+      if (dragRaf.current) cancelAnimationFrame(dragRaf.current);
+      run();
+    } else if (!dragRaf.current) {
+      dragRaf.current = requestAnimationFrame(run);
+    }
+  };
+
+  const scheduleDragUpdate = (updates: Array<{ noteId: string; patch: Partial<MidiNote> }>) => {
+    pendingDrag.current = updates;
+    flushDrag(false);
   };
 
   const collectOrigins = (primaryId: string) => {
@@ -172,7 +197,7 @@ export function PianoRollCanvas({
     const { beat, pitch, x, y } = clientToBeatPitch(e.clientX, e.clientY);
     if (pitch < PITCH_MIN || pitch > PITCH_MAX) return;
 
-    const hit = hitNote(pitch, x, y);
+    const hit = hitNote(x, y);
     if (hit) {
       if (e.shiftKey) {
         onToggleNote(hit.note.id);
@@ -218,16 +243,17 @@ export function PianoRollCanvas({
           pitch: Math.max(PITCH_MIN, Math.min(PITCH_MAX, o.pitch + dPitch)),
         },
       }));
-      onUpdateNotes(updates);
+      scheduleDragUpdate(updates);
     } else {
       const origin = drag.origins.get(drag.noteId)!;
       const newDur = Math.max(MIN_DURATION, snapBeat(origin.duration + dx, quantizeGrid));
-      onUpdateNotes([{ noteId: drag.noteId, patch: { duration: newDur } }]);
+      scheduleDragUpdate([{ noteId: drag.noteId, patch: { duration: newDur } }]);
     }
   };
 
   const onPointerUp = (e: React.PointerEvent) => {
     if (dragRef.current) {
+      flushDrag(true);
       dragRef.current = null;
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
@@ -251,6 +277,13 @@ export function PianoRollCanvas({
         })}
       </div>
       <div className="piano-roll__scroll" ref={scrollRef}>
+        <LoopRuler
+          loopStart={loopStart}
+          loopEnd={loopEnd}
+          beatsVisible={beatsVisible}
+          quantizeGrid={quantizeGrid}
+          onLoopChange={onLoopChange}
+        />
         <canvas
           ref={canvasRef}
           className="piano-roll__canvas"

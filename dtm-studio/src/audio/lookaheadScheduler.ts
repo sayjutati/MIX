@@ -13,7 +13,6 @@ import {
   type ClockPosition,
 } from "./engine";
 
-/** 先読みスケジューラ — メインスレッドが currentTime 基準で Worklet へノートを配送 */
 let projectGetter: () => Project = () => makeProject();
 
 export function bindSchedulerProject(fn: () => Project) {
@@ -25,9 +24,9 @@ export class LookaheadScheduler {
   private scheduled = new Set<string>();
   private anchor: ClockPosition & { tempo: number } | null = null;
   private startBeat = 0;
-  private loopStart = 0;
-  private loopEnd = 16;
   private looping = true;
+  private loopResyncing = false;
+  private loopCycle = 0;
   private unsubClock: (() => void) | null = null;
 
   private getProject() {
@@ -38,8 +37,8 @@ export class LookaheadScheduler {
     const { ctx, clock, synth } = await initAudioGraph();
     const project = this.getProject();
     this.startBeat = fromBeat;
-    this.loopStart = project.loopStart;
-    this.loopEnd = project.loopEnd;
+    this.loopResyncing = false;
+    this.loopCycle = 0;
     this.scheduled.clear();
     synth.port.postMessage({ type: "clearQueue" });
 
@@ -53,9 +52,12 @@ export class LookaheadScheduler {
       this.anchor.beat = pos.beat;
       this.anchor.ctxTime = pos.ctxTime;
 
-      if (this.looping && pos.beat >= this.loopEnd) {
-        const nextBeat = this.loopStart;
-        this.resyncLoop(nextBeat);
+      const { loopEnd, loopStart } = this.getProject();
+      if (this.looping && pos.beat >= loopEnd && !this.loopResyncing) {
+        this.loopResyncing = true;
+        void this.resyncLoop(loopStart).finally(() => {
+          this.loopResyncing = false;
+        });
       }
     });
 
@@ -66,6 +68,7 @@ export class LookaheadScheduler {
   private async resyncLoop(beat: number) {
     const { ctx, clock, synth } = await initAudioGraph();
     const project = this.getProject();
+    this.loopCycle++;
     this.scheduled.clear();
     this.startBeat = beat;
     seekTransport(clock, synth, ctx, beat, project.tempo);
@@ -73,11 +76,32 @@ export class LookaheadScheduler {
     this.anchor = { beat, ctxTime: baseCtxTime, tempo: project.tempo };
   }
 
+  async syncTempo() {
+    if (!this.anchor) return;
+    const { ctx, clock, synth } = await initAudioGraph();
+    const project = this.getProject();
+    const beat = this.anchor.beat;
+    this.scheduled.clear();
+    synth.port.postMessage({ type: "clearQueue" });
+    seekTransport(clock, synth, ctx, beat, project.tempo);
+    const baseCtxTime = ctx.currentTime + 0.05;
+    this.anchor = { beat, ctxTime: baseCtxTime, tempo: project.tempo };
+  }
+
+  async invalidatePending() {
+    if (!this.anchor) return;
+    this.scheduled.clear();
+    const { synth } = await initAudioGraph();
+    synth.port.postMessage({ type: "clearQueue" });
+    void this.tick();
+  }
+
   private async tick() {
     if (!this.anchor) return;
     const { synth } = await initAudioGraph();
     const project = this.getProject();
     const tempo = project.tempo;
+    const { loopStart, loopEnd } = project;
     const nowCtx = this.anchor.ctxTime;
     const nowBeat = this.anchor.beat;
     const aheadBeat = secToBeat(SCHEDULE_AHEAD_SEC, tempo);
@@ -90,7 +114,8 @@ export class LookaheadScheduler {
       winEnd,
       nowCtx,
       nowBeat,
-      tempo
+      tempo,
+      this.loopCycle
     ).filter((n) => !this.scheduled.has(n.noteId));
 
     if (notes.length > 0) {
@@ -98,15 +123,15 @@ export class LookaheadScheduler {
       for (const n of notes) this.scheduled.add(n.noteId);
     }
 
-    // ループ境界を越えたノートも先読み
-    if (this.looping && winEnd > this.loopEnd) {
+    if (this.looping && winEnd > loopEnd) {
       const wrapNotes = buildNoteSchedules(
         project,
-        this.loopStart,
-        this.loopStart + (winEnd - this.loopEnd),
-        nowCtx + beatToSec(this.loopEnd - nowBeat, tempo),
-        this.loopEnd,
-        tempo
+        loopStart,
+        loopStart + (winEnd - loopEnd),
+        nowCtx + beatToSec(loopEnd - nowBeat, tempo),
+        loopEnd,
+        tempo,
+        this.loopCycle + 1
       ).filter((n) => !this.scheduled.has(n.noteId));
       if (wrapNotes.length > 0) {
         scheduleNotesToSynth(synth, wrapNotes);
@@ -121,6 +146,8 @@ export class LookaheadScheduler {
     this.unsubClock?.();
     this.unsubClock = null;
     this.anchor = null;
+    this.loopResyncing = false;
+    this.loopCycle = 0;
     this.scheduled.clear();
     const { clock, synth } = await initAudioGraph();
     stopTransport(clock, synth);

@@ -25,6 +25,9 @@ jobs:
       - name: Repo checks (deps, no node_modules in git)
         run: npm run verify
 
+      - name: DTM Studio tests
+        run: npm run test --prefix dtm-studio
+
       - name: Production build (same as Vercel)
         run: npm run build
         env:
