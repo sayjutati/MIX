@@ -1,0 +1,407 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: #0a0a10;
+  color: #e8e8f0;
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  background: #12121a;
+  border-bottom: 1px solid #222230;
+  flex-shrink: 0;
+}
+
+.transport__brand {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #8af0c0;
+}
+
+.transport__controls {
+  display: flex;
+  gap: 8px;
+}
+
+.transport__btn {
+  border: none;
+  border-radius: 6px;
+  padding: 6px 14px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.transport__btn--play {
+  background: #3d5af1;
+  color: #fff;
+}
+
+.transport__btn--stop {
+  background: #444;
+  color: #fff;
+}
+
+.transport__tempo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.transport__tempo input {
+  width: 56px;
+  background: #1a1a24;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: inherit;
+  padding: 4px 6px;
+}
+
+.transport__info {
+  margin-left: auto;
+  display: flex;
+  gap: 16px;
+  color: #888;
+}
+
+.app__workspace {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.track-list {
+  width: 180px;
+  flex-shrink: 0;
+  background: #0e0e14;
+  border-right: 1px solid #222230;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.track-list__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px 4px;
+}
+
+.track-list__title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #666;
+}
+
+.track-list__add {
+  width: 24px;
+  height: 24px;
+  border: 1px solid #333;
+  border-radius: 4px;
+  background: #1a1a24;
+  color: #8af0c0;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.track-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.track-list li.is-selected {
+  background: #14141e;
+}
+
+.track-list__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  padding: 8px 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.track-list__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.track-list__name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track-list__count {
+  color: #555;
+  font-size: 11px;
+}
+
+.track-list__detail {
+  padding: 0 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.track-list__inst {
+  width: 100%;
+  background: #1a1a24;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: inherit;
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+.track-list__remove {
+  border: none;
+  background: transparent;
+  color: #ff6b6b;
+  font-size: 11px;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+}
+
+.piano-roll {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.piano-roll__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #1a1a24;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.piano-roll__tool {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #888;
+}
+
+.piano-roll__tool select {
+  background: #1a1a24;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: inherit;
+  padding: 2px 4px;
+}
+
+.piano-roll__tool input[type="range"] {
+  width: 80px;
+}
+
+.piano-roll__tool-btn {
+  border: 1px solid #333;
+  border-radius: 4px;
+  background: #1a1a24;
+  color: inherit;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.piano-roll__tool-btn--danger {
+  border-color: #633;
+  color: #ff8a8a;
+}
+
+.piano-roll__tool-hint {
+  margin-left: auto;
+  font-size: 10px;
+  color: #555;
+}
+
+.piano-roll__keys {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.piano-roll__pitch-labels {
+  width: 40px;
+  flex-shrink: 0;
+  background: #0c0c12;
+  border-right: 1px solid #222230;
+  overflow: hidden;
+}
+
+.piano-roll__pitch-label {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 4px;
+  font-size: 10px;
+  color: #555;
+}
+
+.piano-roll__pitch-label--c {
+  color: #888;
+}
+
+.piano-roll__scroll {
+  flex: 1;
+  overflow: auto;
+}
+
+.piano-roll__canvas {
+  display: block;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.mixer {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  padding: 8px 12px;
+  background: #12121a;
+  border-top: 1px solid #222230;
+  flex-shrink: 0;
+  min-height: 120px;
+  overflow-x: auto;
+}
+
+.mixer__label {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #555;
+  padding: 4px 0;
+  flex-shrink: 0;
+}
+
+.mixer__strips {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+}
+
+.mixer__strip {
+  width: 88px;
+  flex-shrink: 0;
+  background: #0e0e14;
+  border: 1px solid #222230;
+  border-radius: 6px;
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.mixer__strip.is-selected {
+  border-color: #6c8cff;
+}
+
+.mixer__strip-name {
+  font-size: 10px;
+  text-align: center;
+  border-bottom: 2px solid;
+  padding-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mixer__fader {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 9px;
+  color: #666;
+}
+
+.mixer__fader input[type="range"] {
+  width: 100%;
+  accent-color: #6c8cff;
+}
+
+.mixer__fader--pan input {
+  accent-color: #8af0c0;
+}
+
+.mixer__val {
+  text-align: center;
+  color: #888;
+  font-size: 10px;
+}
+
+.mixer__buttons {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+  margin-top: auto;
+}
+
+.mixer__btn {
+  width: 28px;
+  height: 22px;
+  border: 1px solid #333;
+  border-radius: 3px;
+  background: #1a1a24;
+  color: #888;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.mixer__btn.is-on {
+  background: #633;
+  color: #fff;
+  border-color: #855;
+}
+
+.mixer__btn--solo.is-on {
+  background: #3d5a1f;
+  border-color: #5a8a2f;
+  color: #cff;
+}
+

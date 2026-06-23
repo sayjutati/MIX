@@ -6,6 +6,7 @@
   --text: #ececf1;
   --text-muted: #9498a8;
   --accent-daw: #4f8cf7;
+  --accent-dtm: #8af0c0;
   --accent-video: #a855f7;
   --green: #22c55e;
 }
@@ -99,6 +100,10 @@ body {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
 }
 
+.portal-card--dtm:hover {
+  border-color: var(--accent-dtm);
+}
+
 .portal-card--daw:hover {
   border-color: var(--accent-daw);
 }
@@ -138,6 +143,10 @@ body {
   gap: 8px;
   font-size: 0.9rem;
   font-weight: 600;
+}
+
+.portal-card--dtm .portal-card__cta {
+  color: var(--accent-dtm);
 }
 
 .portal-card--daw .portal-card__cta {

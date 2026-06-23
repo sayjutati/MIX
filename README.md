@@ -4,7 +4,8 @@
 
 | URL | アプリ |
 |-----|--------|
-| `/` | **TOP** — DAW / 動画編集を選ぶ（新しいタブで開く） |
+| `/` | **TOP** — DTM / DAW / 動画編集を選ぶ（新しいタブで開く） |
+| `/dtm/` | MIX DTM — MIDI 作曲・シーケンス |
 | `/daw/` | MIX DAW — 録音・ミックス |
 | `/video/` | MIX Video Studio — 動画編集 |
 
@@ -17,9 +18,9 @@ npm run verify   # 依存・Git の汚れを先に検知（push 前に推奨）
 npm run build    # 内部でも verify を実行してから dist を生成
 ```
 
-`dist/` に landing + daw + video が出力されます。
+`dist/` に landing + dtm + daw + video が出力されます。
 
-**重要:** Vercel プロジェクトの Root Directory はリポジトリ直下（`mix`）にしてください。以前 `daw-studio` のみを Root にしていた場合は、ルートに変更するか新規デプロイしてください。
+**重要:** Vercel プロジェクトの Root Directory はリポジトリ直下（`mix`）にしてください。
 
 ### デプロイ事故を防ぐルール
 
@@ -40,8 +41,17 @@ npm run dev
 # → http://localhost:3000
 
 # 各アプリ（従来どおりルートパス）
+cd dtm-studio && npm install && npm run dev    # :1440
 cd daw-studio && npm install && npm run dev    # :1420
 cd video-studio && npm install && npm run dev  # :1430
+```
+
+またはルートから:
+
+```bash
+npm run dev:dtm
+npm run dev:daw
+npm run dev:video
 ```
 
 サブパス付きでまとめて試す場合:
@@ -49,14 +59,16 @@ cd video-studio && npm install && npm run dev  # :1430
 ```bash
 npm run build
 npx serve dist -l 3000
-# TOP http://localhost:3000/
-# DAW  http://localhost:3000/daw/
+# TOP   http://localhost:3000/
+# DTM   http://localhost:3000/dtm/
+# DAW   http://localhost:3000/daw/
 # Video http://localhost:3000/video/
 ```
 
 ## 典型フロー
 
-1. **DAW** でボーカル＋BGM をミックス → `.daw` を保存
-2. **Video** で動画を読み込み → DAW ミックスを重ねる → MP4 書き出し
+1. **DTM** で BGM・伴奏を作る（任意）
+2. **DAW** でボーカル＋BGM をミックス → `.daw` を保存
+3. **Video** で動画を読み込み → DAW ミックスを重ねる → MP4 書き出し
 
-詳細は `daw-studio/README.md` / `video-studio/README.md` を参照。
+詳細は `dtm-studio/README.md` / `daw-studio/README.md` / `video-studio/README.md` を参照。

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="MIX — 歌ってみた向けブラウザ完結スタジオ。DAW で録音・ミックス、Video Studio で動画編集。"
+      content="MIX — 歌ってみた向けブラウザ完結スタジオ。DTM で作曲、DAW で録音・ミックス、Video Studio で動画編集。"
     />
     <meta name="theme-color" content="#0a0a0f" />
     <title>MIX — 歌ってみたスタジオ</title>
@@ -24,12 +24,34 @@
         <p class="portal__tagline">ブラウザ完結 · 歌ってみた制作</p>
       </header>
 
-      <h1 class="portal__title">どちらのスタジオを開きますか？</h1>
+      <h1 class="portal__title">どのスタジオを開きますか？</h1>
       <p class="portal__lead">
-        選ぶと<strong>新しいタブ</strong>でアプリが開きます。音作りと動画編集を行き来しながら作業できます。
+        選ぶと<strong>新しいタブ</strong>でアプリが開きます。作曲・録音・動画編集を行き来しながら作業できます。
       </p>
 
       <div class="portal__cards">
+        <a
+          class="portal-card portal-card--dtm"
+          href="/dtm/"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <span class="portal-card__icon" aria-hidden="true">🎹</span>
+          <h2 class="portal-card__title">MIX DTM</h2>
+          <p class="portal-card__desc">
+            MIDI シーケンス・ピアノロール・内蔵シンセ。オリジナル BGM や伴奏を打ち込む。
+            プロジェクトは IndexedDB に自動保存。
+          </p>
+          <span class="portal-card__cta">
+            DTM を開く
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+              <polyline points="15 3 21 3 21 9" />
+              <line x1="10" y1="14" x2="21" y2="3" />
+            </svg>
+          </span>
+        </a>
+
         <a
           class="portal-card portal-card--daw"
           href="/daw/"
@@ -77,7 +99,8 @@
       <section class="portal__flow">
         <h3 class="portal__flow-title">おすすめの流れ</h3>
         <ol>
-          <li><strong>DAW</strong> で歌・BGM をミックス</li>
+          <li><strong>DTM</strong> で BGM・伴奏を作る（任意）</li>
+          <li><strong>DAW</strong> で歌・ミックス</li>
           <li><strong>Video</strong> で動画に載せて仕上げ</li>
           <li>書き出して投稿</li>
         </ol>

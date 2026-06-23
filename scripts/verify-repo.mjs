@@ -13,15 +13,18 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const APPS = [
   { dir: "daw-studio", src: "src" },
+  { dir: "dtm-studio", src: "src" },
   { dir: "video-studio", src: "src" },
 ];
 
 const TRACKED_DENY = [
   /^node_modules\//,
   /^daw-studio\/node_modules\//,
+  /^dtm-studio\/node_modules\//,
   /^video-studio\/node_modules\//,
   /^dist\//,
   /^daw-studio\/dist\//,
+  /^dtm-studio\/dist\//,
   /^video-studio\/dist\//,
 ];
 
