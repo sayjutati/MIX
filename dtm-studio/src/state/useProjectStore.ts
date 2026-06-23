@@ -198,7 +198,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   setProjectName: (name) =>
     set((s) => ({
-      project: touchProject({ ...s.project, name: name.trim() || "Untitled" }),
+      project: touchProject({ ...s.project, name: name.trim() || "無題" }),
     })),
 
   newProject: () => {
@@ -252,7 +252,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
     set((s) => {
       const n = s.project.tracks.length + 1;
       const track = makeTrack({
-        name: `Track ${n}`,
+        name: `トラック ${n}`,
         color: TRACK_COLORS[(n - 1) % TRACK_COLORS.length],
         instrumentId: s.project.instruments[n % s.project.instruments.length]?.id ?? "inst-basic",
       });

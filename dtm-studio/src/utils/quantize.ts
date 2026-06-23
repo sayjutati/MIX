@@ -5,10 +5,10 @@ export const snapBeat = (beat: number, grid: number) => {
 };
 
 export const QUANTIZE_OPTIONS = [
-  { label: "1/4", value: 1 },
-  { label: "1/8", value: 0.5 },
-  { label: "1/16", value: 0.25 },
-  { label: "1/32", value: 0.125 },
+  { label: "4分音符", value: 1 },
+  { label: "8分音符", value: 0.5 },
+  { label: "16分音符", value: 0.25 },
+  { label: "32分音符", value: 0.125 },
 ] as const;
 
 export type QuantizeGrid = (typeof QUANTIZE_OPTIONS)[number]["value"];

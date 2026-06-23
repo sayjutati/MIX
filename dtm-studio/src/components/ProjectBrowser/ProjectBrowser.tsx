@@ -49,7 +49,12 @@ export function ProjectBrowser({
               .sort((a, b) => b.updatedAt - a.updatedAt)
               .map((p) => (
                 <li key={p.id} className={p.id === currentId ? "project-modal__item--current" : ""}>
-                  <button type="button" className="project-modal__open" onClick={() => onOpen(p.id)}>
+                  <button
+                    type="button"
+                    className="project-modal__open tooltip"
+                    data-tooltip="このプロジェクトを開く"
+                    onClick={() => onOpen(p.id)}
+                  >
                     <span className="project-modal__name">{p.name}</span>
                     <span className="project-modal__meta">
                       {p.tracks.length} トラック · {fmtDate(p.updatedAt)}
@@ -58,7 +63,8 @@ export function ProjectBrowser({
                   </button>
                   <button
                     type="button"
-                    className="project-modal__delete"
+                    className="project-modal__delete tooltip"
+                    data-tooltip="このプロジェクトを IndexedDB から削除"
                     onClick={() => onDelete(p.id)}
                     aria-label={`${p.name} を削除`}
                   >

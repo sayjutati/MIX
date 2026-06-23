@@ -20,19 +20,20 @@ export function MixerPanel({ tracks, selectedId, onSelect, onUpdate }: Props) {
 
   return (
     <footer className="mixer">
-      <div className="mixer__label">Mixer</div>
+      <div className="mixer__label">ミキサー</div>
       <div className="mixer__strips">
         {tracks.map((t) => (
           <div
             key={t.id}
-            className={`mixer__strip${t.id === selectedId ? " is-selected" : ""}`}
+            className={`mixer__strip tooltip${t.id === selectedId ? " is-selected" : ""}`}
+            data-tooltip="クリックで編集トラックを選択"
             onClick={() => onSelect(t.id)}
           >
             <div className="mixer__strip-name" style={{ borderColor: t.color }}>
               {t.name}
             </div>
-            <label className="mixer__fader">
-              <span>Vol</span>
+            <label className="mixer__fader tooltip" data-tooltip="トラック音量">
+              <span>音量</span>
               <input
                 type="range"
                 min={0}
@@ -42,10 +43,10 @@ export function MixerPanel({ tracks, selectedId, onSelect, onUpdate }: Props) {
                 onChange={(e) => onUpdate(t.id, { volume: Number(e.target.value) })}
                 onClick={(e) => e.stopPropagation()}
               />
-              <span className="mixer__val">{Math.round(t.volume * 100)}</span>
+              <span className="mixer__val">{Math.round(t.volume * 100)}%</span>
             </label>
-            <label className="mixer__fader mixer__fader--pan">
-              <span>Pan</span>
+            <label className="mixer__fader mixer__fader--pan tooltip" data-tooltip="左右の定位（L〜R）">
+              <span>パン</span>
               <input
                 type="range"
                 min={-1}
@@ -59,7 +60,8 @@ export function MixerPanel({ tracks, selectedId, onSelect, onUpdate }: Props) {
             <div className="mixer__buttons">
               <button
                 type="button"
-                className={`mixer__btn${t.muted ? " is-on" : ""}`}
+                className={`mixer__btn tooltip${t.muted ? " is-on" : ""}`}
+                data-tooltip="ミュート：このトラックの音を消す"
                 onClick={(e) => {
                   e.stopPropagation();
                   onUpdate(t.id, { muted: !t.muted });
@@ -69,7 +71,8 @@ export function MixerPanel({ tracks, selectedId, onSelect, onUpdate }: Props) {
               </button>
               <button
                 type="button"
-                className={`mixer__btn mixer__btn--solo${t.solo ? " is-on" : ""}`}
+                className={`mixer__btn mixer__btn--solo tooltip${t.solo ? " is-on" : ""}`}
+                data-tooltip="ソロ：このトラックだけ聴く"
                 onClick={(e) => {
                   e.stopPropagation();
                   toggleSolo(t);

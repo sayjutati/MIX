@@ -3,6 +3,7 @@ import { bindSchedulerProject, scheduler } from "./audio/lookaheadScheduler";
 import { initAudioGraph, onClockPosition } from "./audio/engine";
 import { downloadBlob, encodeExport, safeFilename, type ExportFormat } from "./audio/export";
 import { normalizeBuffer, renderProjectOffline } from "./audio/offlineRender";
+import { GlobalTooltip } from "./components/GlobalTooltip";
 import { MixerPanel } from "./components/Mixer/MixerPanel";
 import { PianoRollCanvas } from "./components/PianoRoll/PianoRollCanvas";
 import { PianoRollToolbar } from "./components/PianoRoll/PianoRollToolbar";
@@ -30,6 +31,7 @@ import { importMidiAsNewTrack, mergeMidiIntoProject, midiFilename, parseMidi, pr
 import "./index.css";
 
 const BEATS_VISIBLE = 32;
+const HELP_STORAGE_KEY = "dtm-help-on";
 
 export default function App() {
   const project = useProjectStore((s) => s.project);
@@ -66,6 +68,13 @@ export default function App() {
   const selectedNotes = useSelectedNotes();
   const [exporting, setExporting] = useState(false);
   const [exportFormat, setExportFormat] = useState<ExportFormat>("wav");
+  const [helpOn, setHelpOn] = useState(() => {
+    try {
+      return localStorage.getItem(HELP_STORAGE_KEY) !== "0";
+    } catch {
+      return true;
+    }
+  });
   const [projectBrowserOpen, setProjectBrowserOpen] = useState(false);
   const [savedProjects, setSavedProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(false);
@@ -332,16 +341,31 @@ export default function App() {
   }, [handleDeleteSelected, handlePlay, handleStop]);
 
   if (!track) {
-    return <div className="app app--empty">No tracks</div>;
+    return <div className="app app--empty">トラックがありません</div>;
   }
 
+  const toggleHelp = () => {
+    setHelpOn((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem(HELP_STORAGE_KEY, next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
   return (
-    <div className="app">
+    <>
+      <GlobalTooltip enabled={helpOn} />
+      <div className="app">
       <TransportBar
         projectName={project.name}
         playing={playing}
         exporting={exporting}
         exportFormat={exportFormat}
+        helpOn={helpOn}
         tempo={project.tempo}
         playheadBeat={playheadBeat}
         loopStart={project.loopStart}
@@ -358,6 +382,7 @@ export default function App() {
         onTempoChange={setTempo}
         onLoopStartChange={(v) => setLoop(v, project.loopEnd)}
         onLoopEndChange={(v) => setLoop(project.loopStart, v)}
+        onHelpToggle={toggleHelp}
       />
       <ProjectBrowser
         open={projectBrowserOpen}
@@ -407,6 +432,7 @@ export default function App() {
           <SynthPanel
             params={currentInstrument.params}
             instrumentName={currentInstrument.name}
+            instrumentKind={currentInstrument.kind}
             onChange={handleInstrumentChange}
           />
         )}
@@ -417,6 +443,7 @@ export default function App() {
         onSelect={selectTrack}
         onUpdate={handleMixerUpdate}
       />
-    </div>
+      </div>
+    </>
   );
 }

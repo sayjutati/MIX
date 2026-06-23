@@ -90,7 +90,7 @@ export const makeNote = (partial: Partial<MidiNote> & Pick<MidiNote, "pitch" | "
 
 export const makeTrack = (partial?: Partial<Track>): Track => ({
   id: `t-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-  name: "Track 1",
+  name: "トラック 1",
   color: "#6c8cff",
   instrumentId: "inst-basic",
   volume: 0.85,
@@ -106,7 +106,7 @@ export const makeProject = (partial?: Partial<Project>): Project => {
   return {
     id: `p-${now}`,
     version: PROJECT_VERSION,
-    name: "Untitled",
+    name: "無題",
     createdAt: now,
     updatedAt: now,
     tempo: 120,

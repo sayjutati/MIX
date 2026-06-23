@@ -47,19 +47,19 @@ export function LoopRuler({
         style={{ left: loopStart * BEAT_W, width: (loopEnd - loopStart) * BEAT_W }}
       />
       <div
-        className="loop-ruler__handle loop-ruler__handle--start"
+        className="loop-ruler__handle loop-ruler__handle--start tooltip"
+        data-tooltip="ドラッグでループ開始位置を変更"
         style={{ left: loopStart * BEAT_W - 4 }}
         onPointerDown={onDrag("start")}
-        title="ループ開始"
       />
       <div
-        className="loop-ruler__handle loop-ruler__handle--end"
+        className="loop-ruler__handle loop-ruler__handle--end tooltip"
+        data-tooltip="ドラッグでループ終了位置を変更"
         style={{ left: loopEnd * BEAT_W - 4 }}
         onPointerDown={onDrag("end")}
-        title="ループ終了"
       />
       <span className="loop-ruler__label">
-        Loop {loopStart} – {loopEnd}
+        ループ {loopStart} – {loopEnd} 拍
       </span>
     </div>
   );
