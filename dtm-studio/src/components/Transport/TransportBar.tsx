@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type { ExportFormat } from "../../audio/export";
+import { beatToDisplaySec, formatBeatPosition, formatTime, secToBeat } from "../../utils/time";
 
 type Props = {
   projectName: string;
@@ -8,6 +10,8 @@ type Props = {
   helpOn: boolean;
   tempo: number;
   playheadBeat: number;
+  loopEnabled: boolean;
+  showBarsBeats: boolean;
   loopStart: number;
   loopEnd: number;
   onProjectNameChange: (name: string) => void;
@@ -15,11 +19,14 @@ type Props = {
   onNewProject: () => void;
   onPlay: () => void;
   onStop: () => void;
+  onSeekBeat: (beat: number) => void;
   onExport: () => void;
   onExportFormatChange: (format: ExportFormat) => void;
   onImportMidi: (file: File) => void;
   onExportMidi: () => void;
   onTempoChange: (tempo: number) => void;
+  onLoopEnabledChange: (v: boolean) => void;
+  onShowBarsBeatsChange: (v: boolean) => void;
   onLoopStartChange: (v: number) => void;
   onLoopEndChange: (v: number) => void;
   onHelpToggle: () => void;
@@ -33,6 +40,8 @@ export function TransportBar({
   helpOn,
   tempo,
   playheadBeat,
+  loopEnabled,
+  showBarsBeats,
   loopStart,
   loopEnd,
   onProjectNameChange,
@@ -40,17 +49,22 @@ export function TransportBar({
   onNewProject,
   onPlay,
   onStop,
+  onSeekBeat,
   onExport,
   onExportFormatChange,
   onImportMidi,
   onExportMidi,
   onTempoChange,
+  onLoopEnabledChange,
+  onShowBarsBeatsChange,
   onLoopStartChange,
   onLoopEndChange,
   onHelpToggle,
 }: Props) {
-  const bar = Math.floor(playheadBeat / 4) + 1;
-  const beat = Math.round((playheadBeat % 4) * 4);
+  const displaySec = beatToDisplaySec(playheadBeat, tempo);
+  const timeLabel = showBarsBeats
+    ? formatBeatPosition(playheadBeat, tempo)
+    : formatTime(displaySec);
 
   return (
     <header className="toolbar">
@@ -127,6 +141,15 @@ export function TransportBar({
       </div>
 
       <div className="transport">
+        <button
+          type="button"
+          className="transport__btn-ghost tooltip"
+          data-tooltip="最初に戻る"
+          onClick={() => onSeekBeat(0)}
+          aria-label="最初に戻る"
+        >
+          ⏮
+        </button>
         {playing ? (
           <button
             type="button"
@@ -148,6 +171,14 @@ export function TransportBar({
             ▶
           </button>
         )}
+        <TransportTime
+          playing={playing}
+          tempo={tempo}
+          showBarsBeats={showBarsBeats}
+          timeLabel={timeLabel}
+          displaySec={displaySec}
+          onSeekBeat={onSeekBeat}
+        />
         <div className="transport__divider" />
         <label className="toolbar__bpm tooltip" data-tooltip="テンポ（BPM）。再生中も変更できます">
           BPM
@@ -160,7 +191,39 @@ export function TransportBar({
           />
         </label>
         <div className="transport__divider" />
-        <label className="transport__loop-field tooltip" data-tooltip="ループ再生の開始位置（拍）">
+        <button
+          type="button"
+          className={`transport__btn-ghost tooltip${loopEnabled ? " transport__btn-ghost--on" : ""}`}
+          data-tooltip="ループ再生 ON/OFF（A〜B区間を繰り返す・Lキー）"
+          onClick={() => onLoopEnabledChange(!loopEnabled)}
+          aria-label="ループ"
+        >
+          🔁
+        </button>
+        <button
+          type="button"
+          className="transport__ab tooltip"
+          data-tooltip="ループ始点(A)を再生位置に設定"
+          onClick={() => {
+            onLoopStartChange(playheadBeat);
+            if (playheadBeat >= loopEnd) onLoopEndChange(playheadBeat + 4);
+            onLoopEnabledChange(true);
+          }}
+        >
+          A
+        </button>
+        <button
+          type="button"
+          className="transport__ab tooltip"
+          data-tooltip="ループ終点(B)を再生位置に設定"
+          onClick={() => {
+            onLoopEndChange(Math.max(playheadBeat, loopStart + 0.25));
+            onLoopEnabledChange(true);
+          }}
+        >
+          B
+        </button>
+        <label className="transport__loop-field tooltip" data-tooltip="ループ開始（拍）">
           開始
           <input
             type="number"
@@ -170,7 +233,7 @@ export function TransportBar({
             onChange={(e) => onLoopStartChange(Number(e.target.value) || 0)}
           />
         </label>
-        <label className="transport__loop-field tooltip" data-tooltip="ループ再生の終了位置（拍）">
+        <label className="transport__loop-field tooltip" data-tooltip="ループ終了（拍）">
           終了
           <input
             type="number"
@@ -180,12 +243,20 @@ export function TransportBar({
             onChange={(e) => onLoopEndChange(Number(e.target.value) || loopEnd)}
           />
         </label>
-        <div className="transport__time tooltip" data-tooltip="現在の再生位置（小節.拍）">
-          {bar}.{beat}
-        </div>
       </div>
 
       <div className="toolbar__right">
+        <button
+          type="button"
+          className={`toolbar__icon tooltip${showBarsBeats ? " toolbar__icon--on" : ""}`}
+          data-tooltip={
+            showBarsBeats ? "表示：小節.拍（クリックで秒に）" : "表示：秒（クリックで小節.拍に）"
+          }
+          onClick={() => onShowBarsBeatsChange(!showBarsBeats)}
+          aria-label="時間表示切替"
+        >
+          ⏱
+        </button>
         <span className="toolbar__hint">Space = 再生/停止</span>
         <div className="toolbar__divider" />
         <button
@@ -203,5 +274,59 @@ export function TransportBar({
         </button>
       </div>
     </header>
+  );
+}
+
+function TransportTime({
+  playing,
+  tempo,
+  showBarsBeats,
+  timeLabel,
+  displaySec,
+  onSeekBeat,
+}: {
+  playing: boolean;
+  tempo: number;
+  showBarsBeats: boolean;
+  timeLabel: string;
+  displaySec: number;
+  onSeekBeat: (beat: number) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+
+  if (editing && !playing) {
+    return (
+      <div className="transport__time tooltip" data-tooltip="秒数を入力して Enter">
+        <input
+          type="number"
+          step={0.1}
+          min={0}
+          defaultValue={displaySec.toFixed(1)}
+          autoFocus
+          onBlur={(e) => {
+            setEditing(false);
+            const v = parseFloat(e.currentTarget.value);
+            if (!Number.isNaN(v)) onSeekBeat(secToBeat(Math.max(0, v), tempo));
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+          }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="transport__time tooltip"
+      data-tooltip={
+        showBarsBeats ? "小節.拍.補助（停止中クリックで秒入力）" : "分:秒（停止中クリックで秒入力）"
+      }
+      onClick={() => {
+        if (!playing) setEditing(true);
+      }}
+    >
+      {timeLabel}
+    </div>
   );
 }

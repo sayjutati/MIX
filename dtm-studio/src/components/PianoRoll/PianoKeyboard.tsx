@@ -6,6 +6,7 @@ import {
   ROW_H,
   isBlackKey,
 } from "./pianoRollConstants";
+import { pitchJaKeyboardLabel, pitchJaName } from "../../utils/pitchLabel";
 
 type Props = {
   activePitches: Set<number>;
@@ -21,6 +22,7 @@ export function PianoKeyboard({ activePitches, onKeyDown, onKeyUp, height }: Pro
         const pitch = PITCH_MAX - i;
         const black = isBlackKey(pitch);
         const active = activePitches.has(pitch);
+        const label = pitchJaKeyboardLabel(pitch, black);
         return (
           <button
             key={pitch}
@@ -40,17 +42,22 @@ export function PianoKeyboard({ activePitches, onKeyDown, onKeyUp, height }: Pro
                 /* ignore */
               }
             }}
-            aria-label={pitchLabelShort(pitch)}
-          />
+            aria-label={pitchJaName(pitch)}
+          >
+            {label ? (
+              <span
+                className={`piano-key__label${black ? " piano-key__label--black" : ""}${
+                  pitch % 12 === 0 ? " piano-key__label--octave" : ""
+                }`}
+              >
+                {label}
+              </span>
+            ) : null}
+          </button>
         );
       })}
     </div>
   );
 }
-
-const pitchLabelShort = (pitch: number) => {
-  const names = ["ド", "ド#", "レ", "レ#", "ミ", "ファ", "ファ#", "ソ", "ソ#", "ラ", "ラ#", "シ"];
-  return `${names[pitch % 12]}${Math.floor(pitch / 12) - 1}`;
-};
 
 export { PITCH_MIN, PITCH_MAX };

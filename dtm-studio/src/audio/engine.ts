@@ -8,7 +8,7 @@ let clockNode: AudioWorkletNode | null = null;
 let synthNode: AudioWorkletNode | null = null;
 let loadPromise: Promise<void> | null = null;
 
-export const SCHEDULE_AHEAD_SEC = 0.12;
+export const SCHEDULE_AHEAD_SEC = 0.25;
 export const LOOKAHEAD_MS = 25;
 
 export type ClockPosition = { beat: number; ctxTime: number };

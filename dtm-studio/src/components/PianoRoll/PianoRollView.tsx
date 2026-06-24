@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MidiNote, Track } from "../../types/project";
 import { snapBeat } from "../../utils/quantize";
+import { pitchJaRangeLabel } from "../../utils/pitchLabel";
 import { BeatRuler } from "./BeatRuler";
 import { PianoKeyboard } from "./PianoKeyboard";
 import {
@@ -20,9 +21,11 @@ type DragMode = "move" | "resize" | "draw" | null;
 type Props = {
   editTrack: Track;
   overlayTracks: Track[];
+  playing: boolean;
   playheadBeat: number;
   loopStart: number;
   loopEnd: number;
+  loopEnabled: boolean;
   beatsVisible: number;
   quantizeGrid: number;
   selectedNoteIds: Set<string>;
@@ -32,6 +35,7 @@ type Props = {
   onToggleNote: (id: string) => void;
   onUpdateNotes: (updates: Array<{ noteId: string; patch: Partial<MidiNote> }>) => void;
   onLoopChange: (start: number, end: number) => void;
+  onSeekBeat: (beat: number) => void;
   onPianoKeyDown: (pitch: number) => void;
   onPianoKeyUp: (pitch: number) => void;
 };
@@ -39,9 +43,11 @@ type Props = {
 export function PianoRollView({
   editTrack,
   overlayTracks,
+  playing,
   playheadBeat,
   loopStart,
   loopEnd,
+  loopEnabled,
   beatsVisible,
   quantizeGrid,
   selectedNoteIds,
@@ -51,6 +57,7 @@ export function PianoRollView({
   onToggleNote,
   onUpdateNotes,
   onLoopChange,
+  onSeekBeat,
   onPianoKeyDown,
   onPianoKeyUp,
 }: Props) {
@@ -129,6 +136,11 @@ export function PianoRollView({
 
     ctx.fillStyle = "rgba(52, 211, 153, 0.07)";
     ctx.fillRect(loopStart * BEAT_W, 0, (loopEnd - loopStart) * BEAT_W, height);
+    if (loopEnabled) {
+      ctx.strokeStyle = "rgba(52, 211, 153, 0.35)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(loopStart * BEAT_W + 0.5, 0.5, (loopEnd - loopStart) * BEAT_W - 1, height - 1);
+    }
 
     const gridStep = quantizeGrid * BEAT_W;
     for (let x = 0; x <= width; x += gridStep) {
@@ -178,15 +190,7 @@ export function PianoRollView({
         ctx.fillRect(r.x + r.w - RESIZE_HANDLE, r.y, RESIZE_HANDLE, r.h);
       }
     }
-
-    const phx = playheadBeat * BEAT_W;
-    ctx.strokeStyle = "#ff5555";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(phx + 0.5, 0);
-    ctx.lineTo(phx + 0.5, height);
-    ctx.stroke();
-  }, [editTrack.notes, editTrack.color, overlayTracks, playheadBeat, loopStart, loopEnd, width, height, selectedNoteIds, quantizeGrid]);
+  }, [editTrack.notes, editTrack.color, overlayTracks, loopStart, loopEnd, loopEnabled, width, height, selectedNoteIds, quantizeGrid]);
 
   useEffect(() => {
     draw();
@@ -344,6 +348,17 @@ export function PianoRollView({
     }
   }, []);
 
+  useEffect(() => {
+    if (!playing) return;
+    const el = gridScrollRef.current;
+    if (!el) return;
+    const phx = playheadBeat * BEAT_W;
+    const target = Math.max(0, phx - el.clientWidth / 2);
+    if (Math.abs(el.scrollLeft - target) > 2) {
+      syncScrollX(target);
+    }
+  }, [playing, playheadBeat, syncScrollX]);
+
   const onGridScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
     setScrollLeft(el.scrollLeft);
@@ -359,16 +374,21 @@ export function PianoRollView({
     <div className="roll-viewport">
       <div className="roll-viewport__corner" style={{ width: KEYBOARD_W }}>
         <span className="roll-viewport__corner-label">鍵盤</span>
+        <span className="roll-viewport__corner-range">{pitchJaRangeLabel(PITCH_MIN, PITCH_MAX)}</span>
       </div>
       <BeatRuler
         rulerRef={rulerScrollRef}
         beatsVisible={beatsVisible}
         loopStart={loopStart}
         loopEnd={loopEnd}
+        loopEnabled={loopEnabled}
+        playheadBeat={playheadBeat}
+        playing={playing}
         quantizeGrid={quantizeGrid}
         scrollLeft={scrollLeft}
         onScroll={syncScrollX}
         onLoopChange={onLoopChange}
+        onSeekBeat={onSeekBeat}
       />
       <div
         className="piano-keyboard-wrap"
@@ -396,6 +416,13 @@ export function PianoRollView({
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
         />
+      </div>
+      <div
+        className={`roll-playhead${playing ? " roll-playhead--playing" : ""}`}
+        style={{ left: KEYBOARD_W + playheadBeat * BEAT_W - scrollLeft }}
+        aria-hidden
+      >
+        <div className="roll-playhead__line" />
       </div>
     </div>
   );

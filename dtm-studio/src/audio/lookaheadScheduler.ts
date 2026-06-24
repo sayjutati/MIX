@@ -1,5 +1,6 @@
 import type { Project } from "../types/project";
-import { beatToSec, secToBeat, makeProject } from "../types/project";
+import { beatToSec, makeProject, secToBeat } from "../types/project";
+import { projectEndBeat } from "./offlineRender";
 import {
   buildNoteSchedules,
   initAudioGraph,
@@ -14,9 +15,19 @@ import {
 } from "./engine";
 
 let projectGetter: () => Project = () => makeProject();
+let loopEnabledGetter: () => boolean = () => false;
+let onPlaybackEnd: ((endBeat: number) => void) | null = null;
 
 export function bindSchedulerProject(fn: () => Project) {
   projectGetter = fn;
+}
+
+export function bindSchedulerTransport(opts: {
+  loopEnabled: () => boolean;
+  onEnd: (endBeat: number) => void;
+}) {
+  loopEnabledGetter = opts.loopEnabled;
+  onPlaybackEnd = opts.onEnd;
 }
 
 export class LookaheadScheduler {
@@ -24,17 +35,35 @@ export class LookaheadScheduler {
   private scheduled = new Set<string>();
   private anchor: ClockPosition & { tempo: number } | null = null;
   private startBeat = 0;
-  private looping = true;
   private loopResyncing = false;
   private loopCycle = 0;
   private unsubClock: (() => void) | null = null;
+  private ctxRef: AudioContext | null = null;
+  private ended = false;
 
   private getProject() {
     return projectGetter();
   }
 
+  private resolveNow() {
+    if (!this.anchor) return null;
+    const ctx = this.ctxRef;
+    if (!ctx) {
+      return { beat: this.anchor.beat, ctxTime: this.anchor.ctxTime, tempo: this.anchor.tempo };
+    }
+    const elapsed = Math.max(0, ctx.currentTime - this.anchor.ctxTime);
+    const tempo = this.anchor.tempo;
+    return {
+      beat: this.anchor.beat + (elapsed * tempo) / 60,
+      ctxTime: this.anchor.ctxTime + elapsed,
+      tempo,
+    };
+  }
+
   async start(fromBeat: number) {
     const { ctx, clock, synth } = await initAudioGraph();
+    this.ctxRef = ctx;
+    this.ended = false;
     const project = this.getProject();
     this.startBeat = fromBeat;
     this.loopResyncing = false;
@@ -51,22 +80,39 @@ export class LookaheadScheduler {
       if (!this.anchor) return;
       this.anchor.beat = pos.beat;
       this.anchor.ctxTime = pos.ctxTime;
-
-      const { loopEnd, loopStart } = this.getProject();
-      if (this.looping && pos.beat >= loopEnd && !this.loopResyncing) {
-        this.loopResyncing = true;
-        void this.resyncLoop(loopStart).finally(() => {
-          this.loopResyncing = false;
-        });
-      }
+      this.checkTransportEnd(pos.beat);
     });
 
     this.intervalId = setInterval(() => void this.tick(), LOOKAHEAD_MS);
     void this.tick();
   }
 
+  private checkTransportEnd(beat: number) {
+    if (this.ended) return;
+    const project = this.getProject();
+    const looping = loopEnabledGetter();
+
+    if (looping) {
+      const { loopEnd, loopStart } = project;
+      if (loopEnd - loopStart > 0.05 && beat >= loopEnd && !this.loopResyncing) {
+        this.loopResyncing = true;
+        void this.resyncLoop(loopStart).finally(() => {
+          this.loopResyncing = false;
+        });
+      }
+      return;
+    }
+
+    const endBeat = projectEndBeat(project);
+    if (beat >= endBeat - 1e-4) {
+      this.ended = true;
+      onPlaybackEnd?.(endBeat);
+    }
+  }
+
   private async resyncLoop(beat: number) {
     const { ctx, clock, synth } = await initAudioGraph();
+    this.ctxRef = ctx;
     const project = this.getProject();
     this.loopCycle++;
     this.scheduled.clear();
@@ -74,18 +120,22 @@ export class LookaheadScheduler {
     seekTransport(clock, synth, ctx, beat, project.tempo);
     const baseCtxTime = ctx.currentTime + 0.05;
     this.anchor = { beat, ctxTime: baseCtxTime, tempo: project.tempo };
+    void this.tick();
   }
 
   async syncTempo() {
     if (!this.anchor) return;
     const { ctx, clock, synth } = await initAudioGraph();
+    this.ctxRef = ctx;
     const project = this.getProject();
-    const beat = this.anchor.beat;
+    const now = this.resolveNow();
+    const beat = now?.beat ?? this.anchor.beat;
     this.scheduled.clear();
     synth.port.postMessage({ type: "clearQueue" });
     seekTransport(clock, synth, ctx, beat, project.tempo);
     const baseCtxTime = ctx.currentTime + 0.05;
     this.anchor = { beat, ctxTime: baseCtxTime, tempo: project.tempo };
+    void this.tick();
   }
 
   async invalidatePending() {
@@ -96,17 +146,36 @@ export class LookaheadScheduler {
     void this.tick();
   }
 
+  async seek(beat: number) {
+    const { ctx, clock, synth } = await initAudioGraph();
+    this.ctxRef = ctx;
+    const project = this.getProject();
+    this.scheduled.clear();
+    synth.port.postMessage({ type: "clearQueue" });
+    seekTransport(clock, synth, ctx, beat, project.tempo);
+    const baseCtxTime = ctx.currentTime + 0.05;
+    this.anchor = { beat, ctxTime: baseCtxTime, tempo: project.tempo };
+    this.startBeat = beat;
+    void this.tick();
+  }
+
   private async tick() {
     if (!this.anchor) return;
+    const now = this.resolveNow();
+    if (!now) return;
+
     const { synth } = await initAudioGraph();
     const project = this.getProject();
     const tempo = project.tempo;
     const { loopStart, loopEnd } = project;
-    const nowCtx = this.anchor.ctxTime;
-    const nowBeat = this.anchor.beat;
+    const looping = loopEnabledGetter();
+    const nowCtx = now.ctxTime;
+    const nowBeat = now.beat;
     const aheadBeat = secToBeat(SCHEDULE_AHEAD_SEC, tempo);
-    const winStart = nowBeat;
+    const winStart = Math.max(0, nowBeat - aheadBeat * 0.25);
     const winEnd = nowBeat + aheadBeat;
+
+    this.checkTransportEnd(nowBeat);
 
     const notes = buildNoteSchedules(
       project,
@@ -123,7 +192,7 @@ export class LookaheadScheduler {
       for (const n of notes) this.scheduled.add(n.noteId);
     }
 
-    if (this.looping && winEnd > loopEnd) {
+    if (looping && winEnd > loopEnd && loopEnd - loopStart > 0.05) {
       const wrapNotes = buildNoteSchedules(
         project,
         loopStart,
@@ -146,15 +215,17 @@ export class LookaheadScheduler {
     this.unsubClock?.();
     this.unsubClock = null;
     this.anchor = null;
+    this.ctxRef = null;
     this.loopResyncing = false;
     this.loopCycle = 0;
+    this.ended = false;
     this.scheduled.clear();
     const { clock, synth } = await initAudioGraph();
     stopTransport(clock, synth);
   }
 
   getPlayheadBeat() {
-    return this.anchor?.beat ?? this.startBeat;
+    return this.resolveNow()?.beat ?? this.anchor?.beat ?? this.startBeat;
   }
 }
 

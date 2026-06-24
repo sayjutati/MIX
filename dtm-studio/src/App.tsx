@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { bindSchedulerProject, scheduler } from "./audio/lookaheadScheduler";
-import { initAudioGraph, onClockPosition } from "./audio/engine";
+import { bindSchedulerProject, bindSchedulerTransport, scheduler } from "./audio/lookaheadScheduler";
+import { initAudioGraph } from "./audio/engine";
 import { downloadBlob, encodeExport, safeFilename, type ExportFormat } from "./audio/export";
 import { normalizeBuffer, renderProjectOffline } from "./audio/offlineRender";
 import { GlobalTooltip } from "./components/GlobalTooltip";
@@ -69,8 +69,12 @@ export default function App() {
 
   const playing = useTransportStore((s) => s.playing);
   const playheadBeat = useTransportStore((s) => s.playheadBeat);
+  const loopEnabled = useTransportStore((s) => s.loopEnabled);
+  const showBarsBeats = useTransportStore((s) => s.showBarsBeats);
   const setPlaying = useTransportStore((s) => s.setPlaying);
   const setPlayheadBeat = useTransportStore((s) => s.setPlayheadBeat);
+  const setLoopEnabled = useTransportStore((s) => s.setLoopEnabled);
+  const setShowBarsBeats = useTransportStore((s) => s.setShowBarsBeats);
 
   const track = useSelectedTrack();
   const selectedNotes = useSelectedNotes();
@@ -112,7 +116,6 @@ export default function App() {
   const [activePitches, setActivePitches] = useState<Set<number>>(() => new Set());
   const computerKeysDown = useRef<Set<string>>(new Set());
   const keyRecordRef = useRef<Map<number, { id: string; t0: number }>>(new Map());
-  const clockUnsub = useRef<(() => void) | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevTempo = useRef(project.tempo);
   const restored = useRef(false);
@@ -139,6 +142,16 @@ export default function App() {
 
   useEffect(() => {
     bindSchedulerProject(() => useProjectStore.getState().project);
+    bindSchedulerTransport({
+      loopEnabled: () => useTransportStore.getState().loopEnabled,
+      onEnd: (endBeat) => {
+        useTransportStore.getState().setPlayheadBeat(endBeat);
+        void (async () => {
+          await scheduler.stop();
+          useTransportStore.getState().setPlaying(false);
+        })();
+      },
+    });
     void initAudioGraph().catch(() => {});
   }, []);
 
@@ -185,22 +198,26 @@ export default function App() {
     void scheduler.syncTempo();
   }, [project.tempo, playing]);
 
-  const handlePlay = useCallback(async () => {
-    const { clock } = await initAudioGraph();
-    clockUnsub.current?.();
-    clockUnsub.current = onClockPosition(clock, (pos) => {
-      if (useTransportStore.getState().playing) setPlayheadBeat(pos.beat);
-    });
-    setPlaying(true);
-    await scheduler.start(useTransportStore.getState().playheadBeat);
-  }, [setPlaying, setPlayheadBeat]);
-
   const handleStop = useCallback(async () => {
-    clockUnsub.current?.();
-    clockUnsub.current = null;
     await scheduler.stop();
     setPlaying(false);
   }, [setPlaying]);
+
+  const handlePlay = useCallback(async () => {
+    setPlaying(true);
+    await scheduler.start(useTransportStore.getState().playheadBeat);
+  }, [setPlaying]);
+
+  const seekToBeat = useCallback(
+    async (beat: number) => {
+      const clamped = Math.max(0, beat);
+      setPlayheadBeat(clamped);
+      if (useTransportStore.getState().playing) {
+        await scheduler.seek(clamped);
+      }
+    },
+    [setPlayheadBeat]
+  );
 
   const handleExport = useCallback(async () => {
     setExporting(true);
@@ -416,6 +433,11 @@ export default function App() {
         else void handlePlay();
         return;
       }
+      if (e.key === "l" || e.key === "L") {
+        e.preventDefault();
+        setLoopEnabled(!useTransportStore.getState().loopEnabled);
+        return;
+      }
 
       const pitch = pitchFromComputerKey(e.code);
       if (pitch != null && !computerKeysDown.current.has(e.code)) {
@@ -437,7 +459,7 @@ export default function App() {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [handleDeleteSelected, handlePlay, handleStop, playAndMaybeRecord, releasePitch]);
+  }, [handleDeleteSelected, handlePlay, handleStop, playAndMaybeRecord, releasePitch, setLoopEnabled]);
 
   if (!track) {
     return <div className="app app--empty">トラックがありません</div>;
@@ -467,6 +489,8 @@ export default function App() {
         helpOn={helpOn}
         tempo={project.tempo}
         playheadBeat={playheadBeat}
+        loopEnabled={loopEnabled}
+        showBarsBeats={showBarsBeats}
         loopStart={project.loopStart}
         loopEnd={project.loopEnd}
         onProjectNameChange={setProjectName}
@@ -474,11 +498,14 @@ export default function App() {
         onNewProject={() => void handleNewProject()}
         onPlay={() => void handlePlay()}
         onStop={() => void handleStop()}
+        onSeekBeat={(b) => void seekToBeat(b)}
         onExport={() => void handleExport()}
         onExportFormatChange={setExportFormat}
         onImportMidi={(f) => void handleImportMidi(f)}
         onExportMidi={handleExportMidi}
         onTempoChange={setTempo}
+        onLoopEnabledChange={setLoopEnabled}
+        onShowBarsBeatsChange={setShowBarsBeats}
         onLoopStartChange={(v) => setLoop(v, project.loopEnd)}
         onLoopEndChange={(v) => setLoop(project.loopStart, v)}
         onHelpToggle={toggleHelp}
@@ -523,9 +550,11 @@ export default function App() {
           <PianoRollView
             editTrack={track}
             overlayTracks={overlayTracks}
+            playing={playing}
             playheadBeat={playheadBeat}
             loopStart={project.loopStart}
             loopEnd={project.loopEnd}
+            loopEnabled={loopEnabled}
             beatsVisible={BEATS_VISIBLE}
             quantizeGrid={quantizeGrid}
             selectedNoteIds={selectedNoteIds}
@@ -535,6 +564,7 @@ export default function App() {
             onToggleNote={toggleNoteSelection}
             onUpdateNotes={(updates) => updateNotes(track.id, updates)}
             onLoopChange={setLoop}
+            onSeekBeat={(b) => void seekToBeat(b)}
             onPianoKeyDown={playAndMaybeRecord}
             onPianoKeyUp={releasePitch}
           />
