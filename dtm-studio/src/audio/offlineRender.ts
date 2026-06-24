@@ -1,6 +1,7 @@
 import type { Project } from "../types/project";
 import { beatToSec } from "../types/project";
 import type { NoteEvent } from "./synthCore";
+import { resolveVoiceParams } from "./instrumentVoice";
 import {
   createVoice,
   MAX_VOICES,
@@ -39,13 +40,14 @@ export const collectNoteEvents = (
       if (note.start >= end || note.start + note.duration <= startBeat) continue;
       const startSec = beatToSec(note.start - startBeat, tempo);
       const durationSec = beatToSec(note.duration, tempo);
+      const voice = resolveVoiceParams(inst, note.pitch);
       out.push({
         startSec,
         endSec: startSec + durationSec,
-        pitch: note.pitch,
+        pitch: voice.pitch,
         velocity: note.velocity,
-        waveform: inst.params.waveform,
-        adsr: { ...inst.params },
+        waveform: voice.waveform,
+        adsr: { ...voice.adsr },
         pan: track.pan,
         volume: track.volume,
       });

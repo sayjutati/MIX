@@ -4,7 +4,11 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
 
 // src/audio/synth-processor.worklet.ts
 var MAX_VOICES = 32;
-var oscSample = (wf, phase) => {
+var oscSample = (wf, phase, noiseSeed) => {
+  if (wf === "noise") {
+    noiseSeed.v = noiseSeed.v * 1664525 + 1013904223 | 0;
+    return (noiseSeed.v >>> 0) / 2147483647 - 1;
+  }
   const t = phase % (2 * Math.PI);
   if (wf === "sine") return Math.sin(t);
   if (wf === "square") return t < Math.PI ? 1 : -1;
@@ -27,6 +31,7 @@ var SynthProcessor = class extends AudioWorkletProcessor {
       volume: 1,
       phase: 0,
       envLevel: 0,
+      noiseSeed: 1,
       envStage: "off",
       noteOffAt: Infinity
     })));
@@ -85,6 +90,7 @@ var SynthProcessor = class extends AudioWorkletProcessor {
     v.pan = n.pan;
     v.volume = n.volume;
     v.phase = 0;
+    v.noiseSeed = n.pitch * 7919 + 1 | 1;
     v.envLevel = 0;
     v.envStage = "a";
     v.noteOffAt = n.noteOffTime;
@@ -153,7 +159,7 @@ var SynthProcessor = class extends AudioWorkletProcessor {
         if (!v.active) continue;
         const freq = 440 * Math.pow(2, (v.pitch - 69) / 12);
         v.phase += 2 * Math.PI * freq / sampleRate;
-        const amp = oscSample(v.waveform, v.phase) * v.envLevel * (v.velocity / 127) * v.volume;
+        const amp = oscSample(v.waveform, v.phase, { v: v.noiseSeed }) * v.envLevel * (v.velocity / 127) * v.volume;
         const panL = Math.cos((v.pan + 1) * Math.PI / 4);
         const panR = Math.sin((v.pan + 1) * Math.PI / 4);
         l += amp * panL;

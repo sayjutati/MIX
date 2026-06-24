@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-type Waveform = "sine" | "saw" | "square";
+type Waveform = "sine" | "saw" | "square" | "noise";
 
 type Adsr = { attack: number; decay: number; sustain: number; release: number };
 
@@ -26,6 +26,7 @@ type Voice = {
   pan: number;
   volume: number;
   phase: number;
+  noiseSeed: number;
   envLevel: number;
   envStage: "a" | "d" | "s" | "r" | "off";
   noteOffAt: number;
@@ -33,7 +34,11 @@ type Voice = {
 
 const MAX_VOICES = 32;
 
-const oscSample = (wf: Waveform, phase: number) => {
+const oscSample = (wf: Waveform, phase: number, noiseSeed: { v: number }) => {
+  if (wf === "noise") {
+    noiseSeed.v = (noiseSeed.v * 1664525 + 1013904223) | 0;
+    return (noiseSeed.v >>> 0) / 0x7fffffff - 1;
+  }
   const t = phase % (2 * Math.PI);
   if (wf === "sine") return Math.sin(t);
   if (wf === "square") return t < Math.PI ? 1 : -1;
@@ -55,6 +60,7 @@ class SynthProcessor extends AudioWorkletProcessor {
     volume: 1,
     phase: 0,
     envLevel: 0,
+    noiseSeed: 1,
     envStage: "off" as const,
     noteOffAt: Infinity,
   }));
@@ -121,6 +127,7 @@ class SynthProcessor extends AudioWorkletProcessor {
     v.pan = n.pan;
     v.volume = n.volume;
     v.phase = 0;
+    v.noiseSeed = (n.pitch * 7919 + 1) | 1;
     v.envLevel = 0;
     v.envStage = "a";
     v.noteOffAt = n.noteOffTime;
@@ -193,7 +200,7 @@ class SynthProcessor extends AudioWorkletProcessor {
         if (!v.active) continue;
         const freq = 440 * Math.pow(2, (v.pitch - 69) / 12);
         v.phase += (2 * Math.PI * freq) / sampleRate;
-        const amp = oscSample(v.waveform, v.phase) * v.envLevel * (v.velocity / 127) * v.volume;
+        const amp = oscSample(v.waveform, v.phase, { v: v.noiseSeed }) * v.envLevel * (v.velocity / 127) * v.volume;
         const panL = Math.cos(((v.pan + 1) * Math.PI) / 4);
         const panR = Math.sin(((v.pan + 1) * Math.PI) / 4);
         l += amp * panL;

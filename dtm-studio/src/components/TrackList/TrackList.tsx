@@ -1,5 +1,6 @@
 import type { Instrument, Track } from "../../types/project";
 import { instrumentDisplayName } from "../../data/uiLabels";
+import { instrumentEngine } from "../../audio/instrumentVoice";
 
 type Props = {
   tracks: Track[];
@@ -24,6 +25,9 @@ export function TrackList({
   onRemoveTrack,
   onUpdateTrack,
 }: Props) {
+  const synthInstruments = instruments.filter((i) => instrumentEngine(i) === "synth");
+  const drumInstruments = instruments.filter((i) => instrumentEngine(i) === "drum");
+
   return (
     <aside className="track-list">
       <div className="track-list__head">
@@ -76,19 +80,39 @@ export function TrackList({
               </div>
               {isEdit && (
                 <div className="track-list__detail">
+                  <label className="track-list__name-field">
+                    名前
+                    <input
+                      className="track-list__name-input tooltip"
+                      data-tooltip="トラック名（プロジェクト内で識別用）"
+                      value={t.name}
+                      onChange={(e) => onUpdateTrack(t.id, { name: e.target.value })}
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label="トラック名"
+                    />
+                  </label>
                   <label className="track-list__inst-label">
                     音色
                     <select
                       className="track-list__inst tooltip"
-                      data-tooltip="このトラックで使うシンセ音色"
+                      data-tooltip="このトラックで使う音源"
                       value={t.instrumentId}
                       onChange={(e) => onUpdateTrack(t.id, { instrumentId: e.target.value })}
                     >
-                      {instruments.map((i) => (
-                        <option key={i.id} value={i.id}>
-                          {instrumentDisplayName(i.kind, i.name)}
-                        </option>
-                      ))}
+                      <optgroup label="シンセ">
+                        {synthInstruments.map((i) => (
+                          <option key={i.id} value={i.id}>
+                            {instrumentDisplayName(i.kind, i.name)}
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="ドラム・パーカッション">
+                        {drumInstruments.map((i) => (
+                          <option key={i.id} value={i.id}>
+                            {instrumentDisplayName(i.kind, i.name)}
+                          </option>
+                        ))}
+                      </optgroup>
                     </select>
                   </label>
                   {tracks.length > 1 && (

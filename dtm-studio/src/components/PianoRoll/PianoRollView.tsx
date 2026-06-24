@@ -30,6 +30,7 @@ type Props = {
   quantizeGrid: number;
   selectedNoteIds: Set<string>;
   activePitches: Set<number>;
+  drumMode?: boolean;
   onCreateNote: (pitch: number, start: number, duration: number) => string | null;
   onSelectNotes: (ids: string[]) => void;
   onToggleNote: (id: string) => void;
@@ -52,6 +53,7 @@ export function PianoRollView({
   quantizeGrid,
   selectedNoteIds,
   activePitches,
+  drumMode = false,
   onCreateNote,
   onSelectNotes,
   onToggleNote,
@@ -402,6 +404,7 @@ export function PianoRollView({
       >
         <PianoKeyboard
           activePitches={activePitches}
+          drumMode={drumMode}
           onKeyDown={onPianoKeyDown}
           onKeyUp={onPianoKeyUp}
           height={height}

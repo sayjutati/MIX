@@ -647,6 +647,29 @@ input[type="number"] {
   gap: 8px;
 }
 
+.track-list__name-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.track-list__name-input {
+  width: 100%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+}
+.track-list__name-input:focus {
+  border-color: var(--accent);
+}
+
 .track-list__inst-label {
   display: flex;
   flex-direction: column;
@@ -934,6 +957,14 @@ input[type="number"] {
   color: rgba(255, 255, 255, 0.82);
   padding-right: 1px;
 }
+.piano-key__label--drum {
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+.piano-key--drum .piano-key__label--black {
+  font-size: 6px;
+}
 .piano-key.is-active .piano-key__label,
 .piano-key--black.is-active .piano-key__label {
   color: rgba(0, 40, 28, 0.9);
@@ -1154,6 +1185,37 @@ input[type="number"] {
 .synth-panel__val {
   color: var(--text-muted);
   font-size: 10px;
+}
+
+.synth-panel__drum-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.synth-panel__drum-map {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 10px;
+  font-size: 10px;
+  color: var(--text);
+}
+
+.synth-panel__drum-map li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.synth-panel__drum-pitch {
+  font-family: ui-monospace, monospace;
+  font-size: 9px;
+  color: var(--text-faint);
+  min-width: 18px;
 }
 
 /* Project modal */

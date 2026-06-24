@@ -1,5 +1,6 @@
 import type { Instrument, Project, Track } from "../types/project";
 import { beatToSec } from "../types/project";
+import { resolveVoiceParams } from "./instrumentVoice";
 
 const WORKLET_BASE = `${import.meta.env.BASE_URL}worklets/`;
 
@@ -93,7 +94,7 @@ export type NoteSchedulePayload = {
   durationSec: number;
   noteOffTime: number;
   waveform: Instrument["params"]["waveform"];
-  adsr: Instrument["params"];
+  adsr: Pick<Instrument["params"], "attack" | "decay" | "sustain" | "release">;
   pan: number;
   volume: number;
 };
@@ -146,15 +147,16 @@ export function buildNoteSchedules(
       const beatOffset = note.start - anchorBeat;
       const ctxTime = anchorCtxTime + beatToSec(beatOffset, tempo);
       const durationSec = beatToSec(note.duration, tempo);
+      const voice = resolveVoiceParams(inst, note.pitch);
       out.push({
         noteId: `${cycleId}:${track.id}:${note.id}`,
         ctxTime,
-        pitch: note.pitch,
+        pitch: voice.pitch,
         velocity: note.velocity,
         durationSec,
         noteOffTime: ctxTime + durationSec,
-        waveform: inst.params.waveform,
-        adsr: inst.params,
+        waveform: voice.waveform,
+        adsr: voice.adsr,
         pan: track.pan,
         volume: track.volume,
       });

@@ -25,6 +25,7 @@ import {
   loadProject,
   saveProject,
 } from "./storage/projectStorage";
+import { instrumentEngine } from "./audio/instrumentVoice";
 import { previewNote } from "./audio/previewNote";
 import type { Project, Track } from "./types/project";
 import type { QuantizeGrid } from "./utils/quantize";
@@ -132,6 +133,11 @@ export default function App() {
     if (!track) return null;
     return project.instruments.find((i) => i.id === track.instrumentId) ?? null;
   }, [track, project.instruments]);
+
+  const drumMode = useMemo(
+    () => (currentInstrument ? instrumentEngine(currentInstrument) === "drum" : false),
+    [currentInstrument]
+  );
 
   const avgVelocity = useMemo(() => {
     if (selectedNotes.length === 0) return 100;
@@ -559,6 +565,7 @@ export default function App() {
             quantizeGrid={quantizeGrid}
             selectedNoteIds={selectedNoteIds}
             activePitches={activePitches}
+            drumMode={drumMode}
             onCreateNote={handleCreateNote}
             onSelectNotes={selectNotes}
             onToggleNote={toggleNoteSelection}
@@ -574,6 +581,7 @@ export default function App() {
             params={currentInstrument.params}
             instrumentName={currentInstrument.name}
             instrumentKind={currentInstrument.kind}
+            engine={currentInstrument.engine ?? "synth"}
             onChange={handleInstrumentChange}
           />
         )}

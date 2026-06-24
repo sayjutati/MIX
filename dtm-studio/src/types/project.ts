@@ -1,7 +1,7 @@
 /** プロジェクトファイル形式バージョン（将来クラウド同期用に id / updatedAt を必須化） */
 export const PROJECT_VERSION = 1;
 
-export type Waveform = "sine" | "saw" | "square";
+export type Waveform = "sine" | "saw" | "square" | "noise";
 
 export type SynthParams = {
   waveform: Waveform;
@@ -11,12 +11,26 @@ export type SynthParams = {
   release: number;
 };
 
-export type InstrumentKind = "basic" | "bright" | "warm";
+export type InstrumentEngine = "synth" | "drum";
+
+export type InstrumentKind =
+  | "basic"
+  | "bright"
+  | "warm"
+  | "lead"
+  | "bass"
+  | "pad"
+  | "pluck"
+  | "organ"
+  | "drumKit"
+  | "perc";
 
 export type Instrument = {
   id: string;
   kind: InstrumentKind;
   name: string;
+  /** 省略時は synth（旧プロジェクト互換） */
+  engine?: InstrumentEngine;
   params: SynthParams;
 };
 
@@ -65,19 +79,71 @@ export const DEFAULT_INSTRUMENTS: Instrument[] = [
     id: "inst-basic",
     kind: "basic",
     name: "ベーシック",
+    engine: "synth",
     params: { waveform: "saw", attack: 0.01, decay: 0.15, sustain: 0.6, release: 0.2 },
   },
   {
     id: "inst-bright",
     kind: "bright",
     name: "ブライト",
+    engine: "synth",
     params: { waveform: "square", attack: 0.005, decay: 0.1, sustain: 0.4, release: 0.15 },
   },
   {
     id: "inst-warm",
     kind: "warm",
     name: "ウォーム",
+    engine: "synth",
     params: { waveform: "sine", attack: 0.02, decay: 0.2, sustain: 0.75, release: 0.35 },
+  },
+  {
+    id: "inst-lead",
+    kind: "lead",
+    name: "リード",
+    engine: "synth",
+    params: { waveform: "saw", attack: 0.005, decay: 0.12, sustain: 0.55, release: 0.18 },
+  },
+  {
+    id: "inst-bass",
+    kind: "bass",
+    name: "ベース",
+    engine: "synth",
+    params: { waveform: "saw", attack: 0.01, decay: 0.2, sustain: 0.7, release: 0.15 },
+  },
+  {
+    id: "inst-pad",
+    kind: "pad",
+    name: "パッド",
+    engine: "synth",
+    params: { waveform: "sine", attack: 0.08, decay: 0.3, sustain: 0.85, release: 0.4 },
+  },
+  {
+    id: "inst-pluck",
+    kind: "pluck",
+    name: "プラック",
+    engine: "synth",
+    params: { waveform: "square", attack: 0.001, decay: 0.25, sustain: 0.05, release: 0.12 },
+  },
+  {
+    id: "inst-organ",
+    kind: "organ",
+    name: "オルガン",
+    engine: "synth",
+    params: { waveform: "square", attack: 0.02, decay: 0.05, sustain: 0.9, release: 0.08 },
+  },
+  {
+    id: "inst-drum",
+    kind: "drumKit",
+    name: "ドラムキット",
+    engine: "drum",
+    params: { waveform: "noise", attack: 0.001, decay: 0.1, sustain: 0, release: 0.05 },
+  },
+  {
+    id: "inst-perc",
+    kind: "perc",
+    name: "パーカッション",
+    engine: "drum",
+    params: { waveform: "noise", attack: 0.001, decay: 0.08, sustain: 0, release: 0.04 },
   },
 ];
 

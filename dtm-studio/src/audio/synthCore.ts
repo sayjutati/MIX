@@ -22,12 +22,17 @@ export type VoiceState = {
   pan: number;
   volume: number;
   phase: number;
+  noiseSeed: number;
   envLevel: number;
   envStage: "a" | "d" | "s" | "r" | "off";
   noteOffAt: number;
 };
 
-export const oscSample = (wf: Waveform, phase: number) => {
+export const oscSample = (wf: Waveform, phase: number, noiseSeed: { v: number }) => {
+  if (wf === "noise") {
+    noiseSeed.v = (noiseSeed.v * 1664525 + 1013904223) | 0;
+    return (noiseSeed.v >>> 0) / 0x7fffffff - 1;
+  }
   const t = phase % (2 * Math.PI);
   if (wf === "sine") return Math.sin(t);
   if (wf === "square") return t < Math.PI ? 1 : -1;
@@ -45,6 +50,7 @@ export const createVoice = (): VoiceState => ({
   pan: 0,
   volume: 1,
   phase: 0,
+  noiseSeed: 1,
   envLevel: 0,
   envStage: "off",
   noteOffAt: Infinity,
@@ -59,6 +65,7 @@ export const triggerVoice = (v: VoiceState, ev: NoteEvent) => {
   v.pan = ev.pan;
   v.volume = ev.volume;
   v.phase = 0;
+  v.noiseSeed = (ev.pitch * 7919 + Math.floor(ev.startSec * 1000)) | 1;
   v.envLevel = 0;
   v.envStage = "a";
   v.noteOffAt = ev.endSec;
@@ -107,7 +114,7 @@ export const voiceSample = (v: VoiceState, sampleRate: number): { l: number; r: 
   if (!v.active) return { l: 0, r: 0 };
   const freq = midiToFreq(v.pitch);
   v.phase += (2 * Math.PI * freq) / sampleRate;
-  const amp = oscSample(v.waveform, v.phase) * v.envLevel * (v.velocity / 127) * v.volume;
+  const amp = oscSample(v.waveform, v.phase, { v: v.noiseSeed }) * v.envLevel * (v.velocity / 127) * v.volume;
   const panL = Math.cos(((v.pan + 1) * Math.PI) / 4);
   const panR = Math.sin(((v.pan + 1) * Math.PI) / 4);
   return { l: amp * panL, r: amp * panR };

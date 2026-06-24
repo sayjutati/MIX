@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import {
+  DEFAULT_INSTRUMENTS,
   makeNote,
   makeProject,
   makeTrack,
@@ -10,6 +11,20 @@ import {
   type Track,
 } from "../types/project";
 import { snapBeat } from "../utils/quantize";
+import { instrumentEngine } from "../audio/instrumentVoice";
+
+const mergeDefaultInstruments = (p: Project): Project => {
+  const ids = new Set(p.instruments.map((i) => i.id));
+  const missing = DEFAULT_INSTRUMENTS.filter((i) => !ids.has(i.id));
+  if (missing.length === 0) return p;
+  return {
+    ...p,
+    instruments: [
+      ...p.instruments,
+      ...missing.map((i) => ({ ...i, params: { ...i.params } })),
+    ],
+  };
+};
 
 export const TRACK_COLORS = ["#6c8cff", "#ff6b8a", "#8af0c0", "#ffb86c", "#bd93f9", "#f1fa8c"];
 
@@ -50,7 +65,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   setProject: (p) =>
     set({
-      project: p,
+      project: mergeDefaultInstruments(p),
       selectedTrackId: p.tracks[0]?.id ?? null,
       selectedNoteIds: new Set(),
     }),
@@ -251,10 +266,19 @@ export const useProjectStore = create<ProjectState>((set) => ({
   addTrack: () =>
     set((s) => {
       const n = s.project.tracks.length + 1;
+      const inst =
+        s.project.instruments[(n - 1) % s.project.instruments.length] ??
+        s.project.instruments[0];
+      const defaultName =
+        inst && instrumentEngine(inst) === "drum"
+          ? inst.kind === "drumKit"
+            ? "ドラム"
+            : "パーカッション"
+          : `トラック ${n}`;
       const track = makeTrack({
-        name: `トラック ${n}`,
+        name: defaultName,
         color: TRACK_COLORS[(n - 1) % TRACK_COLORS.length],
-        instrumentId: s.project.instruments[n % s.project.instruments.length]?.id ?? "inst-basic",
+        instrumentId: inst?.id ?? "inst-basic",
       });
       return {
         project: touchProject({ ...s.project, tracks: [...s.project.tracks, track] }),
@@ -280,7 +304,11 @@ export const useProjectStore = create<ProjectState>((set) => ({
     set((s) => ({
       project: touchProject({
         ...s.project,
-        tracks: s.project.tracks.map((t) => (t.id === trackId ? { ...t, ...patch } : t)),
+        tracks: s.project.tracks.map((t) =>
+          t.id === trackId
+            ? { ...t, ...patch, ...(patch.name !== undefined ? { name: patch.name.trim() || t.name } : {}) }
+            : t
+        ),
       }),
     })),
 
