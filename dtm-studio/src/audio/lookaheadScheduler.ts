@@ -2,6 +2,10 @@ import type { Project } from "../types/project";
 import { beatToSec, makeProject, secToBeat } from "../types/project";
 import { projectEndBeat } from "./offlineRender";
 import {
+  audioClipPlayer,
+  buildClipSchedules,
+} from "./audioClipPlayer";
+import {
   buildNoteSchedules,
   initAudioGraph,
   LOOKAHEAD_MS,
@@ -63,6 +67,7 @@ export class LookaheadScheduler {
   async start(fromBeat: number) {
     const { ctx, clock, synth } = await initAudioGraph();
     this.ctxRef = ctx;
+    await audioClipPlayer.ensureGraph(ctx.destination);
     this.ended = false;
     const project = this.getProject();
     this.startBeat = fromBeat;
@@ -70,6 +75,7 @@ export class LookaheadScheduler {
     this.loopCycle = 0;
     this.scheduled.clear();
     synth.port.postMessage({ type: "clearQueue" });
+    audioClipPlayer.clearScheduled();
 
     const baseCtxTime = ctx.currentTime + 0.05;
     this.anchor = { beat: fromBeat, ctxTime: baseCtxTime, tempo: project.tempo };
@@ -116,6 +122,7 @@ export class LookaheadScheduler {
     const project = this.getProject();
     this.loopCycle++;
     this.scheduled.clear();
+    audioClipPlayer.clearScheduled();
     this.startBeat = beat;
     seekTransport(clock, synth, ctx, beat, project.tempo);
     const baseCtxTime = ctx.currentTime + 0.05;
@@ -132,6 +139,7 @@ export class LookaheadScheduler {
     const beat = now?.beat ?? this.anchor.beat;
     this.scheduled.clear();
     synth.port.postMessage({ type: "clearQueue" });
+    audioClipPlayer.clearScheduled();
     seekTransport(clock, synth, ctx, beat, project.tempo);
     const baseCtxTime = ctx.currentTime + 0.05;
     this.anchor = { beat, ctxTime: baseCtxTime, tempo: project.tempo };
@@ -141,6 +149,7 @@ export class LookaheadScheduler {
   async invalidatePending() {
     if (!this.anchor) return;
     this.scheduled.clear();
+    audioClipPlayer.clearScheduled();
     const { synth } = await initAudioGraph();
     synth.port.postMessage({ type: "clearQueue" });
     void this.tick();
@@ -152,6 +161,7 @@ export class LookaheadScheduler {
     const project = this.getProject();
     this.scheduled.clear();
     synth.port.postMessage({ type: "clearQueue" });
+    audioClipPlayer.clearScheduled();
     seekTransport(clock, synth, ctx, beat, project.tempo);
     const baseCtxTime = ctx.currentTime + 0.05;
     this.anchor = { beat, ctxTime: baseCtxTime, tempo: project.tempo };
@@ -192,6 +202,21 @@ export class LookaheadScheduler {
       for (const n of notes) this.scheduled.add(n.noteId);
     }
 
+    const clips = buildClipSchedules(
+      project,
+      winStart,
+      winEnd,
+      nowCtx,
+      nowBeat,
+      tempo,
+      this.loopCycle
+    ).filter((c) => !this.scheduled.has(c.scheduleId));
+
+    if (clips.length > 0) {
+      await audioClipPlayer.schedule(project, clips);
+      for (const c of clips) this.scheduled.add(c.scheduleId);
+    }
+
     if (looping && winEnd > loopEnd && loopEnd - loopStart > 0.05) {
       const wrapNotes = buildNoteSchedules(
         project,
@@ -220,6 +245,7 @@ export class LookaheadScheduler {
     this.loopCycle = 0;
     this.ended = false;
     this.scheduled.clear();
+    audioClipPlayer.clearScheduled();
     const { clock, synth } = await initAudioGraph();
     stopTransport(clock, synth);
   }

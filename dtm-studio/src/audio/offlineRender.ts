@@ -1,5 +1,6 @@
 import type { Project } from "../types/project";
-import { beatToSec } from "../types/project";
+import { beatToSec, isAudioTrack } from "../types/project";
+import { clipEndBeat } from "./audioClipPlayer";
 import type { NoteEvent } from "./synthCore";
 import { resolveVoiceParams } from "./instrumentVoice";
 import {
@@ -7,6 +8,8 @@ import {
   MAX_VOICES,
   renderVoicesAtTime,
 } from "./synthCore";
+import { getAudioAssetBlob } from "../storage/audioAssetStorage";
+import { decodeAudioBlob } from "./decode";
 
 /** プロジェクトの終端拍（書き出し長さ用） */
 export const projectEndBeat = (project: Project): number => {
@@ -14,6 +17,11 @@ export const projectEndBeat = (project: Project): number => {
   for (const track of project.tracks) {
     for (const n of track.notes) {
       end = Math.max(end, n.start + n.duration + 0.5);
+    }
+    if (isAudioTrack(track)) {
+      for (const c of track.clips ?? []) {
+        end = Math.max(end, clipEndBeat(c, project.tempo) + 0.5);
+      }
     }
   }
   return end;
@@ -31,6 +39,7 @@ export const collectNoteEvents = (
   const out: NoteEvent[] = [];
 
   for (const track of project.tracks) {
+    if (isAudioTrack(track)) continue;
     if (track.muted) continue;
     if (hasSolo && !track.solo) continue;
     const inst = project.instruments.find((i) => i.id === track.instrumentId);
@@ -41,6 +50,7 @@ export const collectNoteEvents = (
       const startSec = beatToSec(note.start - startBeat, tempo);
       const durationSec = beatToSec(note.duration, tempo);
       const voice = resolveVoiceParams(inst, note.pitch);
+      const master = project.masterVolume ?? 1;
       out.push({
         startSec,
         endSec: startSec + durationSec,
@@ -49,7 +59,8 @@ export const collectNoteEvents = (
         waveform: voice.waveform,
         adsr: { ...voice.adsr },
         pan: track.pan,
-        volume: track.volume,
+        volume: track.volume * master,
+        drumKind: voice.drumKind,
       });
     }
   }
@@ -57,6 +68,76 @@ export const collectNoteEvents = (
   out.sort((a, b) => a.startSec - b.startSec);
   return out;
 };
+
+const mixAudioClipInto = (
+  left: Float32Array,
+  right: Float32Array,
+  buffer: AudioBuffer,
+  startSample: number,
+  offsetSec: number,
+  durationSec: number,
+  volume: number,
+  pan: number,
+  sampleRate: number
+) => {
+  const startOffset = Math.floor(offsetSec * sampleRate);
+  const len = Math.min(
+    Math.floor(durationSec * sampleRate),
+    buffer.length - startOffset,
+    left.length - startSample
+  );
+  const chL = buffer.getChannelData(0);
+  const chR = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : chL;
+  const panL = pan <= 0 ? 1 : 1 - pan;
+  const panR = pan >= 0 ? 1 : 1 + pan;
+  const gain = volume * 0.85;
+
+  for (let i = 0; i < len; i++) {
+    const si = startOffset + i;
+    const di = startSample + i;
+    if (di >= left.length || si >= buffer.length) break;
+    left[di] += chL[si] * gain * panL;
+    right[di] += chR[si] * gain * panR;
+  }
+};
+
+async function mixAudioTracks(
+  project: Project,
+  left: Float32Array,
+  right: Float32Array,
+  startBeat: number,
+  sampleRate: number
+): Promise<void> {
+  const hasSolo = project.tracks.some((t) => t.solo);
+  const master = project.masterVolume ?? 1;
+  const tempo = project.tempo;
+
+  for (const track of project.tracks) {
+    if (!isAudioTrack(track)) continue;
+    if (track.muted) continue;
+    if (hasSolo && !track.solo) continue;
+
+    for (const clip of track.clips ?? []) {
+      const blob = await getAudioAssetBlob(clip.assetId);
+      if (!blob) continue;
+      const offline = new OfflineAudioContext(2, 1, sampleRate);
+      const buffer = await decodeAudioBlob(blob, offline);
+      const clipStartSec = beatToSec(clip.startBeat - startBeat, tempo);
+      const startSample = Math.max(0, Math.floor(clipStartSec * sampleRate));
+      mixAudioClipInto(
+        left,
+        right,
+        buffer,
+        startSample,
+        clip.trimStart,
+        clip.durationSec,
+        track.volume * master,
+        track.pan,
+        sampleRate
+      );
+    }
+  }
+}
 
 export type RenderOpts = {
   sampleRate?: number;
@@ -66,10 +147,10 @@ export type RenderOpts = {
 };
 
 /** オフラインでプロジェクトをステレオ AudioBuffer にレンダリング */
-export const renderProjectOffline = (
+export const renderProjectOffline = async (
   project: Project,
   opts: RenderOpts = {}
-): AudioBuffer => {
+): Promise<AudioBuffer> => {
   const sampleRate = opts.sampleRate ?? 44100;
   const startBeat = opts.startBeat ?? 0;
   const endBeat = opts.endBeat ?? projectEndBeat(project);
@@ -81,18 +162,33 @@ export const renderProjectOffline = (
   const events = collectNoteEvents(project, startBeat, endBeat);
   const voices = Array.from({ length: MAX_VOICES }, createVoice);
   const eventIdx = { i: 0 };
+  const masterLpL = { v: 0 };
+  const masterLpR = { v: 0 };
 
   const left = new Float32Array(length);
   const right = new Float32Array(length);
 
   for (let i = 0; i < length; i++) {
     const t = i / sampleRate;
-    const { l, r } = renderVoicesAtTime(voices, events, eventIdx, t, sampleRate);
+    const { l, r } = renderVoicesAtTime(
+      voices,
+      events,
+      eventIdx,
+      t,
+      sampleRate,
+      masterLpL,
+      masterLpR
+    );
     left[i] = l;
     right[i] = r;
   }
 
   const buffer = new AudioBuffer({ length, numberOfChannels: 2, sampleRate });
+  buffer.copyToChannel(left, 0);
+  buffer.copyToChannel(right, 1);
+
+  await mixAudioTracks(project, left, right, startBeat, sampleRate);
+
   buffer.copyToChannel(left, 0);
   buffer.copyToChannel(right, 1);
   return buffer;

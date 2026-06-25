@@ -30,6 +30,8 @@ type Props = {
   onLoopStartChange: (v: number) => void;
   onLoopEndChange: (v: number) => void;
   onHelpToggle: () => void;
+  metronomeOn: boolean;
+  onMetronomeChange: (v: boolean) => void;
 };
 
 export function TransportBar({
@@ -60,6 +62,8 @@ export function TransportBar({
   onLoopStartChange,
   onLoopEndChange,
   onHelpToggle,
+  metronomeOn,
+  onMetronomeChange,
 }: Props) {
   const displaySec = beatToDisplaySec(playheadBeat, tempo);
   const timeLabel = showBarsBeats
@@ -243,6 +247,15 @@ export function TransportBar({
             onChange={(e) => onLoopEndChange(Number(e.target.value) || loopEnd)}
           />
         </label>
+        <button
+          type="button"
+          className={`transport__btn-ghost tooltip${metronomeOn ? " transport__btn-ghost--on" : ""}`}
+          data-tooltip="メトロノーム（Mキー）"
+          onClick={() => onMetronomeChange(!metronomeOn)}
+          aria-label="メトロノーム"
+        >
+          ♩
+        </button>
       </div>
 
       <div className="toolbar__right">

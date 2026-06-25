@@ -3,11 +3,20 @@ import type { Track } from "../../types/project";
 type Props = {
   tracks: Track[];
   selectedId: string | null;
+  masterVolume: number;
   onSelect: (id: string) => void;
   onUpdate: (id: string, patch: Partial<Track>) => void;
+  onMasterVolumeChange: (v: number) => void;
 };
 
-export function MixerPanel({ tracks, selectedId, onSelect, onUpdate }: Props) {
+export function MixerPanel({
+  tracks,
+  selectedId,
+  masterVolume,
+  onSelect,
+  onUpdate,
+  onMasterVolumeChange,
+}: Props) {
   const toggleSolo = (t: Track) => {
     const next = !t.solo;
     if (next) {
@@ -20,7 +29,18 @@ export function MixerPanel({ tracks, selectedId, onSelect, onUpdate }: Props) {
 
   return (
     <footer className="mixer">
-      <div className="mixer__label">ミキサー</div>
+      <div className="mixer__master tooltip" data-tooltip="全体の出力音量">
+        <span className="mixer__label">マスター</span>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={masterVolume}
+          onChange={(e) => onMasterVolumeChange(Number(e.target.value))}
+        />
+        <span className="mixer__val">{Math.round(masterVolume * 100)}%</span>
+      </div>
       <div className="mixer__strips">
         {tracks.map((t) => (
           <div

@@ -1,10 +1,10 @@
 import type { RefObject } from "react";
-import { BEAT_W } from "./pianoRollConstants";
 import { snapBeat } from "../../utils/quantize";
 
 type Props = {
   rulerRef: RefObject<HTMLDivElement | null>;
   beatsVisible: number;
+  beatWidth: number;
   loopStart: number;
   loopEnd: number;
   loopEnabled: boolean;
@@ -20,6 +20,7 @@ type Props = {
 export function BeatRuler({
   rulerRef,
   beatsVisible,
+  beatWidth,
   loopStart,
   loopEnd,
   loopEnabled,
@@ -31,7 +32,7 @@ export function BeatRuler({
   onLoopChange,
   onSeekBeat,
 }: Props) {
-  const width = beatsVisible * BEAT_W;
+  const width = beatsVisible * beatWidth;
   const grid = Math.max(quantizeGrid, 0.125);
 
   const onDrag =
@@ -42,7 +43,7 @@ export function BeatRuler({
       const rect = bar.getBoundingClientRect();
       const move = (ev: PointerEvent) => {
         const x = ev.clientX - rect.left + scrollLeft;
-        const beat = Math.max(0, Math.round((x / BEAT_W) / grid) * grid);
+        const beat = Math.max(0, Math.round((x / beatWidth) / grid) * grid);
         if (which === "start") {
           onLoopChange(beat, Math.max(beat + grid, loopEnd));
         } else {
@@ -61,7 +62,7 @@ export function BeatRuler({
     if ((e.target as HTMLElement).closest(".beat-ruler__handle")) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left + scrollLeft;
-    const beat = Math.max(0, snapBeat(x / BEAT_W, grid));
+    const beat = Math.max(0, snapBeat(x / beatWidth, grid));
     onSeekBeat(beat);
   };
 
@@ -73,31 +74,31 @@ export function BeatRuler({
     >
       <div className="beat-ruler" style={{ width }} onClick={onRulerClick}>
         {Array.from({ length: Math.ceil(beatsVisible / 4) + 1 }, (_, i) => (
-          <span key={i} className="beat-ruler__bar" style={{ left: i * 4 * BEAT_W + 4 }}>
+          <span key={i} className="beat-ruler__bar" style={{ left: i * 4 * beatWidth + 4 }}>
             {i + 1}小節
           </span>
         ))}
         {loopEnabled && (
           <div
             className="beat-ruler__loop"
-            style={{ left: loopStart * BEAT_W, width: (loopEnd - loopStart) * BEAT_W }}
+            style={{ left: loopStart * beatWidth, width: (loopEnd - loopStart) * beatWidth }}
           />
         )}
         <div
           className="beat-ruler__handle beat-ruler__handle--start tooltip"
           data-tooltip="ループ開始（ドラッグ）"
-          style={{ left: loopStart * BEAT_W - 4 }}
+          style={{ left: loopStart * beatWidth - 4 }}
           onPointerDown={onDrag("start")}
         />
         <div
           className="beat-ruler__handle beat-ruler__handle--end tooltip"
           data-tooltip="ループ終了（ドラッグ）"
-          style={{ left: loopEnd * BEAT_W - 4 }}
+          style={{ left: loopEnd * beatWidth - 4 }}
           onPointerDown={onDrag("end")}
         />
         <div
           className={`beat-ruler__playhead${playing ? " beat-ruler__playhead--playing" : ""}`}
-          style={{ left: playheadBeat * BEAT_W }}
+          style={{ left: playheadBeat * beatWidth }}
         />
       </div>
     </div>

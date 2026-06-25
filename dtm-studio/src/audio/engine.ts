@@ -1,5 +1,6 @@
 import type { Instrument, Project, Track } from "../types/project";
-import { beatToSec } from "../types/project";
+import { beatToSec, isAudioTrack } from "../types/project";
+import type { DrumKind } from "./oscCore";
 import { resolveVoiceParams } from "./instrumentVoice";
 
 const WORKLET_BASE = `${import.meta.env.BASE_URL}worklets/`;
@@ -16,7 +17,7 @@ export type ClockPosition = { beat: number; ctxTime: number };
 
 export async function getAudioContext(): Promise<AudioContext> {
   if (!ctxSingleton || ctxSingleton.state === "closed") {
-    ctxSingleton = new AudioContext({ latencyHint: "interactive" });
+    ctxSingleton = new AudioContext({ latencyHint: "playback" });
   }
   if (ctxSingleton.state === "suspended") {
     await ctxSingleton.resume();
@@ -97,6 +98,7 @@ export type NoteSchedulePayload = {
   adsr: Pick<Instrument["params"], "attack" | "decay" | "sustain" | "release">;
   pan: number;
   volume: number;
+  drumKind?: DrumKind;
 };
 
 export function scheduleNotesToSynth(synth: AudioWorkletNode, notes: NoteSchedulePayload[]) {
@@ -118,6 +120,7 @@ export function scheduleNotesToSynth(synth: AudioWorkletNode, notes: NoteSchedul
       },
       pan: n.pan,
       volume: n.volume,
+      drumKind: n.drumKind,
     })),
   });
 }
@@ -135,6 +138,7 @@ export function buildNoteSchedules(
   const out: NoteSchedulePayload[] = [];
 
   for (const track of project.tracks) {
+    if (isAudioTrack(track)) continue;
     if (track.muted) continue;
     if (hasSolo && !track.solo) continue;
     const inst = project.instruments.find((i) => i.id === track.instrumentId);
@@ -148,6 +152,7 @@ export function buildNoteSchedules(
       const ctxTime = anchorCtxTime + beatToSec(beatOffset, tempo);
       const durationSec = beatToSec(note.duration, tempo);
       const voice = resolveVoiceParams(inst, note.pitch);
+      const master = project.masterVolume ?? 1;
       out.push({
         noteId: `${cycleId}:${track.id}:${note.id}`,
         ctxTime,
@@ -158,7 +163,8 @@ export function buildNoteSchedules(
         waveform: voice.waveform,
         adsr: voice.adsr,
         pan: track.pan,
-        volume: track.volume,
+        volume: track.volume * master,
+        drumKind: voice.drumKind,
       });
     }
   }

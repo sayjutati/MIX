@@ -24,6 +24,7 @@ export async function previewNote(
       adsr: voice.adsr,
       pan: track.pan,
       volume: track.volume,
+      drumKind: voice.drumKind,
     },
   ]);
 }

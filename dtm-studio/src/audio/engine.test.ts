@@ -53,6 +53,7 @@ describe("buildNoteSchedules", () => {
 
   it("volume / pan をトラックから引き継ぐ", () => {
     const p = makeProject({
+      masterVolume: 1,
       tracks: [
         makeTrack({
           volume: 0.5,
@@ -64,5 +65,19 @@ describe("buildNoteSchedules", () => {
     const [n] = buildNoteSchedules(p, 0, 1, 0, 0, 120);
     expect(n.volume).toBe(0.5);
     expect(n.pan).toBe(-0.5);
+  });
+
+  it("masterVolume がトラック音量に乗算される", () => {
+    const p = makeProject({
+      masterVolume: 0.9,
+      tracks: [
+        makeTrack({
+          volume: 0.5,
+          notes: [makeNote({ pitch: 60, start: 0, duration: 1 })],
+        }),
+      ],
+    });
+    const [n] = buildNoteSchedules(p, 0, 1, 0, 0, 120);
+    expect(n.volume).toBeCloseTo(0.45);
   });
 });

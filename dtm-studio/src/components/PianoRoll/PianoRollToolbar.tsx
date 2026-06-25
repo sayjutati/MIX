@@ -10,6 +10,14 @@ type Props = {
   onToggleOverlay: (trackId: string) => void;
   quantizeGrid: QuantizeGrid;
   onQuantizeGridChange: (grid: QuantizeGrid) => void;
+  snapEnabled: boolean;
+  onSnapChange: (on: boolean) => void;
+  beatZoom: number;
+  onBeatZoomChange: (z: number) => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
   selectedCount: number;
   velocity: number;
   stepRecord: boolean;
@@ -17,6 +25,11 @@ type Props = {
   onVelocityChange: (v: number) => void;
   onQuantize: () => void;
   onDelete: () => void;
+  onDuplicate: () => void;
+  onCopy: () => void;
+  onPaste: () => void;
+  onTranspose: (semitones: number) => void;
+  onSelectAll: () => void;
 };
 
 export function PianoRollToolbar({
@@ -26,6 +39,14 @@ export function PianoRollToolbar({
   onToggleOverlay,
   quantizeGrid,
   onQuantizeGridChange,
+  snapEnabled,
+  onSnapChange,
+  beatZoom,
+  onBeatZoomChange,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
   selectedCount,
   velocity,
   stepRecord,
@@ -33,9 +54,34 @@ export function PianoRollToolbar({
   onVelocityChange,
   onQuantize,
   onDelete,
+  onDuplicate,
+  onCopy,
+  onPaste,
+  onTranspose,
+  onSelectAll,
 }: Props) {
   return (
     <div className="piano-roll__toolbar">
+      <div className="piano-roll__tool-group">
+        <button
+          type="button"
+          className="piano-roll__tool-btn tooltip"
+          data-tooltip="元に戻す（Ctrl+Z）"
+          disabled={!canUndo}
+          onClick={onUndo}
+        >
+          ↩
+        </button>
+        <button
+          type="button"
+          className="piano-roll__tool-btn tooltip"
+          data-tooltip="やり直し（Ctrl+Y）"
+          disabled={!canRedo}
+          onClick={onRedo}
+        >
+          ↪
+        </button>
+      </div>
       <div className="piano-roll__overlay-picks tooltip" data-tooltip="重ねて表示するトラック番号（編集トラックは常に前面）">
         <span className="piano-roll__overlay-label">重ね表示</span>
         {tracks.map((t, i) => {
@@ -73,6 +119,10 @@ export function PianoRollToolbar({
           ))}
         </select>
       </label>
+      <label className="piano-roll__tool piano-roll__tool--check tooltip" data-tooltip="OFF で自由な位置に配置（FL Studio のスナップと同様）">
+        <input type="checkbox" checked={snapEnabled} onChange={(e) => onSnapChange(e.target.checked)} />
+        スナップ
+      </label>
       <label className="piano-roll__tool piano-roll__tool--check tooltip" data-tooltip="ON: 鍵盤・PCキーで再生位置にノートを打ち込む">
         <input
           type="checkbox"
@@ -81,6 +131,33 @@ export function PianoRollToolbar({
         />
         打ち込み
       </label>
+      <div className="piano-roll__tool-group">
+        <button
+          type="button"
+          className="piano-roll__tool-btn tooltip"
+          data-tooltip="横ズーム縮小"
+          onClick={() => onBeatZoomChange(beatZoom - 0.15)}
+        >
+          −
+        </button>
+        <span className="piano-roll__zoom-label">{Math.round(beatZoom * 100)}%</span>
+        <button
+          type="button"
+          className="piano-roll__tool-btn tooltip"
+          data-tooltip="横ズーム拡大"
+          onClick={() => onBeatZoomChange(beatZoom + 0.15)}
+        >
+          +
+        </button>
+      </div>
+      <button
+        type="button"
+        className="piano-roll__tool-btn tooltip"
+        data-tooltip="全ノート選択（Ctrl+A）"
+        onClick={onSelectAll}
+      >
+        全選択
+      </button>
       {selectedCount > 0 && (
         <>
           <label className="piano-roll__tool tooltip" data-tooltip="選択ノートの強さ（1〜127）">
@@ -93,6 +170,31 @@ export function PianoRollToolbar({
               onChange={(e) => onVelocityChange(Number(e.target.value))}
             />
           </label>
+          <button type="button" className="piano-roll__tool-btn tooltip" data-tooltip="コピー（Ctrl+C）" onClick={onCopy}>
+            コピー
+          </button>
+          <button type="button" className="piano-roll__tool-btn tooltip" data-tooltip="貼り付け（Ctrl+V）" onClick={onPaste}>
+            貼付
+          </button>
+          <button type="button" className="piano-roll__tool-btn tooltip" data-tooltip="複製（Ctrl+D）" onClick={onDuplicate}>
+            複製
+          </button>
+          <button
+            type="button"
+            className="piano-roll__tool-btn tooltip"
+            data-tooltip="半音上げ（Shift+↑）"
+            onClick={() => onTranspose(1)}
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            className="piano-roll__tool-btn tooltip"
+            data-tooltip="半音下げ（Shift+↓）"
+            onClick={() => onTranspose(-1)}
+          >
+            ↓
+          </button>
           <button
             type="button"
             className="piano-roll__tool-btn tooltip"
@@ -112,7 +214,7 @@ export function PianoRollToolbar({
         </>
       )}
       <span className="piano-roll__tool-hint">
-        重ね = 参照表示 · 編集は「編集中」トラックのみ
+        Ctrl+Z/Y · Ctrl+C/V/D · 矢印=移動 · M=メトロノーム
       </span>
     </div>
   );

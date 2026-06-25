@@ -1,26 +1,38 @@
 import { create } from "zustand";
 import {
   DEFAULT_INSTRUMENTS,
+  makeAudioClip,
+  makeAudioTrack,
   makeNote,
   makeProject,
   makeTrack,
+  normalizeTrack,
+  type AudioClip,
   type Instrument,
   type MidiNote,
+  type PluginSlot,
   type Project,
   type SynthParams,
   type Track,
+  type TrackFx,
 } from "../types/project";
 import { snapBeat } from "../utils/quantize";
 import { instrumentEngine } from "../audio/instrumentVoice";
+import { transposeNotePatch } from "../utils/noteEdit";
 
 const mergeDefaultInstruments = (p: Project): Project => {
   const ids = new Set(p.instruments.map((i) => i.id));
   const missing = DEFAULT_INSTRUMENTS.filter((i) => !ids.has(i.id));
-  if (missing.length === 0) return p;
-  return {
+  const withMaster = {
     ...p,
+    masterVolume: p.masterVolume ?? 0.9,
+    tracks: p.tracks.map(normalizeTrack),
+  };
+  if (missing.length === 0) return withMaster;
+  return {
+    ...withMaster,
     instruments: [
-      ...p.instruments,
+      ...withMaster.instruments,
       ...missing.map((i) => ({ ...i, params: { ...i.params } })),
     ],
   };
@@ -51,8 +63,19 @@ type ProjectState = {
   newProject: () => void;
   updateInstrumentForTrack: (trackId: string, patch: Partial<SynthParams>) => void;
   addTrack: () => void;
+  addAudioTrack: () => void;
+  addAudioClip: (trackId: string, clip: AudioClip) => void;
+  removeAudioClip: (trackId: string, clipId: string) => void;
+  updateAudioClip: (trackId: string, clipId: string, patch: Partial<AudioClip>) => void;
+  updateTrackFx: (trackId: string, patch: Partial<TrackFx>) => void;
+  addPluginSlot: (trackId: string, slot: PluginSlot) => void;
+  removePluginSlot: (trackId: string, slotId: string) => void;
   removeTrack: (trackId: string) => void;
   updateTrack: (trackId: string, patch: Partial<Track>) => void;
+  duplicateTrack: (trackId: string) => void;
+  insertNotes: (trackId: string, notes: Omit<MidiNote, "id">[]) => void;
+  transposeNotes: (trackId: string, noteIds: string[], semitones: number) => void;
+  setMasterVolume: (v: number) => void;
   touch: () => void;
 };
 
@@ -287,6 +310,89 @@ export const useProjectStore = create<ProjectState>((set) => ({
       };
     }),
 
+  addAudioTrack: () =>
+    set((s) => {
+      const n = s.project.tracks.filter((t) => (t.kind ?? "midi") === "audio").length + 1;
+      const track = makeAudioTrack({
+        name: `オーディオ ${n}`,
+        color: TRACK_COLORS[s.project.tracks.length % TRACK_COLORS.length],
+      });
+      return {
+        project: touchProject({ ...s.project, tracks: [...s.project.tracks, track] }),
+        selectedTrackId: track.id,
+        selectedNoteIds: new Set(),
+      };
+    }),
+
+  addAudioClip: (trackId, clip) =>
+    set((s) => ({
+      project: touchProject({
+        ...s.project,
+        tracks: s.project.tracks.map((t) =>
+          t.id === trackId ? { ...t, clips: [...(t.clips ?? []), clip] } : t
+        ),
+      }),
+    })),
+
+  removeAudioClip: (trackId, clipId) =>
+    set((s) => ({
+      project: touchProject({
+        ...s.project,
+        tracks: s.project.tracks.map((t) =>
+          t.id === trackId
+            ? { ...t, clips: (t.clips ?? []).filter((c) => c.id !== clipId) }
+            : t
+        ),
+      }),
+    })),
+
+  updateAudioClip: (trackId, clipId, patch) =>
+    set((s) => ({
+      project: touchProject({
+        ...s.project,
+        tracks: s.project.tracks.map((t) =>
+          t.id === trackId
+            ? {
+                ...t,
+                clips: (t.clips ?? []).map((c) => (c.id === clipId ? { ...c, ...patch } : c)),
+              }
+            : t
+        ),
+      }),
+    })),
+
+  updateTrackFx: (trackId, patch) =>
+    set((s) => ({
+      project: touchProject({
+        ...s.project,
+        tracks: s.project.tracks.map((t) =>
+          t.id === trackId ? { ...t, fx: { ...(t.fx ?? {}), ...patch } as TrackFx } : t
+        ),
+      }),
+    })),
+
+  addPluginSlot: (trackId, slot) =>
+    set((s) => ({
+      project: touchProject({
+        ...s.project,
+        tracks: s.project.tracks.map((t) =>
+          t.id === trackId ? { ...t, plugins: [...(t.plugins ?? []), slot] } : t
+        ),
+      }),
+    })),
+
+  removePluginSlot: (trackId, slotId) =>
+    set((s) => ({
+      project: touchProject({
+        ...s.project,
+        tracks: s.project.tracks.map((t) =>
+          t.id === trackId
+            ? { ...t, plugins: (t.plugins ?? []).filter((p) => p.id !== slotId) }
+            : t
+        ),
+      }),
+    })),
+
   removeTrack: (trackId) =>
     set((s) => {
       if (s.project.tracks.length <= 1) return s;
@@ -309,6 +415,82 @@ export const useProjectStore = create<ProjectState>((set) => ({
             ? { ...t, ...patch, ...(patch.name !== undefined ? { name: patch.name.trim() || t.name } : {}) }
             : t
         ),
+      }),
+    })),
+
+  duplicateTrack: (trackId) =>
+    set((s) => {
+      const src = s.project.tracks.find((t) => t.id === trackId);
+      if (!src) return s;
+      const copy = makeTrack({
+        name: `${src.name} コピー`,
+        color: src.color,
+        kind: src.kind,
+        instrumentId: src.instrumentId,
+        volume: src.volume,
+        pan: src.pan,
+        muted: src.muted,
+        solo: false,
+        fx: src.fx ? { ...src.fx } : undefined,
+        plugins: src.plugins?.map((p) => ({ ...p, params: { ...p.params } })),
+        notes: src.notes.map((n) =>
+          makeNote({
+            pitch: n.pitch,
+            start: n.start,
+            duration: n.duration,
+            velocity: n.velocity,
+          })
+        ),
+        clips: (src.clips ?? []).map((c) => makeAudioClip({ ...c })),
+      });
+      return {
+        project: touchProject({ ...s.project, tracks: [...s.project.tracks, copy] }),
+        selectedTrackId: copy.id,
+        selectedNoteIds: new Set(),
+      };
+    }),
+
+  insertNotes: (trackId, notes) =>
+    set((s) => ({
+      project: touchProject({
+        ...s.project,
+        tracks: s.project.tracks.map((t) =>
+          t.id === trackId
+            ? {
+                ...t,
+                notes: [...t.notes, ...notes.map((n) => makeNote(n))],
+              }
+            : t
+        ),
+      }),
+    })),
+
+  transposeNotes: (trackId, noteIds, semitones) =>
+    set((s) => {
+      if (semitones === 0) return s;
+      const ids = new Set(noteIds);
+      return {
+        project: touchProject({
+          ...s.project,
+          tracks: s.project.tracks.map((t) =>
+            t.id === trackId
+              ? {
+                  ...t,
+                  notes: t.notes.map((n) =>
+                    ids.has(n.id) ? { ...n, ...transposeNotePatch(n.pitch, semitones) } : n
+                  ),
+                }
+              : t
+          ),
+        }),
+      };
+    }),
+
+  setMasterVolume: (v) =>
+    set((s) => ({
+      project: touchProject({
+        ...s.project,
+        masterVolume: Math.max(0, Math.min(1, v)),
       }),
     })),
 

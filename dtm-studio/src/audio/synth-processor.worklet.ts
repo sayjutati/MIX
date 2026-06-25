@@ -1,6 +1,14 @@
 /// <reference lib="webworker" />
 
-type Waveform = "sine" | "saw" | "square" | "noise";
+import {
+  kickFreqAt,
+  midiToFreq,
+  oscSampleAdv,
+  processMasterSample,
+  velocityGain,
+  type DrumKind,
+  type OscWaveform,
+} from "./oscCore";
 
 type Adsr = { attack: number; decay: number; sustain: number; release: number };
 
@@ -9,11 +17,12 @@ type ScheduledNote = {
   pitch: number;
   velocity: number;
   durationSec: number;
-  waveform: Waveform;
+  waveform: OscWaveform;
   adsr: Adsr;
   pan: number;
   volume: number;
   noteOffTime: number;
+  drumKind?: DrumKind;
   triggered: boolean;
 };
 
@@ -21,48 +30,46 @@ type Voice = {
   active: boolean;
   pitch: number;
   velocity: number;
-  waveform: Waveform;
+  waveform: OscWaveform;
   adsr: Adsr;
   pan: number;
   volume: number;
   phase: number;
   noiseSeed: number;
+  lpState: number;
+  hpState: number;
   envLevel: number;
   envStage: "a" | "d" | "s" | "r" | "off";
   noteOffAt: number;
+  voiceStartSec: number;
+  drumKind?: DrumKind;
 };
 
 const MAX_VOICES = 32;
-
-const oscSample = (wf: Waveform, phase: number, noiseSeed: { v: number }) => {
-  if (wf === "noise") {
-    noiseSeed.v = (noiseSeed.v * 1664525 + 1013904223) | 0;
-    return (noiseSeed.v >>> 0) / 0x7fffffff - 1;
-  }
-  const t = phase % (2 * Math.PI);
-  if (wf === "sine") return Math.sin(t);
-  if (wf === "square") return t < Math.PI ? 1 : -1;
-  return 2 * (t / (2 * Math.PI)) - 1;
-};
 
 class SynthProcessor extends AudioWorkletProcessor {
   private baseCtxTime = 0;
   private samplesPlayed = 0;
   private running = false;
   private queue: ScheduledNote[] = [];
+  private masterLpL = 0;
+  private masterLpR = 0;
   private voices: Voice[] = Array.from({ length: MAX_VOICES }, () => ({
     active: false,
     pitch: 60,
     velocity: 100,
-    waveform: "saw" as Waveform,
+    waveform: "saw" as OscWaveform,
     adsr: { attack: 0.01, decay: 0.1, sustain: 0.6, release: 0.2 },
     pan: 0,
     volume: 1,
     phase: 0,
-    envLevel: 0,
     noiseSeed: 1,
+    lpState: 0,
+    hpState: 0,
+    envLevel: 0,
     envStage: "off" as const,
     noteOffAt: Infinity,
+    voiceStartSec: 0,
   }));
 
   constructor() {
@@ -75,6 +82,8 @@ class SynthProcessor extends AudioWorkletProcessor {
           this.samplesPlayed = 0;
           this.running = true;
           this.queue = [];
+          this.masterLpL = 0;
+          this.masterLpR = 0;
           this.killAllVoices();
         } else if (d.action === "stop") {
           this.running = false;
@@ -112,6 +121,7 @@ class SynthProcessor extends AudioWorkletProcessor {
 
   private allocVoice(): Voice | null {
     let free = this.voices.find((v) => !v.active);
+    if (!free) free = this.voices.find((v) => v.envStage === "r" || v.envStage === "s");
     if (!free) free = this.voices[0];
     return free ?? null;
   }
@@ -126,11 +136,15 @@ class SynthProcessor extends AudioWorkletProcessor {
     v.adsr = n.adsr;
     v.pan = n.pan;
     v.volume = n.volume;
+    v.drumKind = n.drumKind;
     v.phase = 0;
     v.noiseSeed = (n.pitch * 7919 + 1) | 1;
+    v.lpState = 0;
+    v.hpState = 0;
     v.envLevel = 0;
     v.envStage = "a";
     v.noteOffAt = n.noteOffTime;
+    v.voiceStartSec = n.ctxTime;
   }
 
   private processEnv(v: Voice, dt: number, now: number) {
@@ -172,6 +186,12 @@ class SynthProcessor extends AudioWorkletProcessor {
     }
   }
 
+  private voiceFreq(v: Voice, nowSec: number): number {
+    if (v.drumKind === "kick") return kickFreqAt(v.voiceStartSec, nowSec);
+    if (v.drumKind === "snare") return 190;
+    return midiToFreq(v.pitch);
+  }
+
   process(_inputs: Float32Array[][], outputs: Float32Array[][]) {
     const outL = outputs[0]?.[0];
     const outR = outputs[0]?.[1];
@@ -190,6 +210,9 @@ class SynthProcessor extends AudioWorkletProcessor {
       this.queue = this.queue.filter((n) => !n.triggered || n.noteOffTime > nowStart - 1);
     }
 
+    const lpL = { v: this.masterLpL };
+    const lpR = { v: this.masterLpR };
+
     for (let i = 0; i < block; i++) {
       const now = this.baseCtxTime + (this.samplesPlayed + i) / sampleRate;
       let l = 0;
@@ -198,18 +221,45 @@ class SynthProcessor extends AudioWorkletProcessor {
         if (!v.active) continue;
         this.processEnv(v, 1 / sampleRate, now);
         if (!v.active) continue;
-        const freq = 440 * Math.pow(2, (v.pitch - 69) / 12);
-        v.phase += (2 * Math.PI * freq) / sampleRate;
-        const amp = oscSample(v.waveform, v.phase, { v: v.noiseSeed }) * v.envLevel * (v.velocity / 127) * v.volume;
+
+        const freq = this.voiceFreq(v, now);
+        const phaseInc = (2 * Math.PI * freq) / sampleRate;
+        const noiseSeed = { v: v.noiseSeed };
+        const lpState = { v: v.lpState };
+        const hpState = { v: v.hpState };
+
+        const raw = oscSampleAdv({
+          waveform: v.waveform,
+          phase: v.phase,
+          phaseInc,
+          noiseSeed,
+          lpState,
+          hpState,
+          drumKind: v.drumKind,
+          voiceStartSec: v.voiceStartSec,
+          nowSec: now,
+          sampleRate,
+        });
+
+        v.noiseSeed = noiseSeed.v;
+        v.lpState = lpState.v;
+        v.hpState = hpState.v;
+        v.phase += phaseInc;
+
+        const amp = raw * v.envLevel * velocityGain(v.velocity) * v.volume;
         const panL = Math.cos(((v.pan + 1) * Math.PI) / 4);
         const panR = Math.sin(((v.pan + 1) * Math.PI) / 4);
         l += amp * panL;
         r += amp * panR;
       }
-      outL[i] = l;
-      if (outR) outR[i] = r;
+
+      const out = processMasterSample(l, r, lpL, lpR, sampleRate);
+      outL[i] = out.l;
+      if (outR) outR[i] = out.r;
     }
 
+    this.masterLpL = lpL.v;
+    this.masterLpR = lpR.v;
     this.samplesPlayed += block;
     return true;
   }

@@ -7,19 +7,37 @@ interface DtmDb extends DBSchema {
     value: Project;
     indexes: { "by-updated": number };
   };
+  audioAssets: {
+    key: string;
+    value: {
+      id: string;
+      projectId: string;
+      name: string;
+      mimeType: string;
+      blob: Blob;
+      createdAt: number;
+    };
+    indexes: { "by-project": string };
+  };
 }
 
 const DB_NAME = "dtm-studio";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbPromise: Promise<IDBPDatabase<DtmDb>> | null = null;
 
-function getDb() {
+export function getDb() {
   if (!dbPromise) {
     dbPromise = openDB<DtmDb>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        const store = db.createObjectStore("projects", { keyPath: "id" });
-        store.createIndex("by-updated", "updatedAt");
+      upgrade(db, oldVersion) {
+        if (oldVersion < 1) {
+          const store = db.createObjectStore("projects", { keyPath: "id" });
+          store.createIndex("by-updated", "updatedAt");
+        }
+        if (oldVersion < 2 && !db.objectStoreNames.contains("audioAssets")) {
+          const assets = db.createObjectStore("audioAssets", { keyPath: "id" });
+          assets.createIndex("by-project", "projectId");
+        }
       },
     });
   }

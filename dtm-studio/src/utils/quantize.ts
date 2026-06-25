@@ -4,6 +4,9 @@ export const snapBeat = (beat: number, grid: number) => {
   return Math.round(beat / grid) * grid;
 };
 
+export const maybeSnapBeat = (beat: number, grid: number, snap: boolean) =>
+  snap ? snapBeat(beat, grid) : Math.max(0, beat);
+
 export const QUANTIZE_OPTIONS = [
   { label: "4分音符", value: 1 },
   { label: "8分音符", value: 0.5 },

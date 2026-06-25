@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MidiNote, Track } from "../../types/project";
-import { snapBeat } from "../../utils/quantize";
+import { maybeSnapBeat } from "../../utils/quantize";
 import { pitchJaRangeLabel } from "../../utils/pitchLabel";
 import { BeatRuler } from "./BeatRuler";
 import { PianoKeyboard } from "./PianoKeyboard";
@@ -27,10 +27,13 @@ type Props = {
   loopEnd: number;
   loopEnabled: boolean;
   beatsVisible: number;
+  beatWidth: number;
   quantizeGrid: number;
+  snapEnabled: boolean;
   selectedNoteIds: Set<string>;
   activePitches: Set<number>;
   drumMode?: boolean;
+  onEditStart?: () => void;
   onCreateNote: (pitch: number, start: number, duration: number) => string | null;
   onSelectNotes: (ids: string[]) => void;
   onToggleNote: (id: string) => void;
@@ -50,10 +53,13 @@ export function PianoRollView({
   loopEnd,
   loopEnabled,
   beatsVisible,
+  beatWidth,
   quantizeGrid,
+  snapEnabled,
   selectedNoteIds,
   activePitches,
   drumMode = false,
+  onEditStart,
   onCreateNote,
   onSelectNotes,
   onToggleNote,
@@ -81,15 +87,16 @@ export function PianoRollView({
   const pendingDrag = useRef<Array<{ noteId: string; patch: Partial<MidiNote> }> | null>(null);
   const dragRaf = useRef(0);
 
-  const width = beatsVisible * BEAT_W;
+  const width = beatsVisible * beatWidth;
+  const snap = (beat: number) => maybeSnapBeat(beat, quantizeGrid, snapEnabled);
   const height = PITCH_COUNT * ROW_H;
 
   const noteRect = (note: MidiNote) => {
     const row = PITCH_MAX - note.pitch;
     return {
-      x: note.start * BEAT_W + 1,
+      x: note.start * beatWidth + 1,
       y: row * ROW_H + 1,
-      w: Math.max(BEAT_W * note.duration - 2, 4),
+      w: Math.max(beatWidth * note.duration - 2, 4),
       h: ROW_H - 2,
     };
   };
@@ -99,7 +106,7 @@ export function PianoRollView({
     const rect = canvas.getBoundingClientRect();
     const x = clientX - rect.left;
     const y = clientY - rect.top;
-    const beat = x / BEAT_W;
+    const beat = x / beatWidth;
     const pitchRow = Math.floor(y / ROW_H);
     const pitch = PITCH_MAX - pitchRow;
     return { beat, pitch, x, y };
@@ -137,16 +144,16 @@ export function PianoRollView({
     }
 
     ctx.fillStyle = "rgba(52, 211, 153, 0.07)";
-    ctx.fillRect(loopStart * BEAT_W, 0, (loopEnd - loopStart) * BEAT_W, height);
+    ctx.fillRect(loopStart * beatWidth, 0, (loopEnd - loopStart) * beatWidth, height);
     if (loopEnabled) {
       ctx.strokeStyle = "rgba(52, 211, 153, 0.35)";
       ctx.lineWidth = 1;
-      ctx.strokeRect(loopStart * BEAT_W + 0.5, 0.5, (loopEnd - loopStart) * BEAT_W - 1, height - 1);
+      ctx.strokeRect(loopStart * beatWidth + 0.5, 0.5, (loopEnd - loopStart) * beatWidth - 1, height - 1);
     }
 
-    const gridStep = quantizeGrid * BEAT_W;
+    const gridStep = quantizeGrid * beatWidth;
     for (let x = 0; x <= width; x += gridStep) {
-      const beat = x / BEAT_W;
+      const beat = x / beatWidth;
       ctx.strokeStyle = beat % 4 === 0 ? "#353545" : "#242430";
       ctx.lineWidth = beat % 4 === 0 ? 1.5 : 1;
       ctx.beginPath();
@@ -232,7 +239,7 @@ export function PianoRollView({
   };
 
   const drawDuration = (startBeat: number, currentBeat: number) => {
-    const snapped = snapBeat(currentBeat, quantizeGrid);
+    const snapped = snap(currentBeat);
     const end = Math.max(startBeat + quantizeGrid, snapped);
     return Math.max(quantizeGrid, end - startBeat);
   };
@@ -248,6 +255,7 @@ export function PianoRollView({
         return;
       }
       if (!selectedNoteIds.has(hit.note.id)) onSelectNotes([hit.note.id]);
+      onEditStart?.();
       const { origins } = collectOrigins(hit.note.id);
       dragRef.current = {
         mode: hit.resize ? "resize" : "move",
@@ -264,7 +272,8 @@ export function PianoRollView({
     }
 
     onSelectNotes([]);
-    const snapped = Math.max(0, snapBeat(beat, quantizeGrid));
+    onEditStart?.();
+    const snapped = Math.max(0, snap(beat));
     const id = onCreateNote(pitch, snapped, quantizeGrid);
     if (!id) return;
     onSelectNotes([id]);
@@ -292,12 +301,12 @@ export function PianoRollView({
       return;
     }
 
-    const dx = (x - drag.startX) / BEAT_W;
+    const dx = (x - drag.startX) / beatWidth;
     const dy = Math.round((drag.startY - y) / ROW_H);
 
     if (drag.mode === "move") {
       const primary = drag.origins.get(drag.noteId)!;
-      const newStart = Math.max(0, snapBeat(primary.start + dx, quantizeGrid));
+      const newStart = Math.max(0, snap(primary.start + dx));
       const newPitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, primary.pitch + dy));
       const dBeat = newStart - primary.start;
       const dPitch = newPitch - primary.pitch;
@@ -305,7 +314,7 @@ export function PianoRollView({
         [...drag.origins.entries()].map(([id, o]) => ({
           noteId: id,
           patch: {
-            start: Math.max(0, snapBeat(o.start + dBeat, quantizeGrid)),
+            start: Math.max(0, snap(o.start + dBeat)),
             pitch: Math.max(PITCH_MIN, Math.min(PITCH_MAX, o.pitch + dPitch)),
           },
         }))
@@ -313,7 +322,7 @@ export function PianoRollView({
     } else if (drag.mode === "resize") {
       const origin = drag.origins.get(drag.noteId)!;
       scheduleDragUpdate([
-        { noteId: drag.noteId, patch: { duration: Math.max(MIN_DURATION, snapBeat(origin.duration + dx, quantizeGrid)) } },
+        { noteId: drag.noteId, patch: { duration: Math.max(MIN_DURATION, snap(origin.duration + dx)) } },
       ]);
     }
   };
@@ -354,7 +363,7 @@ export function PianoRollView({
     if (!playing) return;
     const el = gridScrollRef.current;
     if (!el) return;
-    const phx = playheadBeat * BEAT_W;
+    const phx = playheadBeat * beatWidth;
     const target = Math.max(0, phx - el.clientWidth / 2);
     if (Math.abs(el.scrollLeft - target) > 2) {
       syncScrollX(target);
@@ -381,6 +390,7 @@ export function PianoRollView({
       <BeatRuler
         rulerRef={rulerScrollRef}
         beatsVisible={beatsVisible}
+        beatWidth={beatWidth}
         loopStart={loopStart}
         loopEnd={loopEnd}
         loopEnabled={loopEnabled}
@@ -422,7 +432,7 @@ export function PianoRollView({
       </div>
       <div
         className={`roll-playhead${playing ? " roll-playhead--playing" : ""}`}
-        style={{ left: KEYBOARD_W + playheadBeat * BEAT_W - scrollLeft }}
+        style={{ left: KEYBOARD_W + playheadBeat * beatWidth - scrollLeft }}
         aria-hidden
       >
         <div className="roll-playhead__line" />

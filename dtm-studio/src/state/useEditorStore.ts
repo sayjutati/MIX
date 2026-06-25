@@ -1,13 +1,21 @@
 import { create } from "zustand";
+import type { MidiNote } from "../types/project";
 import type { QuantizeGrid } from "../utils/quantize";
 
 type EditorState = {
   quantizeGrid: QuantizeGrid;
   stepRecord: boolean;
-  /** ピアノロールに重ねて表示するトラック ID（編集トラック以外） */
+  snapEnabled: boolean;
+  beatZoom: number;
+  metronomeOn: boolean;
+  noteClipboard: MidiNote[] | null;
   overlayTrackIds: Set<string>;
   setQuantizeGrid: (grid: QuantizeGrid) => void;
   setStepRecord: (on: boolean) => void;
+  setSnapEnabled: (on: boolean) => void;
+  setBeatZoom: (zoom: number) => void;
+  setMetronomeOn: (on: boolean) => void;
+  setNoteClipboard: (notes: MidiNote[] | null) => void;
   toggleOverlayTrack: (trackId: string) => void;
   setOverlayTracks: (trackIds: string[]) => void;
   clearOverlayTracks: () => void;
@@ -16,10 +24,18 @@ type EditorState = {
 export const useEditorStore = create<EditorState>((set) => ({
   quantizeGrid: 0.25,
   stepRecord: true,
+  snapEnabled: true,
+  beatZoom: 1,
+  metronomeOn: false,
+  noteClipboard: null,
   overlayTrackIds: new Set(),
 
   setQuantizeGrid: (quantizeGrid) => set({ quantizeGrid }),
   setStepRecord: (stepRecord) => set({ stepRecord }),
+  setSnapEnabled: (snapEnabled) => set({ snapEnabled }),
+  setBeatZoom: (beatZoom) => set({ beatZoom: Math.max(0.5, Math.min(2, beatZoom)) }),
+  setMetronomeOn: (metronomeOn) => set({ metronomeOn }),
+  setNoteClipboard: (noteClipboard) => set({ noteClipboard }),
 
   toggleOverlayTrack: (trackId) =>
     set((s) => {

@@ -1,17 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { bindSchedulerProject, bindSchedulerTransport, scheduler } from "./audio/lookaheadScheduler";
 import { initAudioGraph } from "./audio/engine";
+import { playMetronomeClick } from "./audio/metronome";
 import { downloadBlob, encodeExport, safeFilename, type ExportFormat } from "./audio/export";
-import { normalizeBuffer, renderProjectOffline } from "./audio/offlineRender";
+import { normalizeBuffer, projectEndBeat, renderProjectOffline } from "./audio/offlineRender";
 import { GlobalTooltip } from "./components/GlobalTooltip";
 import { MixerPanel } from "./components/Mixer/MixerPanel";
+import { BEAT_W } from "./components/PianoRoll/pianoRollConstants";
 import { PianoRollView } from "./components/PianoRoll/PianoRollView";
 import { PianoRollToolbar } from "./components/PianoRoll/PianoRollToolbar";
 import { ProjectBrowser } from "./components/ProjectBrowser/ProjectBrowser";
 import { SynthPanel } from "./components/Synth/SynthPanel";
+import { AudioPanel } from "./components/AudioTrack/AudioPanel";
+import { AudioTrackView } from "./components/AudioTrack/AudioTrackView";
+import { FxPanel } from "./components/FxPanel/FxPanel";
 import { TrackList } from "./components/TrackList/TrackList";
 import { TransportBar } from "./components/Transport/TransportBar";
 import { useEditorStore } from "./state/useEditorStore";
+import { useHistoryStore } from "./state/useHistoryStore";
 import {
   useProjectStore,
   useSelectedNotes,
@@ -28,13 +34,21 @@ import {
 import { instrumentEngine } from "./audio/instrumentVoice";
 import { previewNote } from "./audio/previewNote";
 import type { Project, Track } from "./types/project";
+import { isAudioTrack, secToBeat } from "./types/project";
 import type { QuantizeGrid } from "./utils/quantize";
 import { snapBeat } from "./utils/quantize";
 import { pitchFromComputerKey } from "./utils/computerPiano";
 import { importMidiAsNewTrack, mergeMidiIntoProject, midiFilename, parseMidi, projectToMidi } from "./utils/midi";
+import {
+  cloneNotesForClipboard,
+  duplicateNotesInPlace,
+  nudgeNotePatch,
+  pasteNotesAt,
+} from "./utils/noteEdit";
+import { filterAudioFiles, importAudioFile, importRecordedBlob } from "./utils/audioImport";
+import { audioClipPlayer } from "./audio/audioClipPlayer";
 import "./index.css";
 
-const BEATS_VISIBLE = 32;
 const HELP_STORAGE_KEY = "dtm-help-on";
 
 export default function App() {
@@ -55,7 +69,18 @@ export default function App() {
   const setProjectName = useProjectStore((s) => s.setProjectName);
   const newProject = useProjectStore((s) => s.newProject);
   const addTrack = useProjectStore((s) => s.addTrack);
+  const addAudioTrack = useProjectStore((s) => s.addAudioTrack);
+  const addAudioClip = useProjectStore((s) => s.addAudioClip);
+  const removeAudioClip = useProjectStore((s) => s.removeAudioClip);
+  const updateAudioClip = useProjectStore((s) => s.updateAudioClip);
+  const updateTrackFx = useProjectStore((s) => s.updateTrackFx);
+  const addPluginSlot = useProjectStore((s) => s.addPluginSlot);
+  const removePluginSlot = useProjectStore((s) => s.removePluginSlot);
   const removeTrack = useProjectStore((s) => s.removeTrack);
+  const duplicateTrack = useProjectStore((s) => s.duplicateTrack);
+  const insertNotes = useProjectStore((s) => s.insertNotes);
+  const transposeNotes = useProjectStore((s) => s.transposeNotes);
+  const setMasterVolume = useProjectStore((s) => s.setMasterVolume);
   const updateTrack = useProjectStore((s) => s.updateTrack);
   const updateInstrumentForTrack = useProjectStore((s) => s.updateInstrumentForTrack);
   const touch = useProjectStore((s) => s.touch);
@@ -64,9 +89,24 @@ export default function App() {
   const setQuantizeGrid = useEditorStore((s) => s.setQuantizeGrid);
   const stepRecord = useEditorStore((s) => s.stepRecord);
   const setStepRecord = useEditorStore((s) => s.setStepRecord);
+  const snapEnabled = useEditorStore((s) => s.snapEnabled);
+  const setSnapEnabled = useEditorStore((s) => s.setSnapEnabled);
+  const beatZoom = useEditorStore((s) => s.beatZoom);
+  const setBeatZoom = useEditorStore((s) => s.setBeatZoom);
+  const metronomeOn = useEditorStore((s) => s.metronomeOn);
+  const setMetronomeOn = useEditorStore((s) => s.setMetronomeOn);
+  const noteClipboard = useEditorStore((s) => s.noteClipboard);
+  const setNoteClipboard = useEditorStore((s) => s.setNoteClipboard);
   const overlayTrackIds = useEditorStore((s) => s.overlayTrackIds);
   const toggleOverlayTrack = useEditorStore((s) => s.toggleOverlayTrack);
   const clearOverlayTracks = useEditorStore((s) => s.clearOverlayTracks);
+
+  const pushHistory = useHistoryStore((s) => s.pushHistory);
+  const undo = useHistoryStore((s) => s.undo);
+  const redo = useHistoryStore((s) => s.redo);
+  const clearHistory = useHistoryStore((s) => s.clear);
+  const canUndo = useHistoryStore((s) => s.undoStack.length > 0);
+  const canRedo = useHistoryStore((s) => s.redoStack.length > 0);
 
   const playing = useTransportStore((s) => s.playing);
   const playheadBeat = useTransportStore((s) => s.playheadBeat);
@@ -115,11 +155,64 @@ export default function App() {
   const [savedProjects, setSavedProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [activePitches, setActivePitches] = useState<Set<number>>(() => new Set());
+  const [recording, setRecording] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const computerKeysDown = useRef<Set<string>>(new Set());
   const keyRecordRef = useRef<Map<number, { id: string; t0: number }>>(new Map());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevTempo = useRef(project.tempo);
   const restored = useRef(false);
+  const lastMetBeat = useRef(-1);
+
+  const beatsVisible = useMemo(
+    () => Math.max(32, projectEndBeat(project) + 8),
+    [project]
+  );
+  const beatWidth = BEAT_W * beatZoom;
+  const trackIsAudio = track != null && isAudioTrack(track);
+
+  const ensureAudioTargetTrack = useCallback(() => {
+    const p = useProjectStore.getState().project;
+    const sel = useProjectStore.getState().selectedTrackId;
+    const current = p.tracks.find((t) => t.id === sel);
+    if (current && isAudioTrack(current)) return current.id;
+    addAudioTrack();
+    return useProjectStore.getState().selectedTrackId!;
+  }, [addAudioTrack]);
+
+  const handleImportAudioFiles = useCallback(
+    async (files: File[]) => {
+      const audioFiles = filterAudioFiles(files);
+      if (audioFiles.length === 0) return;
+      pushHistory();
+      const trackId = ensureAudioTargetTrack();
+      let beat = useTransportStore.getState().playheadBeat;
+      for (const file of audioFiles) {
+        const p = useProjectStore.getState().project;
+        const imported = await importAudioFile(p, file, beat);
+        addAudioClip(trackId, imported.clip);
+        beat += secToBeat(imported.durationSec, p.tempo) + 0.25;
+      }
+      touch();
+      audioClipPlayer.invalidateTracks();
+      if (useTransportStore.getState().playing) void scheduler.invalidatePending();
+    },
+    [pushHistory, ensureAudioTargetTrack, addAudioClip, touch]
+  );
+
+  const handleRecorded = useCallback(
+    async (blob: Blob, name: string) => {
+      pushHistory();
+      const trackId = ensureAudioTargetTrack();
+      const p = useProjectStore.getState().project;
+      const beat = useTransportStore.getState().playheadBeat;
+      const imported = await importRecordedBlob(p, blob, name, beat);
+      addAudioClip(trackId, imported.clip);
+      touch();
+      audioClipPlayer.invalidateTracks();
+    },
+    [pushHistory, ensureAudioTargetTrack, addAudioClip, touch]
+  );
 
   const flushSave = useCallback(async () => {
     if (saveTimer.current) {
@@ -130,7 +223,7 @@ export default function App() {
   }, []);
 
   const currentInstrument = useMemo(() => {
-    if (!track) return null;
+    if (!track || isAudioTrack(track)) return null;
     return project.instruments.find((i) => i.id === track.instrumentId) ?? null;
   }, [track, project.instruments]);
 
@@ -169,10 +262,11 @@ export default function App() {
     if (restored.current) return;
     restored.current = true;
     void loadLatestProject().then((p) => {
+      clearHistory();
       if (p) setProject(p);
       else if (project.tracks[0]) selectTrack(project.tracks[0].id);
     });
-  }, [setProject, selectTrack, project.tracks]);
+  }, [setProject, selectTrack, project.tracks, clearHistory]);
 
   useEffect(() => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -204,6 +298,18 @@ export default function App() {
     void scheduler.syncTempo();
   }, [project.tempo, playing]);
 
+  useEffect(() => {
+    if (!playing || !metronomeOn) {
+      lastMetBeat.current = -1;
+      return;
+    }
+    const beatInt = Math.floor(playheadBeat);
+    if (beatInt >= 0 && beatInt !== lastMetBeat.current) {
+      lastMetBeat.current = beatInt;
+      void playMetronomeClick(beatInt % 4 === 0);
+    }
+  }, [playing, metronomeOn, playheadBeat]);
+
   const handleStop = useCallback(async () => {
     await scheduler.stop();
     setPlaying(false);
@@ -229,7 +335,7 @@ export default function App() {
     setExporting(true);
     try {
       const p = useProjectStore.getState().project;
-      const buf = renderProjectOffline(p);
+      const buf = await renderProjectOffline(p);
       normalizeBuffer(buf);
       const { blob, extension } = encodeExport(buf, exportFormat);
       downloadBlob(blob, `${safeFilename(p.name)}.${extension}`);
@@ -298,11 +404,12 @@ export default function App() {
       await flushSave();
       const loaded = await loadProject(id);
       if (loaded) {
+        clearHistory();
         setProject(loaded);
         setProjectBrowserOpen(false);
       }
     },
-    [flushSave, setProject, handleStop]
+    [flushSave, setProject, handleStop, clearHistory]
   );
 
   const handleDeleteProject = useCallback(
@@ -327,11 +434,33 @@ export default function App() {
     if (useTransportStore.getState().playing) await handleStop();
     if (!confirm("新規プロジェクトを作成します。現在のプロジェクトは IndexedDB に保存済みです。")) return;
     await flushSave();
+    clearHistory();
     newProject();
     const t = useProjectStore.getState().project.tracks[0];
     if (t) selectTrack(t.id);
     void saveProject(useProjectStore.getState().project);
-  }, [newProject, selectTrack, handleStop, flushSave]);
+  }, [newProject, selectTrack, handleStop, flushSave, clearHistory]);
+
+  const handleEditStart = useCallback(() => {
+    pushHistory();
+  }, [pushHistory]);
+
+  const handleDuplicateTrack = useCallback(
+    (trackId: string) => {
+      pushHistory();
+      duplicateTrack(trackId);
+      touch();
+    },
+    [pushHistory, duplicateTrack, touch]
+  );
+
+  const handleMasterVolume = useCallback(
+    (v: number) => {
+      setMasterVolume(v);
+      if (useTransportStore.getState().playing) void scheduler.invalidatePending();
+    },
+    [setMasterVolume]
+  );
 
   const handleMixerUpdate = useCallback(
     (id: string, patch: Partial<Track>) => {
@@ -405,15 +534,66 @@ export default function App() {
 
   const handleDeleteSelected = useCallback(() => {
     if (!track || selectedNoteIds.size === 0) return;
+    pushHistory();
     removeNotes(track.id, [...selectedNoteIds]);
     touch();
-  }, [track, selectedNoteIds, removeNotes, touch]);
+  }, [track, selectedNoteIds, removeNotes, touch, pushHistory]);
 
   const handleQuantize = useCallback(() => {
     if (!track || selectedNoteIds.size === 0) return;
+    pushHistory();
     quantizeNotes(track.id, [...selectedNoteIds], quantizeGrid);
     touch();
-  }, [track, selectedNoteIds, quantizeGrid, quantizeNotes, touch]);
+  }, [track, selectedNoteIds, quantizeGrid, quantizeNotes, touch, pushHistory]);
+
+  const handleCopy = useCallback(() => {
+    if (selectedNotes.length === 0) return;
+    setNoteClipboard(cloneNotesForClipboard(selectedNotes));
+  }, [selectedNotes, setNoteClipboard]);
+
+  const handlePaste = useCallback(() => {
+    if (!track || !noteClipboard?.length) return;
+    pushHistory();
+    const notes = pasteNotesAt(noteClipboard, playheadBeat);
+    insertNotes(track.id, notes);
+    touch();
+  }, [track, noteClipboard, playheadBeat, pushHistory, insertNotes, touch]);
+
+  const handleDuplicateNotes = useCallback(() => {
+    if (!track || selectedNotes.length === 0) return;
+    pushHistory();
+    const notes = duplicateNotesInPlace(selectedNotes, quantizeGrid);
+    insertNotes(track.id, notes);
+    touch();
+  }, [track, selectedNotes, quantizeGrid, pushHistory, insertNotes, touch]);
+
+  const handleTranspose = useCallback(
+    (semitones: number) => {
+      if (!track || selectedNoteIds.size === 0) return;
+      pushHistory();
+      transposeNotes(track.id, [...selectedNoteIds], semitones);
+      touch();
+    },
+    [track, selectedNoteIds, pushHistory, transposeNotes, touch]
+  );
+
+  const handleSelectAll = useCallback(() => {
+    if (!track) return;
+    selectNotes(track.notes.map((n) => n.id));
+  }, [track, selectNotes]);
+
+  const handleNudge = useCallback(
+    (dBeat: number, dPitch: number) => {
+      if (!track || selectedNoteIds.size === 0) return;
+      pushHistory();
+      const updates = track.notes
+        .filter((n) => selectedNoteIds.has(n.id))
+        .map((n) => ({ noteId: n.id, patch: nudgeNotePatch(n, dBeat, dPitch) }));
+      updateNotes(track.id, updates);
+      touch();
+    },
+    [track, selectedNoteIds, pushHistory, updateNotes, touch]
+  );
 
   const handleVelocity = useCallback(
     (v: number) => {
@@ -426,6 +606,40 @@ export default function App() {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+
+      const mod = e.ctrlKey || e.metaKey;
+
+      if (mod && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+        return;
+      }
+      if (mod && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+        e.preventDefault();
+        redo();
+        return;
+      }
+      if (mod && e.key === "c") {
+        e.preventDefault();
+        handleCopy();
+        return;
+      }
+      if (mod && e.key === "v") {
+        e.preventDefault();
+        handlePaste();
+        return;
+      }
+      if (mod && e.key === "d") {
+        e.preventDefault();
+        handleDuplicateNotes();
+        return;
+      }
+      if (mod && e.key === "a") {
+        e.preventDefault();
+        handleSelectAll();
+        return;
+      }
+
       if (e.repeat) return;
 
       if (e.key === "Delete" || e.key === "Backspace") {
@@ -443,6 +657,39 @@ export default function App() {
         e.preventDefault();
         setLoopEnabled(!useTransportStore.getState().loopEnabled);
         return;
+      }
+      if (e.key === "m" || e.key === "M") {
+        e.preventDefault();
+        setMetronomeOn(!useEditorStore.getState().metronomeOn);
+        return;
+      }
+
+      if (selectedNoteIds.size > 0) {
+        if (e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+          e.preventDefault();
+          handleTranspose(e.key === "ArrowUp" ? 1 : -1);
+          return;
+        }
+        if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          handleNudge(-quantizeGrid, 0);
+          return;
+        }
+        if (e.key === "ArrowRight") {
+          e.preventDefault();
+          handleNudge(quantizeGrid, 0);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          handleNudge(0, 1);
+          return;
+        }
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          handleNudge(0, -1);
+          return;
+        }
       }
 
       const pitch = pitchFromComputerKey(e.code);
@@ -465,7 +712,25 @@ export default function App() {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [handleDeleteSelected, handlePlay, handleStop, playAndMaybeRecord, releasePitch, setLoopEnabled]);
+  }, [
+    handleDeleteSelected,
+    handlePlay,
+    handleStop,
+    playAndMaybeRecord,
+    releasePitch,
+    setLoopEnabled,
+    setMetronomeOn,
+    undo,
+    redo,
+    handleCopy,
+    handlePaste,
+    handleDuplicateNotes,
+    handleSelectAll,
+    handleTranspose,
+    handleNudge,
+    selectedNoteIds.size,
+    quantizeGrid,
+  ]);
 
   if (!track) {
     return <div className="app app--empty">トラックがありません</div>;
@@ -515,6 +780,8 @@ export default function App() {
         onLoopStartChange={(v) => setLoop(v, project.loopEnd)}
         onLoopEndChange={(v) => setLoop(project.loopStart, v)}
         onHelpToggle={toggleHelp}
+        metronomeOn={metronomeOn}
+        onMetronomeChange={setMetronomeOn}
       />
       <ProjectBrowser
         open={projectBrowserOpen}
@@ -525,7 +792,19 @@ export default function App() {
         onOpen={(id) => void handleOpenProject(id)}
         onDelete={(id) => void handleDeleteProject(id)}
       />
-      <div className="app__workspace">
+      <div
+        className={`app__workspace${dragOver ? " is-drag-over" : ""}`}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          void handleImportAudioFiles(Array.from(e.dataTransfer.files));
+        }}
+      >
         <TrackList
           tracks={project.tracks}
           instruments={project.instruments}
@@ -534,10 +813,46 @@ export default function App() {
           onSelect={selectTrack}
           onToggleOverlay={handleToggleOverlay}
           onAddTrack={addTrack}
+          onAddAudioTrack={addAudioTrack}
           onRemoveTrack={handleRemoveTrack}
+          onDuplicateTrack={handleDuplicateTrack}
           onUpdateTrack={handleMixerUpdate}
         />
-        <main className="piano-roll">
+        <main className={`piano-roll${trackIsAudio ? " piano-roll--audio" : ""}`}>
+          {trackIsAudio ? (
+            <>
+              <AudioPanel
+                recording={recording}
+                onRecordingChange={setRecording}
+                onImportFiles={(files) => void handleImportAudioFiles(files)}
+                onRecorded={(blob, name) => void handleRecorded(blob, name)}
+              />
+              <AudioTrackView
+                track={track}
+                tempo={project.tempo}
+                playheadBeat={playheadBeat}
+                playing={playing}
+                beatsVisible={beatsVisible}
+                beatWidth={beatWidth}
+                loopStart={project.loopStart}
+                loopEnd={project.loopEnd}
+                loopEnabled={loopEnabled}
+                onSeekBeat={(b) => void seekToBeat(b)}
+                onLoopChange={setLoop}
+                onUpdateClip={(clipId, patch) => {
+                  updateAudioClip(track.id, clipId, patch);
+                  touch();
+                }}
+                onRemoveClip={(clipId) => {
+                  pushHistory();
+                  removeAudioClip(track.id, clipId);
+                  touch();
+                }}
+                onEditStart={handleEditStart}
+              />
+            </>
+          ) : (
+            <>
           <PianoRollToolbar
             tracks={project.tracks}
             editTrackId={selectedTrackId}
@@ -545,6 +860,14 @@ export default function App() {
             onToggleOverlay={handleToggleOverlay}
             quantizeGrid={quantizeGrid}
             onQuantizeGridChange={(g) => setQuantizeGrid(g as QuantizeGrid)}
+            snapEnabled={snapEnabled}
+            onSnapChange={setSnapEnabled}
+            beatZoom={beatZoom}
+            onBeatZoomChange={setBeatZoom}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            onUndo={undo}
+            onRedo={redo}
             selectedCount={selectedNoteIds.size}
             velocity={avgVelocity}
             stepRecord={stepRecord}
@@ -552,6 +875,11 @@ export default function App() {
             onVelocityChange={handleVelocity}
             onQuantize={handleQuantize}
             onDelete={handleDeleteSelected}
+            onDuplicate={handleDuplicateNotes}
+            onCopy={handleCopy}
+            onPaste={handlePaste}
+            onTranspose={handleTranspose}
+            onSelectAll={handleSelectAll}
           />
           <PianoRollView
             editTrack={track}
@@ -561,11 +889,14 @@ export default function App() {
             loopStart={project.loopStart}
             loopEnd={project.loopEnd}
             loopEnabled={loopEnabled}
-            beatsVisible={BEATS_VISIBLE}
+            beatsVisible={beatsVisible}
+            beatWidth={beatWidth}
             quantizeGrid={quantizeGrid}
+            snapEnabled={snapEnabled}
             selectedNoteIds={selectedNoteIds}
             activePitches={activePitches}
             drumMode={drumMode}
+            onEditStart={handleEditStart}
             onCreateNote={handleCreateNote}
             onSelectNotes={selectNotes}
             onToggleNote={toggleNoteSelection}
@@ -575,8 +906,29 @@ export default function App() {
             onPianoKeyDown={playAndMaybeRecord}
             onPianoKeyUp={releasePitch}
           />
+            </>
+          )}
         </main>
-        {currentInstrument && (
+        {trackIsAudio ? (
+          <FxPanel
+            track={track}
+            onFxChange={(patch) => {
+              updateTrackFx(track.id, patch);
+              if (useTransportStore.getState().playing) void scheduler.invalidatePending();
+            }}
+            onAddPlugin={(slot) => {
+              pushHistory();
+              addPluginSlot(track.id, slot);
+              touch();
+            }}
+            onRemovePlugin={(slotId) => {
+              pushHistory();
+              removePluginSlot(track.id, slotId);
+              touch();
+            }}
+          />
+        ) : (
+        currentInstrument && (
           <SynthPanel
             params={currentInstrument.params}
             instrumentName={currentInstrument.name}
@@ -584,13 +936,16 @@ export default function App() {
             engine={currentInstrument.engine ?? "synth"}
             onChange={handleInstrumentChange}
           />
+        )
         )}
       </div>
       <MixerPanel
         tracks={project.tracks}
         selectedId={selectedTrackId}
+        masterVolume={project.masterVolume ?? 0.9}
         onSelect={selectTrack}
         onUpdate={handleMixerUpdate}
+        onMasterVolumeChange={handleMasterVolume}
       />
       </div>
     </>

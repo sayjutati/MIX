@@ -53,7 +53,7 @@ describe("offlineRender", () => {
     expect(ev[0].pitch).toBe(62);
   });
 
-  it("ノートありプロジェクトは無音でない WAV バッファになる", () => {
+  it("ノートありプロジェクトは無音でない WAV バッファになる", async () => {
     const p = makeProject({
       tracks: [
         makeTrack({
@@ -64,7 +64,7 @@ describe("offlineRender", () => {
         }),
       ],
     });
-    const buf = renderProjectOffline(p, { tailSec: 0.2 });
+    const buf = await renderProjectOffline(p, { tailSec: 0.2 });
     expect(buf.length).toBeGreaterThan(1000);
     expect(bufferPeak(buf)).toBeGreaterThan(0.01);
   });
