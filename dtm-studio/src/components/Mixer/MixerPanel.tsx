@@ -29,17 +29,21 @@ export function MixerPanel({
 
   return (
     <footer className="mixer">
-      <div className="mixer__master tooltip" data-tooltip="全体の出力音量">
-        <span className="mixer__label">マスター</span>
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.01}
-          value={masterVolume}
-          onChange={(e) => onMasterVolumeChange(Number(e.target.value))}
-        />
-        <span className="mixer__val">{Math.round(masterVolume * 100)}%</span>
+      <div className="mixer__master tooltip" data-tooltip="マスター出力">
+        <span className="mixer__label">MST</span>
+        <div className="mixer__fader-v">
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={masterVolume}
+            className="mixer__fader-v-input"
+            onChange={(e) => onMasterVolumeChange(Number(e.target.value))}
+            aria-label="マスター音量"
+          />
+        </div>
+        <span className="mixer__val">{Math.round(masterVolume * 100)}</span>
       </div>
       <div className="mixer__strips">
         {tracks.map((t) => (
@@ -52,21 +56,23 @@ export function MixerPanel({
             <div className="mixer__strip-name" style={{ borderColor: t.color }}>
               {t.name}
             </div>
-            <label className="mixer__fader tooltip" data-tooltip="トラック音量">
-              <span>音量</span>
+            <div className="mixer__meter" aria-hidden>
+              <div className="mixer__meter-fill" style={{ height: `${Math.round(t.volume * 100)}%` }} />
+            </div>
+            <div className="mixer__fader-v">
               <input
                 type="range"
                 min={0}
                 max={1}
                 step={0.01}
                 value={t.volume}
+                className="mixer__fader-v-input"
                 onChange={(e) => onUpdate(t.id, { volume: Number(e.target.value) })}
                 onClick={(e) => e.stopPropagation()}
+                aria-label={`${t.name} 音量`}
               />
-              <span className="mixer__val">{Math.round(t.volume * 100)}%</span>
-            </label>
-            <label className="mixer__fader mixer__fader--pan tooltip" data-tooltip="左右の定位（L〜R）">
-              <span>パン</span>
+            </div>
+            <label className="mixer__pan-row" onClick={(e) => e.stopPropagation()}>
               <input
                 type="range"
                 min={-1}
@@ -74,14 +80,14 @@ export function MixerPanel({
                 step={0.01}
                 value={t.pan}
                 onChange={(e) => onUpdate(t.id, { pan: Number(e.target.value) })}
-                onClick={(e) => e.stopPropagation()}
+                aria-label={`${t.name} パン`}
               />
             </label>
             <div className="mixer__buttons">
               <button
                 type="button"
                 className={`mixer__btn tooltip${t.muted ? " is-on" : ""}`}
-                data-tooltip="ミュート：このトラックの音を消す"
+                data-tooltip="ミュート"
                 onClick={(e) => {
                   e.stopPropagation();
                   onUpdate(t.id, { muted: !t.muted });
@@ -92,7 +98,7 @@ export function MixerPanel({
               <button
                 type="button"
                 className={`mixer__btn mixer__btn--solo tooltip${t.solo ? " is-on" : ""}`}
-                data-tooltip="ソロ：このトラックだけ聴く"
+                data-tooltip="ソロ"
                 onClick={(e) => {
                   e.stopPropagation();
                   toggleSolo(t);

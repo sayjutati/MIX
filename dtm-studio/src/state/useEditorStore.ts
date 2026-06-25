@@ -2,11 +2,15 @@ import { create } from "zustand";
 import type { MidiNote } from "../types/project";
 import type { QuantizeGrid } from "../utils/quantize";
 
+export type ToolMode = "select" | "draw";
+
 type EditorState = {
   quantizeGrid: QuantizeGrid;
   stepRecord: boolean;
   snapEnabled: boolean;
   beatZoom: number;
+  pitchZoom: number;
+  toolMode: ToolMode;
   metronomeOn: boolean;
   noteClipboard: MidiNote[] | null;
   overlayTrackIds: Set<string>;
@@ -14,6 +18,8 @@ type EditorState = {
   setStepRecord: (on: boolean) => void;
   setSnapEnabled: (on: boolean) => void;
   setBeatZoom: (zoom: number) => void;
+  setPitchZoom: (zoom: number) => void;
+  setToolMode: (mode: ToolMode) => void;
   setMetronomeOn: (on: boolean) => void;
   setNoteClipboard: (notes: MidiNote[] | null) => void;
   toggleOverlayTrack: (trackId: string) => void;
@@ -26,6 +32,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   stepRecord: true,
   snapEnabled: true,
   beatZoom: 1,
+  pitchZoom: 1,
+  toolMode: "select",
   metronomeOn: false,
   noteClipboard: null,
   overlayTrackIds: new Set(),
@@ -33,7 +41,9 @@ export const useEditorStore = create<EditorState>((set) => ({
   setQuantizeGrid: (quantizeGrid) => set({ quantizeGrid }),
   setStepRecord: (stepRecord) => set({ stepRecord }),
   setSnapEnabled: (snapEnabled) => set({ snapEnabled }),
-  setBeatZoom: (beatZoom) => set({ beatZoom: Math.max(0.5, Math.min(2, beatZoom)) }),
+  setBeatZoom: (beatZoom) => set({ beatZoom: Math.max(0.5, Math.min(2.5, beatZoom)) }),
+  setPitchZoom: (pitchZoom) => set({ pitchZoom: Math.max(0.6, Math.min(2, pitchZoom)) }),
+  setToolMode: (toolMode) => set({ toolMode }),
   setMetronomeOn: (metronomeOn) => set({ metronomeOn }),
   setNoteClipboard: (noteClipboard) => set({ noteClipboard }),
 

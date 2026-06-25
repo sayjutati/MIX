@@ -1,63 +1,29 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  createMicStream,
-  listMicDevices,
-  recordToBlob,
-} from "../../audio/recording";
+import { useEffect, useState } from "react";
+import { listMicDevices } from "../../audio/recording";
 
 type Props = {
   recording: boolean;
-  onRecordingChange: (v: boolean) => void;
+  deviceId: string;
+  onDeviceIdChange: (id: string) => void;
   onImportFiles: (files: File[]) => void;
-  onRecorded: (blob: Blob, name: string) => void;
+  onStartRecord: () => void;
+  onStopRecord: () => void;
 };
 
 export function AudioPanel({
   recording,
-  onRecordingChange,
+  deviceId,
+  onDeviceIdChange,
   onImportFiles,
-  onRecorded,
+  onStartRecord,
+  onStopRecord,
 }: Props) {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-  const [deviceId, setDeviceId] = useState("");
-  const streamRef = useRef<MediaStream | null>(null);
-  const recordPromiseRef = useRef<Promise<Blob> | null>(null);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     void listMicDevices().then(setDevices);
   }, []);
-
-  const stopStream = useCallback(() => {
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-  }, []);
-
-  const startRecording = useCallback(async () => {
-    try {
-      const stream = await createMicStream(deviceId || undefined);
-      streamRef.current = stream;
-      recordPromiseRef.current = recordToBlob(stream);
-      onRecordingChange(true);
-    } catch {
-      alert("マイクへのアクセスが拒否されました。ブラウザの権限を確認してください。");
-    }
-  }, [deviceId, onRecordingChange]);
-
-  const stopRecording = useCallback(async () => {
-    stopStream();
-    onRecordingChange(false);
-    const task = recordPromiseRef.current;
-    recordPromiseRef.current = null;
-    if (!task) return;
-    try {
-      const blob = await task;
-      if (blob.size > 0) {
-        onRecorded(blob, `録音 ${new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}`);
-      }
-    } catch {
-      alert("録音の保存に失敗しました。");
-    }
-  }, [onRecordingChange, onRecorded, stopStream]);
 
   return (
     <div className="audio-panel">
@@ -76,9 +42,9 @@ export function AudioPanel({
             }}
           />
         </label>
-        <label className="audio-panel__device tooltip" data-tooltip="録音入力デバイス（マイク・外部音源）">
+        <label className="audio-panel__device tooltip" data-tooltip="録音入力（マイク・外部音源）">
           入力
-          <select value={deviceId} onChange={(e) => setDeviceId(e.target.value)}>
+          <select value={deviceId} onChange={(e) => onDeviceIdChange(e.target.value)}>
             <option value="">デフォルト</option>
             {devices.map((d) => (
               <option key={d.deviceId} value={d.deviceId}>
@@ -91,24 +57,27 @@ export function AudioPanel({
           <button
             type="button"
             className="audio-panel__rec tooltip"
-            data-tooltip="再生位置から録音（マイク / ライン入力）"
-            onClick={() => void startRecording()}
+            data-tooltip="再生位置から録音（R キー / トランスポートの ●）"
+            onClick={() => {
+              setError("");
+              onStartRecord();
+            }}
           >
             ● 録音
           </button>
         ) : (
           <button
             type="button"
-            className="audio-panel__rec audio-panel__rec--on tooltip"
-            data-tooltip="録音停止してクリップに追加"
-            onClick={() => void stopRecording()}
+            className="audio-panel__rec audio-panel__rec--on"
+            onClick={onStopRecord}
           >
             ■ 停止
           </button>
         )}
       </div>
+      {error && <p className="audio-panel__error">{error}</p>}
       <p className="audio-panel__hint">
-        ドラッグ＆ドロップでも取込可 · 外部 AudioWorklet（.js）プラグインは右の FX パネルから
+        上へドラッグ＆ドロップ · タイムラインでクリップを移動 · 右クリックで削除
       </p>
     </div>
   );

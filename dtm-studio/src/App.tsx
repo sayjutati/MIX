@@ -4,6 +4,11 @@ import { initAudioGraph } from "./audio/engine";
 import { playMetronomeClick } from "./audio/metronome";
 import { downloadBlob, encodeExport, safeFilename, type ExportFormat } from "./audio/export";
 import { normalizeBuffer, projectEndBeat, renderProjectOffline } from "./audio/offlineRender";
+import { ArrangementView } from "./components/Arrangement/ArrangementView";
+import { ResizablePanel } from "./components/ResizablePanel";
+import { ShortcutHelp } from "./components/ShortcutHelp";
+import type { SaveStatus } from "./components/Transport/TransportBar";
+import { createMicStream, recordToBlob } from "./audio/recording";
 import { GlobalTooltip } from "./components/GlobalTooltip";
 import { MixerPanel } from "./components/Mixer/MixerPanel";
 import { BEAT_W } from "./components/PianoRoll/pianoRollConstants";
@@ -93,6 +98,10 @@ export default function App() {
   const setSnapEnabled = useEditorStore((s) => s.setSnapEnabled);
   const beatZoom = useEditorStore((s) => s.beatZoom);
   const setBeatZoom = useEditorStore((s) => s.setBeatZoom);
+  const pitchZoom = useEditorStore((s) => s.pitchZoom);
+  const setPitchZoom = useEditorStore((s) => s.setPitchZoom);
+  const toolMode = useEditorStore((s) => s.toolMode);
+  const setToolMode = useEditorStore((s) => s.setToolMode);
   const metronomeOn = useEditorStore((s) => s.metronomeOn);
   const setMetronomeOn = useEditorStore((s) => s.setMetronomeOn);
   const noteClipboard = useEditorStore((s) => s.noteClipboard);
@@ -157,6 +166,13 @@ export default function App() {
   const [activePitches, setActivePitches] = useState<Set<number>>(() => new Set());
   const [recording, setRecording] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const [trackListW, setTrackListW] = useState(240);
+  const [sidePanelW, setSidePanelW] = useState(220);
+  const [micDeviceId, setMicDeviceId] = useState("");
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const recordTaskRef = useRef<Promise<Blob> | null>(null);
   const computerKeysDown = useRef<Set<string>>(new Set());
   const keyRecordRef = useRef<Map<number, { id: string; t0: number }>>(new Map());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -214,6 +230,42 @@ export default function App() {
     [pushHistory, ensureAudioTargetTrack, addAudioClip, touch]
   );
 
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await createMicStream(micDeviceId || undefined);
+      micStreamRef.current = stream;
+      recordTaskRef.current = recordToBlob(stream);
+      setRecording(true);
+    } catch {
+      alert("マイクへのアクセスが拒否されました。");
+    }
+  }, [micDeviceId]);
+
+  const stopRecording = useCallback(async () => {
+    micStreamRef.current?.getTracks().forEach((t) => t.stop());
+    micStreamRef.current = null;
+    setRecording(false);
+    const task = recordTaskRef.current;
+    recordTaskRef.current = null;
+    if (!task) return;
+    try {
+      const blob = await task;
+      if (blob.size > 0) {
+        await handleRecorded(
+          blob,
+          `録音 ${new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}`
+        );
+      }
+    } catch {
+      alert("録音の保存に失敗しました。");
+    }
+  }, [handleRecorded]);
+
+  const handleRecordToggle = useCallback(() => {
+    if (recording) void stopRecording();
+    else void startRecording();
+  }, [recording, startRecording, stopRecording]);
+
   const flushSave = useCallback(async () => {
     if (saveTimer.current) {
       clearTimeout(saveTimer.current);
@@ -269,9 +321,13 @@ export default function App() {
   }, [setProject, selectTrack, project.tracks, clearHistory]);
 
   useEffect(() => {
+    setSaveStatus("saving");
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      void saveProject(useProjectStore.getState().project);
+      void saveProject(useProjectStore.getState().project).then(() => {
+        setSaveStatus("saved");
+        setTimeout(() => setSaveStatus("idle"), 2000);
+      });
     }, 3000);
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -663,8 +719,28 @@ export default function App() {
         setMetronomeOn(!useEditorStore.getState().metronomeOn);
         return;
       }
+      if (e.key === "r" || e.key === "R") {
+        e.preventDefault();
+        handleRecordToggle();
+        return;
+      }
+      if (e.key === "1") {
+        e.preventDefault();
+        setToolMode("select");
+        return;
+      }
+      if (e.key === "2") {
+        e.preventDefault();
+        setToolMode("draw");
+        return;
+      }
+      if (e.key === "?" || (e.shiftKey && e.key === "/")) {
+        e.preventDefault();
+        setShortcutsOpen(true);
+        return;
+      }
 
-      if (selectedNoteIds.size > 0) {
+      if (selectedNoteIds.size > 0 && !trackIsAudio) {
         if (e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
           e.preventDefault();
           handleTranspose(e.key === "ArrowUp" ? 1 : -1);
@@ -720,6 +796,8 @@ export default function App() {
     releasePitch,
     setLoopEnabled,
     setMetronomeOn,
+    setToolMode,
+    handleRecordToggle,
     undo,
     redo,
     handleCopy,
@@ -730,6 +808,7 @@ export default function App() {
     handleNudge,
     selectedNoteIds.size,
     quantizeGrid,
+    trackIsAudio,
   ]);
 
   if (!track) {
@@ -751,13 +830,16 @@ export default function App() {
   return (
     <>
       <GlobalTooltip enabled={helpOn} />
+      <ShortcutHelp open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <div className="app">
       <TransportBar
         projectName={project.name}
         playing={playing}
+        recording={recording}
         exporting={exporting}
         exportFormat={exportFormat}
         helpOn={helpOn}
+        saveStatus={saveStatus}
         tempo={project.tempo}
         playheadBeat={playheadBeat}
         loopEnabled={loopEnabled}
@@ -780,6 +862,8 @@ export default function App() {
         onLoopStartChange={(v) => setLoop(v, project.loopEnd)}
         onLoopEndChange={(v) => setLoop(project.loopStart, v)}
         onHelpToggle={toggleHelp}
+        onShortcutsOpen={() => setShortcutsOpen(true)}
+        onRecordToggle={handleRecordToggle}
         metronomeOn={metronomeOn}
         onMetronomeChange={setMetronomeOn}
       />
@@ -805,6 +889,7 @@ export default function App() {
           void handleImportAudioFiles(Array.from(e.dataTransfer.files));
         }}
       >
+        <aside className="track-list" style={{ width: trackListW }}>
         <TrackList
           tracks={project.tracks}
           instruments={project.instruments}
@@ -818,14 +903,29 @@ export default function App() {
           onDuplicateTrack={handleDuplicateTrack}
           onUpdateTrack={handleMixerUpdate}
         />
+        </aside>
+        <ResizablePanel side="left" width={trackListW} onWidthChange={setTrackListW} />
+        <div className="editor-stack">
+          <ArrangementView
+            project={project}
+            selectedTrackId={selectedTrackId}
+            playheadBeat={playheadBeat}
+            playing={playing}
+            beatsVisible={beatsVisible}
+            beatWidth={beatWidth}
+            onSelectTrack={selectTrack}
+            onSeekBeat={(b) => void seekToBeat(b)}
+          />
         <main className={`piano-roll${trackIsAudio ? " piano-roll--audio" : ""}`}>
           {trackIsAudio ? (
             <>
               <AudioPanel
                 recording={recording}
-                onRecordingChange={setRecording}
+                deviceId={micDeviceId}
+                onDeviceIdChange={setMicDeviceId}
                 onImportFiles={(files) => void handleImportAudioFiles(files)}
-                onRecorded={(blob, name) => void handleRecorded(blob, name)}
+                onStartRecord={() => void startRecording()}
+                onStopRecord={() => void stopRecording()}
               />
               <AudioTrackView
                 track={track}
@@ -858,12 +958,16 @@ export default function App() {
             editTrackId={selectedTrackId}
             overlayTrackIds={overlayTrackIds}
             onToggleOverlay={handleToggleOverlay}
+            toolMode={toolMode}
+            onToolModeChange={setToolMode}
             quantizeGrid={quantizeGrid}
             onQuantizeGridChange={(g) => setQuantizeGrid(g as QuantizeGrid)}
             snapEnabled={snapEnabled}
             onSnapChange={setSnapEnabled}
             beatZoom={beatZoom}
             onBeatZoomChange={setBeatZoom}
+            pitchZoom={pitchZoom}
+            onPitchZoomChange={setPitchZoom}
             canUndo={canUndo}
             canRedo={canRedo}
             onUndo={undo}
@@ -893,6 +997,8 @@ export default function App() {
             beatWidth={beatWidth}
             quantizeGrid={quantizeGrid}
             snapEnabled={snapEnabled}
+            toolMode={toolMode}
+            pitchZoom={pitchZoom}
             selectedNoteIds={selectedNoteIds}
             activePitches={activePitches}
             drumMode={drumMode}
@@ -909,6 +1015,9 @@ export default function App() {
             </>
           )}
         </main>
+        </div>
+        <ResizablePanel side="right" width={sidePanelW} onWidthChange={setSidePanelW} />
+        <div className="side-panel" style={{ width: sidePanelW }}>
         {trackIsAudio ? (
           <FxPanel
             track={track}
@@ -938,6 +1047,7 @@ export default function App() {
           />
         )
         )}
+        </div>
       </div>
       <MixerPanel
         tracks={project.tracks}

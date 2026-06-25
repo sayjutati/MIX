@@ -1,13 +1,18 @@
 import { useState } from "react";
 import type { ExportFormat } from "../../audio/export";
-import { beatToDisplaySec, formatBeatPosition, formatTime, secToBeat } from "../../utils/time";
+import { beatToDisplaySec, formatBeatPosition, formatTime, parseBeatPosition, secToBeat } from "../../utils/time";
+import { IconLoop, IconMetronome, IconPlay, IconRecord, IconRewind, IconStop } from "./TransportIcons";
+
+export type SaveStatus = "idle" | "saving" | "saved";
 
 type Props = {
   projectName: string;
   playing: boolean;
+  recording: boolean;
   exporting: boolean;
   exportFormat: ExportFormat;
   helpOn: boolean;
+  saveStatus: SaveStatus;
   tempo: number;
   playheadBeat: number;
   loopEnabled: boolean;
@@ -30,6 +35,8 @@ type Props = {
   onLoopStartChange: (v: number) => void;
   onLoopEndChange: (v: number) => void;
   onHelpToggle: () => void;
+  onShortcutsOpen: () => void;
+  onRecordToggle: () => void;
   metronomeOn: boolean;
   onMetronomeChange: (v: boolean) => void;
 };
@@ -37,9 +44,11 @@ type Props = {
 export function TransportBar({
   projectName,
   playing,
+  recording,
   exporting,
   exportFormat,
   helpOn,
+  saveStatus,
   tempo,
   playheadBeat,
   loopEnabled,
@@ -62,6 +71,8 @@ export function TransportBar({
   onLoopStartChange,
   onLoopEndChange,
   onHelpToggle,
+  onShortcutsOpen,
+  onRecordToggle,
   metronomeOn,
   onMetronomeChange,
 }: Props) {
@@ -90,15 +101,13 @@ export function TransportBar({
         >
           一覧
         </button>
-        <button
-          type="button"
-          className="btn btn--ghost tooltip"
-          data-tooltip="新しいプロジェクトを作成（現在の内容は保存済み）"
-          onClick={onNewProject}
-        >
+        <button type="button" className="btn btn--ghost tooltip" data-tooltip="新規プロジェクト" onClick={onNewProject}>
           新規
         </button>
-        <div className="toolbar__divider" />
+        <span className={`toolbar__save-status toolbar__save-status--${saveStatus}`}>
+          {saveStatus === "saving" ? "保存中…" : saveStatus === "saved" ? "保存済み" : ""}
+        </span>
+        <div className="toolbar__divider toolbar__divider--export" />
         <select
           className="toolbar__format tooltip"
           data-tooltip="書き出し形式（WAV=無圧縮 / MP3=配布向け）"
@@ -144,37 +153,32 @@ export function TransportBar({
         </label>
       </div>
 
-      <div className="transport">
+      <div className="transport transport--core">
+        <button type="button" className="transport__btn-ghost tooltip" data-tooltip="最初に戻る" onClick={() => onSeekBeat(0)} aria-label="最初に戻る">
+          <IconRewind />
+        </button>
         <button
           type="button"
-          className="transport__btn-ghost tooltip"
-          data-tooltip="最初に戻る"
-          onClick={() => onSeekBeat(0)}
-          aria-label="最初に戻る"
+          className={`transport__btn-play tooltip${playing ? " is-active" : ""}`}
+          data-tooltip="再生（Space）"
+          onClick={onPlay}
+          disabled={playing}
+          aria-label="再生"
         >
-          ⏮
+          <IconPlay />
         </button>
-        {playing ? (
-          <button
-            type="button"
-            className="transport__btn-stop tooltip"
-            data-tooltip="停止（Space）"
-            onClick={onStop}
-            aria-label="停止"
-          >
-            ■
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="transport__btn-play tooltip"
-            data-tooltip="再生（Space）"
-            onClick={onPlay}
-            aria-label="再生"
-          >
-            ▶
-          </button>
-        )}
+        <button type="button" className="transport__btn-stop tooltip" data-tooltip="停止（Space）" onClick={onStop} aria-label="停止">
+          <IconStop />
+        </button>
+        <button
+          type="button"
+          className={`transport__btn-record tooltip${recording ? " is-recording" : ""}`}
+          data-tooltip="録音（R）— オーディオトラック"
+          onClick={onRecordToggle}
+          aria-label="録音"
+        >
+          <IconRecord />
+        </button>
         <TransportTime
           playing={playing}
           tempo={tempo}
@@ -202,7 +206,7 @@ export function TransportBar({
           onClick={() => onLoopEnabledChange(!loopEnabled)}
           aria-label="ループ"
         >
-          🔁
+          <IconLoop />
         </button>
         <button
           type="button"
@@ -254,11 +258,14 @@ export function TransportBar({
           onClick={() => onMetronomeChange(!metronomeOn)}
           aria-label="メトロノーム"
         >
-          ♩
+          <IconMetronome />
         </button>
       </div>
 
       <div className="toolbar__right">
+        <button type="button" className="toolbar__icon tooltip" data-tooltip="ショートカット一覧" onClick={onShortcutsOpen} aria-label="ショートカット">
+          ⌨
+        </button>
         <button
           type="button"
           className={`toolbar__icon tooltip${showBarsBeats ? " toolbar__icon--on" : ""}`}
@@ -270,7 +277,7 @@ export function TransportBar({
         >
           ⏱
         </button>
-        <span className="toolbar__hint">Space = 再生/停止</span>
+        <span className="toolbar__hint">Space · 1/2 ツール · ? ヘルプ</span>
         <div className="toolbar__divider" />
         <button
           type="button"
@@ -309,17 +316,21 @@ function TransportTime({
 
   if (editing && !playing) {
     return (
-      <div className="transport__time tooltip" data-tooltip="秒数を入力して Enter">
+      <div className="transport__time tooltip" data-tooltip={showBarsBeats ? "小節.拍.補助（例 3.2.1）" : "秒数入力"}>
         <input
-          type="number"
-          step={0.1}
-          min={0}
-          defaultValue={displaySec.toFixed(1)}
+          type="text"
+          inputMode={showBarsBeats ? "text" : "decimal"}
+          defaultValue={showBarsBeats ? timeLabel : displaySec.toFixed(1)}
           autoFocus
           onBlur={(e) => {
             setEditing(false);
-            const v = parseFloat(e.currentTarget.value);
-            if (!Number.isNaN(v)) onSeekBeat(secToBeat(Math.max(0, v), tempo));
+            if (showBarsBeats) {
+              const beat = parseBeatPosition(e.currentTarget.value);
+              if (beat != null) onSeekBeat(beat);
+            } else {
+              const v = parseFloat(e.currentTarget.value);
+              if (!Number.isNaN(v)) onSeekBeat(secToBeat(Math.max(0, v), tempo));
+            }
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter") e.currentTarget.blur();

@@ -166,7 +166,7 @@ export function AudioTrackView({
             })}
             {(track.clips ?? []).length === 0 && (
               <p className="audio-track-view__empty">
-                音声ファイルをドロップするか、下のパネルから取り込み・録音してください
+                音声をドロップするか、上のパネルから取り込み・録音してください
               </p>
             )}
           </div>

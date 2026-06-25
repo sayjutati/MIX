@@ -23,12 +23,24 @@ export function GlobalTooltip({ enabled }: { enabled: boolean }) {
       setTarget(null);
       return;
     }
+    let showTimer: ReturnType<typeof setTimeout> | null = null;
     const open = (el: EventTarget | null) => {
       const t = closestTip(el);
-      if (t) setTarget({ text: t.getAttribute("data-tooltip")!, rect: t.getBoundingClientRect() });
+      if (!t) return;
+      if (showTimer) clearTimeout(showTimer);
+      showTimer = setTimeout(() => {
+        setTarget({ text: t.getAttribute("data-tooltip")!, rect: t.getBoundingClientRect() });
+      }, 420);
+    };
+    const cancelOpen = () => {
+      if (showTimer) {
+        clearTimeout(showTimer);
+        showTimer = null;
+      }
     };
     const onOver = (e: MouseEvent) => open(e.target);
     const onOut = (e: MouseEvent) => {
+      cancelOpen();
       const t = closestTip(e.target);
       const related = closestTip(e.relatedTarget);
       if (t && related !== t) setTarget(null);
@@ -43,15 +55,14 @@ export function GlobalTooltip({ enabled }: { enabled: boolean }) {
     document.addEventListener("focusout", onFocusOut, true);
     window.addEventListener("scroll", dismiss, true);
     window.addEventListener("resize", dismiss);
-    window.addEventListener("mousedown", dismiss, true);
     return () => {
+      cancelOpen();
       document.removeEventListener("mouseover", onOver, true);
       document.removeEventListener("mouseout", onOut, true);
       document.removeEventListener("focusin", onFocusIn, true);
       document.removeEventListener("focusout", onFocusOut, true);
       window.removeEventListener("scroll", dismiss, true);
       window.removeEventListener("resize", dismiss);
-      window.removeEventListener("mousedown", dismiss, true);
     };
   }, [enabled]);
 

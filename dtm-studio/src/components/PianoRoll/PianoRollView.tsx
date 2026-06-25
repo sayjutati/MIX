@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ToolMode } from "../../state/useEditorStore";
 import type { MidiNote, Track } from "../../types/project";
 import { maybeSnapBeat } from "../../utils/quantize";
 import { pitchJaRangeLabel } from "../../utils/pitchLabel";
@@ -16,7 +17,7 @@ import {
   isBlackKey,
 } from "./pianoRollConstants";
 
-type DragMode = "move" | "resize" | "draw" | null;
+type DragMode = "move" | "resize" | "draw" | "marquee" | null;
 
 type Props = {
   editTrack: Track;
@@ -30,6 +31,8 @@ type Props = {
   beatWidth: number;
   quantizeGrid: number;
   snapEnabled: boolean;
+  toolMode: ToolMode;
+  pitchZoom: number;
   selectedNoteIds: Set<string>;
   activePitches: Set<number>;
   drumMode?: boolean;
@@ -56,6 +59,8 @@ export function PianoRollView({
   beatWidth,
   quantizeGrid,
   snapEnabled,
+  toolMode,
+  pitchZoom,
   selectedNoteIds,
   activePitches,
   drumMode = false,
@@ -74,6 +79,9 @@ export function PianoRollView({
   const keysScrollRef = useRef<HTMLDivElement>(null);
   const rulerScrollRef = useRef<HTMLDivElement>(null);
   const [scrollLeft, setScrollLeft] = useState(0);
+  const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(
+    null
+  );
   const dragRef = useRef<{
     mode: DragMode;
     noteId: string;
@@ -88,16 +96,17 @@ export function PianoRollView({
   const dragRaf = useRef(0);
 
   const width = beatsVisible * beatWidth;
+  const rowH = ROW_H * pitchZoom;
   const snap = (beat: number) => maybeSnapBeat(beat, quantizeGrid, snapEnabled);
-  const height = PITCH_COUNT * ROW_H;
+  const height = PITCH_COUNT * rowH;
 
   const noteRect = (note: MidiNote) => {
     const row = PITCH_MAX - note.pitch;
     return {
       x: note.start * beatWidth + 1,
-      y: row * ROW_H + 1,
+      y: row * rowH + 1,
       w: Math.max(beatWidth * note.duration - 2, 4),
-      h: ROW_H - 2,
+      h: rowH - 2,
     };
   };
 
@@ -107,7 +116,7 @@ export function PianoRollView({
     const x = clientX - rect.left;
     const y = clientY - rect.top;
     const beat = x / beatWidth;
-    const pitchRow = Math.floor(y / ROW_H);
+    const pitchRow = Math.floor(y / rowH);
     const pitch = PITCH_MAX - pitchRow;
     return { beat, pitch, x, y };
   };
@@ -138,9 +147,9 @@ export function PianoRollView({
 
     for (let p = 0; p < PITCH_COUNT; p++) {
       const pitch = PITCH_MAX - p;
-      const y = p * ROW_H;
+      const y = p * rowH;
       ctx.fillStyle = isBlackKey(pitch) ? "#12121a" : "#18181f";
-      ctx.fillRect(0, y, width, ROW_H);
+      ctx.fillRect(0, y, width, rowH);
     }
 
     ctx.fillStyle = "rgba(52, 211, 153, 0.07)";
@@ -162,7 +171,7 @@ export function PianoRollView({
       ctx.stroke();
     }
     for (let p = 0; p <= PITCH_COUNT; p++) {
-      const y = p * ROW_H;
+      const y = p * rowH;
       ctx.strokeStyle = "#1e1e28";
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -199,7 +208,19 @@ export function PianoRollView({
         ctx.fillRect(r.x + r.w - RESIZE_HANDLE, r.y, RESIZE_HANDLE, r.h);
       }
     }
-  }, [editTrack.notes, editTrack.color, overlayTracks, loopStart, loopEnd, loopEnabled, width, height, selectedNoteIds, quantizeGrid]);
+
+    if (marquee) {
+      const mx = Math.min(marquee.x0, marquee.x1);
+      const my = Math.min(marquee.y0, marquee.y1);
+      const mw = Math.abs(marquee.x1 - marquee.x0);
+      const mh = Math.abs(marquee.y1 - marquee.y0);
+      ctx.fillStyle = "rgba(79, 140, 247, 0.12)";
+      ctx.strokeStyle = "rgba(79, 140, 247, 0.85)";
+      ctx.lineWidth = 1;
+      ctx.fillRect(mx, my, mw, mh);
+      ctx.strokeRect(mx + 0.5, my + 0.5, mw - 1, mh - 1);
+    }
+  }, [editTrack.notes, editTrack.color, overlayTracks, loopStart, loopEnd, loopEnabled, width, height, selectedNoteIds, quantizeGrid, rowH, marquee]);
 
   useEffect(() => {
     draw();
@@ -272,6 +293,22 @@ export function PianoRollView({
     }
 
     onSelectNotes([]);
+    if (toolMode === "select") {
+      dragRef.current = {
+        mode: "marquee",
+        noteId: "",
+        drawNoteId: null,
+        startX: x,
+        startY: y,
+        drawPitch: pitch,
+        drawStart: 0,
+        origins: new Map(),
+      };
+      setMarquee({ x0: x, y0: y, x1: x, y1: y });
+      e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
+
     onEditStart?.();
     const snapped = Math.max(0, snap(beat));
     const id = onCreateNote(pitch, snapped, quantizeGrid);
@@ -295,6 +332,11 @@ export function PianoRollView({
     if (!drag) return;
     const { x, y, beat } = clientToBeatPitch(e.clientX, e.clientY);
 
+    if (drag.mode === "marquee") {
+      setMarquee((m) => (m ? { ...m, x1: x, y1: y } : null));
+      return;
+    }
+
     if (drag.mode === "draw" && drag.drawNoteId) {
       const dur = drawDuration(drag.drawStart, beat);
       scheduleDragUpdate([{ noteId: drag.drawNoteId, patch: { duration: dur } }]);
@@ -302,7 +344,7 @@ export function PianoRollView({
     }
 
     const dx = (x - drag.startX) / beatWidth;
-    const dy = Math.round((drag.startY - y) / ROW_H);
+    const dy = Math.round((drag.startY - y) / rowH);
 
     if (drag.mode === "move") {
       const primary = drag.origins.get(drag.noteId)!;
@@ -331,7 +373,20 @@ export function PianoRollView({
     const drag = dragRef.current;
     if (!drag) return;
 
-    if (drag.mode === "draw" && drag.drawNoteId) {
+    if (drag.mode === "marquee" && marquee) {
+      const mx0 = Math.min(marquee.x0, marquee.x1);
+      const my0 = Math.min(marquee.y0, marquee.y1);
+      const mx1 = Math.max(marquee.x0, marquee.x1);
+      const my1 = Math.max(marquee.y0, marquee.y1);
+      const ids = editTrack.notes
+        .filter((n) => {
+          const r = noteRect(n);
+          return r.x + r.w >= mx0 && r.x <= mx1 && r.y + r.h >= my0 && r.y <= my1;
+        })
+        .map((n) => n.id);
+      onSelectNotes(ids);
+      setMarquee(null);
+    } else if (drag.mode === "draw" && drag.drawNoteId) {
       const { beat } = clientToBeatPitch(e.clientX, e.clientY);
       const dur = drawDuration(drag.drawStart, beat);
       scheduleDragUpdate([{ noteId: drag.drawNoteId, patch: { duration: dur } }]);
@@ -418,9 +473,22 @@ export function PianoRollView({
           onKeyDown={onPianoKeyDown}
           onKeyUp={onPianoKeyUp}
           height={height}
+          rowH={rowH}
         />
       </div>
       <div className="roll-grid-scroll" ref={gridScrollRef} onScroll={onGridScroll}>
+        {editTrack.notes.length === 0 && toolMode === "draw" && (
+          <div className="piano-roll__empty">
+            <strong>ノートがありません</strong>
+            <span>描画ツール（2）でドラッグしてノートを作成</span>
+          </div>
+        )}
+        {editTrack.notes.length === 0 && toolMode === "select" && (
+          <div className="piano-roll__empty">
+            <strong>ノートがありません</strong>
+            <span>描画ツール（2）に切替えるか MIDI をインポート</span>
+          </div>
+        )}
         <canvas
           ref={canvasRef}
           className="piano-roll__canvas"

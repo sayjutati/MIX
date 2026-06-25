@@ -84,6 +84,31 @@ export function TrackList({
                   {isAudio && <span className="track-list__badge track-list__badge--audio">Audio</span>}
                   {isEdit && <span className="track-list__badge">編集中</span>}
                 </button>
+                <div className="track-list__ms">
+                  <button
+                    type="button"
+                    className={`track-list__ms-btn${t.muted ? " is-on" : ""}`}
+                    title="ミュート"
+                    onClick={() => onUpdateTrack(t.id, { muted: !t.muted })}
+                  >
+                    M
+                  </button>
+                  <button
+                    type="button"
+                    className={`track-list__ms-btn track-list__ms-btn--solo${t.solo ? " is-on" : ""}`}
+                    title="ソロ"
+                    onClick={() => {
+                      if (!t.solo) {
+                        tracks.forEach((tr) => {
+                          if (tr.id !== t.id && tr.solo) onUpdateTrack(tr.id, { solo: false });
+                        });
+                      }
+                      onUpdateTrack(t.id, { solo: !t.solo });
+                    }}
+                  >
+                    S
+                  </button>
+                </div>
                 <label
                   className={`track-list__overlay-toggle tooltip${isOverlay ? " is-on" : ""}${isAudio ? " is-disabled" : ""}`}
                   data-tooltip={

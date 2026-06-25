@@ -15,6 +15,7 @@ type Props = {
   onKeyDown: (pitch: number) => void;
   onKeyUp: (pitch: number) => void;
   height: number;
+  rowH?: number;
 };
 
 export function PianoKeyboard({
@@ -23,6 +24,7 @@ export function PianoKeyboard({
   onKeyDown,
   onKeyUp,
   height,
+  rowH = ROW_H,
 }: Props) {
   return (
     <div className="piano-keyboard" style={{ width: KEYBOARD_W, height }}>
@@ -40,7 +42,7 @@ export function PianoKeyboard({
             className={`piano-key${black ? " piano-key--black" : ""}${active ? " is-active" : ""}${
               drumLabel ? " piano-key--drum" : ""
             }`}
-            style={{ height: ROW_H }}
+            style={{ height: rowH }}
             onPointerDown={(e) => {
               e.preventDefault();
               e.currentTarget.setPointerCapture(e.pointerId);
