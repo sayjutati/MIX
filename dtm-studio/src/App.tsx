@@ -296,11 +296,10 @@ export default function App() {
     bindSchedulerTransport({
       loopEnabled: () => useTransportStore.getState().loopEnabled,
       onEnd: (endBeat) => {
-        useTransportStore.getState().setPlayheadBeat(endBeat);
-        void (async () => {
-          await scheduler.stop();
-          useTransportStore.getState().setPlaying(false);
-        })();
+        const beat = Math.min(scheduler.getPlayheadBeat(), endBeat);
+        useTransportStore.getState().setPlayheadBeat(beat);
+        useTransportStore.getState().setPlaying(false);
+        void scheduler.stop();
       },
     });
     void initAudioGraph().catch(() => {});

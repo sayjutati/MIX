@@ -112,7 +112,8 @@ export class LookaheadScheduler {
     const endBeat = projectEndBeat(project);
     if (beat >= endBeat - 1e-4) {
       this.ended = true;
-      onPlaybackEnd?.(endBeat);
+      const clamped = Math.min(beat, endBeat);
+      onPlaybackEnd?.(clamped);
     }
   }
 

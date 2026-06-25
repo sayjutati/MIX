@@ -915,12 +915,20 @@ input[type="number"] {
 
 .roll-playhead {
   position: absolute;
-  top: 30px;
+  top: 0;
   bottom: 0;
   width: 20px;
   margin-left: -10px;
   z-index: 25;
   pointer-events: none;
+}
+
+.roll-grid-content {
+  position: relative;
+}
+
+.roll-playhead--in-grid {
+  z-index: 10;
 }
 .roll-playhead__line {
   position: absolute;

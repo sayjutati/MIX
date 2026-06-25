@@ -78,6 +78,7 @@ export function PianoRollView({
   const gridScrollRef = useRef<HTMLDivElement>(null);
   const keysScrollRef = useRef<HTMLDivElement>(null);
   const rulerScrollRef = useRef<HTMLDivElement>(null);
+  const scrollLeftRef = useRef(0);
   const [scrollLeft, setScrollLeft] = useState(0);
   const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(
     null
@@ -405,6 +406,7 @@ export function PianoRollView({
   };
 
   const syncScrollX = useCallback((left: number) => {
+    scrollLeftRef.current = left;
     setScrollLeft(left);
     if (gridScrollRef.current && gridScrollRef.current.scrollLeft !== left) {
       gridScrollRef.current.scrollLeft = left;
@@ -413,6 +415,18 @@ export function PianoRollView({
       rulerScrollRef.current.scrollLeft = left;
     }
   }, []);
+
+  const onGridScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    scrollLeftRef.current = el.scrollLeft;
+    setScrollLeft(el.scrollLeft);
+    if (keysScrollRef.current && keysScrollRef.current.scrollTop !== el.scrollTop) {
+      keysScrollRef.current.scrollTop = el.scrollTop;
+    }
+    if (rulerScrollRef.current && rulerScrollRef.current.scrollLeft !== el.scrollLeft) {
+      rulerScrollRef.current.scrollLeft = el.scrollLeft;
+    }
+  };
 
   useEffect(() => {
     if (!playing) return;
@@ -423,18 +437,7 @@ export function PianoRollView({
     if (Math.abs(el.scrollLeft - target) > 2) {
       syncScrollX(target);
     }
-  }, [playing, playheadBeat, syncScrollX]);
-
-  const onGridScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const el = e.currentTarget;
-    setScrollLeft(el.scrollLeft);
-    if (keysScrollRef.current && keysScrollRef.current.scrollTop !== el.scrollTop) {
-      keysScrollRef.current.scrollTop = el.scrollTop;
-    }
-    if (rulerScrollRef.current && rulerScrollRef.current.scrollLeft !== el.scrollLeft) {
-      rulerScrollRef.current.scrollLeft = el.scrollLeft;
-    }
-  };
+  }, [playing, playheadBeat, beatWidth, syncScrollX]);
 
   return (
     <div className="roll-viewport">
@@ -477,7 +480,15 @@ export function PianoRollView({
         />
       </div>
       <div className="roll-grid-scroll" ref={gridScrollRef} onScroll={onGridScroll}>
-        {editTrack.notes.length === 0 && toolMode === "draw" && (
+        <div className="roll-grid-content" style={{ width, height }}>
+          <div
+            className={`roll-playhead roll-playhead--in-grid${playing ? " roll-playhead--playing" : ""}`}
+            style={{ left: playheadBeat * beatWidth }}
+            aria-hidden
+          >
+            <div className="roll-playhead__line" />
+          </div>
+          {editTrack.notes.length === 0 && toolMode === "draw" && (
           <div className="piano-roll__empty">
             <strong>ノートがありません</strong>
             <span>描画ツール（2）でドラッグしてノートを作成</span>
@@ -497,13 +508,7 @@ export function PianoRollView({
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
         />
-      </div>
-      <div
-        className={`roll-playhead${playing ? " roll-playhead--playing" : ""}`}
-        style={{ left: KEYBOARD_W + playheadBeat * beatWidth - scrollLeft }}
-        aria-hidden
-      >
-        <div className="roll-playhead__line" />
+        </div>
       </div>
     </div>
   );
