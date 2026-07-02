@@ -25,6 +25,7 @@ export async function previewNote(
       pan: track.pan,
       volume: track.volume,
       drumKind: voice.drumKind,
+      patch: voice.patch,
     },
   ]);
 }

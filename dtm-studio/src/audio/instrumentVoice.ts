@@ -1,12 +1,14 @@
 import type { Instrument, SynthParams, Waveform } from "../types/project";
 import type { DrumKind } from "./oscCore";
-import { resolveDrumVoice } from "./drumMap";
+import { fixedDrumVoice, resolveDrumVoice } from "./drumMap";
+import { patchForKind, type VoicePatch } from "./voicePatch";
 
 export type ResolvedVoice = {
   pitch: number;
   waveform: Waveform;
   adsr: Pick<SynthParams, "attack" | "decay" | "sustain" | "release">;
   drumKind?: DrumKind;
+  patch?: VoicePatch;
 };
 
 export const instrumentEngine = (inst: Instrument): "synth" | "drum" =>
@@ -14,7 +16,7 @@ export const instrumentEngine = (inst: Instrument): "synth" | "drum" =>
 
 export const resolveVoiceParams = (inst: Instrument, notePitch: number): ResolvedVoice => {
   if (instrumentEngine(inst) === "drum") {
-    const drum = resolveDrumVoice(notePitch);
+    const drum = fixedDrumVoice(inst.kind) ?? resolveDrumVoice(notePitch);
     return {
       pitch: drum.pitch,
       waveform: drum.waveform,
@@ -22,9 +24,11 @@ export const resolveVoiceParams = (inst: Instrument, notePitch: number): Resolve
       drumKind: drum.drumKind,
     };
   }
+  const patch = patchForKind(inst.kind);
   return {
     pitch: notePitch,
     waveform: inst.params.waveform,
     adsr: inst.params,
+    ...(patch ? { patch } : {}),
   };
 };

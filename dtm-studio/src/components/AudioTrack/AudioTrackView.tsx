@@ -111,10 +111,23 @@ export function AudioTrackView({
         <div className="audio-track-view__inner" style={{ width }}>
           <div
             className="audio-track-view__ruler"
-            onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const x = e.clientX - rect.left + (scrollRef.current?.scrollLeft ?? 0);
-              onSeekBeat(Math.max(0, x / beatWidth));
+            onPointerDown={(e) => {
+              if (e.button !== 0) return;
+              e.preventDefault();
+              const ruler = e.currentTarget;
+              const seekAt = (clientX: number) => {
+                // 内側要素の rect はスクロールと一緒に動くので scrollLeft を足さない
+                const x = clientX - ruler.getBoundingClientRect().left;
+                onSeekBeat(Math.max(0, x / beatWidth));
+              };
+              seekAt(e.clientX);
+              const move = (ev: PointerEvent) => seekAt(ev.clientX);
+              const up = () => {
+                window.removeEventListener("pointermove", move);
+                window.removeEventListener("pointerup", up);
+              };
+              window.addEventListener("pointermove", move);
+              window.addEventListener("pointerup", up);
             }}
           >
             {Array.from({ length: Math.ceil(beatsVisible / 4) + 1 }, (_, i) => (

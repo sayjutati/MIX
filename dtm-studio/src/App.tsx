@@ -7,6 +7,7 @@ import { normalizeBuffer, projectEndBeat, renderProjectOffline } from "./audio/o
 import { ArrangementView } from "./components/Arrangement/ArrangementView";
 import { ResizablePanel } from "./components/ResizablePanel";
 import { ShortcutHelp } from "./components/ShortcutHelp";
+import { InstrumentPicker } from "./components/InstrumentPicker";
 import type { SaveStatus } from "./components/Transport/TransportBar";
 import { createMicStream, recordToBlob } from "./audio/recording";
 import { GlobalTooltip } from "./components/GlobalTooltip";
@@ -37,6 +38,7 @@ import {
   saveProject,
 } from "./storage/projectStorage";
 import { instrumentEngine } from "./audio/instrumentVoice";
+import { fixedDrumVoice } from "./audio/drumMap";
 import { previewNote } from "./audio/previewNote";
 import type { Project, Track } from "./types/project";
 import { isAudioTrack, secToBeat } from "./types/project";
@@ -167,6 +169,7 @@ export default function App() {
   const [recording, setRecording] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [instPickerOpen, setInstPickerOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [trackListW, setTrackListW] = useState(240);
   const [sidePanelW, setSidePanelW] = useState(220);
@@ -279,8 +282,13 @@ export default function App() {
     return project.instruments.find((i) => i.id === track.instrumentId) ?? null;
   }, [track, project.instruments]);
 
+  // 単体ドラム（キック等）はどの鍵盤でも同じ音なので GM ラベルは出さない
   const drumMode = useMemo(
-    () => (currentInstrument ? instrumentEngine(currentInstrument) === "drum" : false),
+    () =>
+      currentInstrument
+        ? instrumentEngine(currentInstrument) === "drum" &&
+          !fixedDrumVoice(currentInstrument.kind)
+        : false,
     [currentInstrument]
   );
 
@@ -499,6 +507,16 @@ export default function App() {
   const handleEditStart = useCallback(() => {
     pushHistory();
   }, [pushHistory]);
+
+  const handlePickInstrument = useCallback(
+    (instrumentId: string) => {
+      pushHistory();
+      addTrack(instrumentId);
+      touch();
+      setInstPickerOpen(false);
+    },
+    [pushHistory, addTrack, touch]
+  );
 
   const handleDuplicateTrack = useCallback(
     (trackId: string) => {
@@ -830,6 +848,12 @@ export default function App() {
     <>
       <GlobalTooltip enabled={helpOn} />
       <ShortcutHelp open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      <InstrumentPicker
+        open={instPickerOpen}
+        instruments={project.instruments}
+        onPick={handlePickInstrument}
+        onClose={() => setInstPickerOpen(false)}
+      />
       <div className="app">
       <TransportBar
         projectName={project.name}
@@ -896,7 +920,7 @@ export default function App() {
           overlayTrackIds={overlayTrackIds}
           onSelect={selectTrack}
           onToggleOverlay={handleToggleOverlay}
-          onAddTrack={addTrack}
+          onAddTrack={() => setInstPickerOpen(true)}
           onAddAudioTrack={addAudioTrack}
           onRemoveTrack={handleRemoveTrack}
           onDuplicateTrack={handleDuplicateTrack}

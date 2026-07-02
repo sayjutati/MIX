@@ -1,7 +1,6 @@
 import type { Instrument, Track } from "../../types/project";
 import { isAudioTrack } from "../../types/project";
-import { instrumentDisplayName } from "../../data/uiLabels";
-import { instrumentEngine } from "../../audio/instrumentVoice";
+import { INSTRUMENT_GROUPS, instrumentDisplayName } from "../../data/uiLabels";
 
 type Props = {
   tracks: Track[];
@@ -30,9 +29,6 @@ export function TrackList({
   onDuplicateTrack,
   onUpdateTrack,
 }: Props) {
-  const synthInstruments = instruments.filter((i) => instrumentEngine(i) === "synth");
-  const drumInstruments = instruments.filter((i) => instrumentEngine(i) === "drum");
-
   return (
     <aside className="track-list">
       <div className="track-list__head">
@@ -148,20 +144,19 @@ export function TrackList({
                       value={t.instrumentId}
                       onChange={(e) => onUpdateTrack(t.id, { instrumentId: e.target.value })}
                     >
-                      <optgroup label="シンセ">
-                        {synthInstruments.map((i) => (
-                          <option key={i.id} value={i.id}>
-                            {instrumentDisplayName(i.kind, i.name)}
-                          </option>
-                        ))}
-                      </optgroup>
-                      <optgroup label="ドラム・パーカッション">
-                        {drumInstruments.map((i) => (
-                          <option key={i.id} value={i.id}>
-                            {instrumentDisplayName(i.kind, i.name)}
-                          </option>
-                        ))}
-                      </optgroup>
+                      {INSTRUMENT_GROUPS.map((group) => {
+                        const items = instruments.filter((i) => group.kinds.includes(i.kind));
+                        if (items.length === 0) return null;
+                        return (
+                          <optgroup key={group.label} label={group.label}>
+                            {items.map((i) => (
+                              <option key={i.id} value={i.id}>
+                                {instrumentDisplayName(i.kind, i.name)}
+                              </option>
+                            ))}
+                          </optgroup>
+                        );
+                      })}
                     </select>
                   </label>
                   )}

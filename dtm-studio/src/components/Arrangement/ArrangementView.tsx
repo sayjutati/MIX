@@ -94,10 +94,23 @@ export function ArrangementView({
     }
   }, [project, width, beatsVisible, beatWidth, drawLane]);
 
-  const onTimelineClick = (e: React.MouseEvent) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left + (scrollRef.current?.scrollLeft ?? 0);
-    onSeekBeat(Math.max(0, x / beatWidth));
+  const onTimelinePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const timeline = e.currentTarget;
+    const seekAt = (clientX: number) => {
+      // 内側要素の rect はスクロールと一緒に動くので scrollLeft を足さない
+      const x = clientX - timeline.getBoundingClientRect().left;
+      onSeekBeat(Math.max(0, x / beatWidth));
+    };
+    seekAt(e.clientX);
+    const move = (ev: PointerEvent) => seekAt(ev.clientX);
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
   };
 
   return (
@@ -117,7 +130,11 @@ export function ArrangementView({
         ))}
       </div>
       <div className="arrangement__scroll" ref={scrollRef}>
-        <div className="arrangement__timeline" style={{ width }} onClick={onTimelineClick}>
+        <div
+          className="arrangement__timeline"
+          style={{ width }}
+          onPointerDown={onTimelinePointerDown}
+        >
           <canvas id="arrangement-canvas" className="arrangement__canvas" />
           <div
             className={`arrangement__playhead${playing ? " is-playing" : ""}`}

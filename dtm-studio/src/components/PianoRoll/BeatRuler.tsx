@@ -11,7 +11,6 @@ type Props = {
   playheadBeat: number;
   playing: boolean;
   quantizeGrid: number;
-  scrollLeft: number;
   onScroll: (left: number) => void;
   onLoopChange: (start: number, end: number) => void;
   onSeekBeat: (beat: number) => void;
@@ -27,7 +26,6 @@ export function BeatRuler({
   playheadBeat,
   playing,
   quantizeGrid,
-  scrollLeft,
   onScroll,
   onLoopChange,
   onSeekBeat,
@@ -40,9 +38,9 @@ export function BeatRuler({
       e.preventDefault();
       e.stopPropagation();
       const bar = e.currentTarget.parentElement!;
-      const rect = bar.getBoundingClientRect();
       const move = (ev: PointerEvent) => {
-        const x = ev.clientX - rect.left + scrollLeft;
+        // 内側要素の rect はスクロールと一緒に動くので scrollLeft を足さない
+        const x = ev.clientX - bar.getBoundingClientRect().left;
         const beat = Math.max(0, Math.round((x / beatWidth) / grid) * grid);
         if (which === "start") {
           onLoopChange(beat, Math.max(beat + grid, loopEnd));
@@ -58,12 +56,23 @@ export function BeatRuler({
       window.addEventListener("pointerup", up);
     };
 
-  const onRulerClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const onRulerPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest(".beat-ruler__handle")) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left + scrollLeft;
-    const beat = Math.max(0, snapBeat(x / beatWidth, grid));
-    onSeekBeat(beat);
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const bar = e.currentTarget;
+    const seekAt = (clientX: number) => {
+      const x = clientX - bar.getBoundingClientRect().left;
+      onSeekBeat(Math.max(0, snapBeat(x / beatWidth, grid)));
+    };
+    seekAt(e.clientX);
+    const move = (ev: PointerEvent) => seekAt(ev.clientX);
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
   };
 
   return (
@@ -72,7 +81,7 @@ export function BeatRuler({
       ref={rulerRef}
       onScroll={(e) => onScroll(e.currentTarget.scrollLeft)}
     >
-      <div className="beat-ruler" style={{ width }} onClick={onRulerClick}>
+      <div className="beat-ruler" style={{ width }} onPointerDown={onRulerPointerDown}>
         {Array.from({ length: Math.ceil(beatsVisible / 4) + 1 }, (_, i) => (
           <span key={i} className="beat-ruler__bar" style={{ left: i * 4 * beatWidth + 4 }}>
             {i + 1}小節

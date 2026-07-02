@@ -61,6 +61,7 @@ export const collectNoteEvents = (
         pan: track.pan,
         volume: track.volume * master,
         drumKind: voice.drumKind,
+        patch: voice.patch,
       });
     }
   }

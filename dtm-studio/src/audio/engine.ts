@@ -2,6 +2,7 @@ import type { Instrument, Project, Track } from "../types/project";
 import { beatToSec, isAudioTrack } from "../types/project";
 import type { DrumKind } from "./oscCore";
 import { resolveVoiceParams } from "./instrumentVoice";
+import type { VoicePatch } from "./voicePatch";
 
 const WORKLET_BASE = `${import.meta.env.BASE_URL}worklets/`;
 
@@ -99,6 +100,7 @@ export type NoteSchedulePayload = {
   pan: number;
   volume: number;
   drumKind?: DrumKind;
+  patch?: VoicePatch;
 };
 
 export function scheduleNotesToSynth(synth: AudioWorkletNode, notes: NoteSchedulePayload[]) {
@@ -121,6 +123,7 @@ export function scheduleNotesToSynth(synth: AudioWorkletNode, notes: NoteSchedul
       pan: n.pan,
       volume: n.volume,
       drumKind: n.drumKind,
+      patch: n.patch,
     })),
   });
 }
@@ -165,6 +168,7 @@ export function buildNoteSchedules(
         pan: track.pan,
         volume: track.volume * master,
         drumKind: voice.drumKind,
+        patch: voice.patch,
       });
     }
   }

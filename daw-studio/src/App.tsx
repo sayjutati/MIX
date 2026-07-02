@@ -282,7 +282,7 @@ function App() {
   );
 
   // ピッチモードで未解析のクリップを自動解析
-  useEffect(() => {
+  useEffect(() => { 
     if (fxMode !== "pitch" || !pitchTrack || !pitchClip) return;
     if (pitchClip.notes === undefined && !pitchAnalyzing) {
       void analyzePitchClip(pitchTrack.id, pitchClip.id);
@@ -387,17 +387,17 @@ function App() {
         return;
       }
 
-      setGlobalTime(currentTime);
+        setGlobalTime(currentTime);
       globalTimeRef.current = currentTime;
 
-      if (metronomeOn) {
+        if (metronomeOn) {
         void audioEngine.ensureRunning().then(() => {
           const { ctx } = audioEngine.getContext();
           const beatLen = 60 / bpm;
           while (nextClickRef.current < currentTime + 0.1) {
             if (nextClickRef.current >= currentTime) {
               const osc = ctx.createOscillator();
-              osc.frequency.value = 1000;
+              osc.frequency.value = 1000; 
               osc.connect(ctx.destination);
               const t0 = ctx.currentTime + (nextClickRef.current - currentTime);
               osc.start(t0);
@@ -406,17 +406,17 @@ function App() {
             nextClickRef.current += beatLen;
           }
         });
-      }
+        }
 
-      const container = scrollContainerRef.current;
+          const container = scrollContainerRef.current;
       if (container) {
         const playheadX =
           playheadVisualX(currentTime, playheadTrackRef.current, pxPerSecRef.current) -
           TRACK_HEADER_WIDTH;
         const visible = container.clientWidth - TRACK_HEADER_WIDTH;
         container.scrollLeft = Math.max(0, playheadX - visible / 2);
-      }
-    }, 30);
+        }
+      }, 30);
 
     return () => clearInterval(interval);
   }, [isPlayingGlobal, isRecording, metronomeOn, bpm]);
@@ -649,7 +649,7 @@ function App() {
       const data = await serializeProject(tracks, bpm, masterVolume, globalTime, pitchLimit);
       const a = document.createElement("a");
       a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: "application/json" }));
-      a.download = "my_project.daw";
+      a.download = "my_project.daw"; 
       a.click();
       void clearAutosave();
     } catch {
@@ -709,7 +709,7 @@ function App() {
             data: await bufferToBytes(buffer, exportFormat, mp3Bitrate),
           },
         ];
-        for (const track of tracks) {
+      for (const track of tracks) {
           if (track.isMuted || track.clips.every((c) => c.muted)) continue;
           const stem = await renderTrackStem(track, masterVolume, mixOpts);
           if (!stem) continue;
@@ -817,7 +817,7 @@ function App() {
 
   const handleImportAudio = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.length) addTracksFromFiles(e.target.files, "bgm");
-    e.target.value = "";
+    e.target.value = ""; 
   };
 
   const startRecording = async () => {
@@ -932,7 +932,7 @@ function App() {
       if (hasPlayable) {
         await audioEngine.ensureRunning();
         await audioEngine.play(globalTimeRef.current);
-        setIsPlayingGlobal(true);
+      setIsPlayingGlobal(true);
         nextClickRef.current = Math.ceil(globalTimeRef.current / (60 / bpm)) * (60 / bpm);
       }
 
@@ -955,9 +955,9 @@ function App() {
     if (!mediaRecorderRef.current || !isRecording) return;
     audioEngine.stopMonitor();
     mediaRecorderRef.current.requestData();
-    mediaRecorderRef.current.stop();
-    setIsRecording(false);
-    setIsPlayingGlobal(false);
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      setIsPlayingGlobal(false);
   };
 
   const deleteTrack = (id: number) => {
@@ -1226,10 +1226,10 @@ function App() {
             <FolderOpen size={16} /> 読込
           </button>
           <div className="toolbar__divider" />
-          <select
+            <select 
             className="toolbar__format tooltip"
             data-tooltip="書き出し形式"
-            value={exportFormat}
+              value={exportFormat} 
             onChange={(e) => setExportFormat(e.target.value as ExportFormat)}
           >
             {EXPORT_FORMAT_OPTIONS.map((opt) => (
@@ -1237,7 +1237,7 @@ function App() {
                 {opt.label} — {opt.hint}
               </option>
             ))}
-          </select>
+            </select>
           {exportFormat === "mp3" && (
             <select
               className="toolbar__format tooltip"
@@ -1286,7 +1286,7 @@ function App() {
           >
             <Music size={16} /> BGM / 音源追加
           </button>
-        </div>
+          </div>
 
         <div className="transport">
           <button type="button" className="tooltip transport__btn-ghost" data-tooltip="最初に戻る" onClick={() => seekToTime(0)}>
@@ -1420,9 +1420,9 @@ function App() {
             onClick={() => setCountInOn((v) => !v)}
           >
             <Timer size={18} />
-          </button>
-        </div>
-
+            </button>
+          </div>
+          
         <div className="toolbar__right">
           <label className="toolbar__mic tooltip" data-tooltip="録音に使うマイクを選択">
             <Mic size={14} />
@@ -1550,8 +1550,8 @@ function App() {
                         ? formatBarsBeats(t, bpm).split(".")[0]
                         : `${t}s`
                       : null}
-                  </div>
-                ))}
+                </div>
+              ))}
             </div>
           </div>
 
@@ -1562,9 +1562,9 @@ function App() {
                   key={g.t}
                   className={`timeline-grid__line ${g.bar ? "timeline-grid__line--bar" : ""}`}
                   style={{ left: `${timelineX(g.t, pxPerSec)}px` }}
-                />
-              ))}
-            </div>
+            />
+          ))}
+          </div>
           )}
 
           {loopEnabled && loopEnd > loopStart && (
@@ -1622,7 +1622,7 @@ function App() {
             <div className="playhead__line" aria-hidden />
           </div>
         </div>
-      </div>
+            </div>
 
       <FxPanel
         height={fxPanelHeight}

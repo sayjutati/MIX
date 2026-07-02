@@ -17,7 +17,6 @@ import {
   type TrackFx,
 } from "../types/project";
 import { snapBeat } from "../utils/quantize";
-import { instrumentEngine } from "../audio/instrumentVoice";
 import { transposeNotePatch } from "../utils/noteEdit";
 
 const mergeDefaultInstruments = (p: Project): Project => {
@@ -62,7 +61,7 @@ type ProjectState = {
   setProjectName: (name: string) => void;
   newProject: () => void;
   updateInstrumentForTrack: (trackId: string, patch: Partial<SynthParams>) => void;
-  addTrack: () => void;
+  addTrack: (instrumentId?: string) => void;
   addAudioTrack: () => void;
   addAudioClip: (trackId: string, clip: AudioClip) => void;
   removeAudioClip: (trackId: string, clipId: string) => void;
@@ -286,18 +285,16 @@ export const useProjectStore = create<ProjectState>((set) => ({
       };
     }),
 
-  addTrack: () =>
+  addTrack: (instrumentId) =>
     set((s) => {
       const n = s.project.tracks.length + 1;
       const inst =
+        (instrumentId
+          ? s.project.instruments.find((i) => i.id === instrumentId)
+          : undefined) ??
         s.project.instruments[(n - 1) % s.project.instruments.length] ??
         s.project.instruments[0];
-      const defaultName =
-        inst && instrumentEngine(inst) === "drum"
-          ? inst.kind === "drumKit"
-            ? "ドラム"
-            : "パーカッション"
-          : `トラック ${n}`;
+      const defaultName = inst ? inst.name : `トラック ${n}`;
       const track = makeTrack({
         name: defaultName,
         color: TRACK_COLORS[(n - 1) % TRACK_COLORS.length],

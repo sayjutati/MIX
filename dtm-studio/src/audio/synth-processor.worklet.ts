@@ -1,14 +1,16 @@
 /// <reference lib="webworker" />
 
+import { processMasterSample, type DrumKind, type OscWaveform } from "./oscCore";
 import {
-  kickFreqAt,
-  midiToFreq,
-  oscSampleAdv,
-  processMasterSample,
-  velocityGain,
-  type DrumKind,
-  type OscWaveform,
-} from "./oscCore";
+  createVoice,
+  MAX_VOICES,
+  processVoiceEnv,
+  triggerVoice,
+  voiceSample,
+  type NoteEvent,
+  type VoiceState,
+} from "./synthCore";
+import type { VoicePatch } from "./voicePatch";
 
 type Adsr = { attack: number; decay: number; sustain: number; release: number };
 
@@ -23,29 +25,9 @@ type ScheduledNote = {
   volume: number;
   noteOffTime: number;
   drumKind?: DrumKind;
+  patch?: VoicePatch;
   triggered: boolean;
 };
-
-type Voice = {
-  active: boolean;
-  pitch: number;
-  velocity: number;
-  waveform: OscWaveform;
-  adsr: Adsr;
-  pan: number;
-  volume: number;
-  phase: number;
-  noiseSeed: number;
-  lpState: number;
-  hpState: number;
-  envLevel: number;
-  envStage: "a" | "d" | "s" | "r" | "off";
-  noteOffAt: number;
-  voiceStartSec: number;
-  drumKind?: DrumKind;
-};
-
-const MAX_VOICES = 32;
 
 class SynthProcessor extends AudioWorkletProcessor {
   private baseCtxTime = 0;
@@ -54,23 +36,7 @@ class SynthProcessor extends AudioWorkletProcessor {
   private queue: ScheduledNote[] = [];
   private masterLpL = 0;
   private masterLpR = 0;
-  private voices: Voice[] = Array.from({ length: MAX_VOICES }, () => ({
-    active: false,
-    pitch: 60,
-    velocity: 100,
-    waveform: "saw" as OscWaveform,
-    adsr: { attack: 0.01, decay: 0.1, sustain: 0.6, release: 0.2 },
-    pan: 0,
-    volume: 1,
-    phase: 0,
-    noiseSeed: 1,
-    lpState: 0,
-    hpState: 0,
-    envLevel: 0,
-    envStage: "off" as const,
-    noteOffAt: Infinity,
-    voiceStartSec: 0,
-  }));
+  private voices: VoiceState[] = Array.from({ length: MAX_VOICES }, createVoice);
 
   constructor() {
     super();
@@ -119,77 +85,24 @@ class SynthProcessor extends AudioWorkletProcessor {
     }
   }
 
-  private allocVoice(): Voice | null {
+  private triggerNote(n: ScheduledNote) {
     let free = this.voices.find((v) => !v.active);
     if (!free) free = this.voices.find((v) => v.envStage === "r" || v.envStage === "s");
     if (!free) free = this.voices[0];
-    return free ?? null;
-  }
-
-  private triggerNote(n: ScheduledNote) {
-    const v = this.allocVoice();
-    if (!v) return;
-    v.active = true;
-    v.pitch = n.pitch;
-    v.velocity = n.velocity;
-    v.waveform = n.waveform;
-    v.adsr = n.adsr;
-    v.pan = n.pan;
-    v.volume = n.volume;
-    v.drumKind = n.drumKind;
-    v.phase = 0;
-    v.noiseSeed = (n.pitch * 7919 + 1) | 1;
-    v.lpState = 0;
-    v.hpState = 0;
-    v.envLevel = 0;
-    v.envStage = "a";
-    v.noteOffAt = n.noteOffTime;
-    v.voiceStartSec = n.ctxTime;
-  }
-
-  private processEnv(v: Voice, dt: number, now: number) {
-    const { attack, decay, sustain, release } = v.adsr;
-    if (now >= v.noteOffAt && v.envStage !== "r" && v.envStage !== "off") {
-      v.envStage = "r";
-    }
-    switch (v.envStage) {
-      case "a": {
-        v.envLevel += dt / Math.max(0.001, attack);
-        if (v.envLevel >= 1) {
-          v.envLevel = 1;
-          v.envStage = "d";
-        }
-        break;
-      }
-      case "d": {
-        v.envLevel -= dt / Math.max(0.001, decay) * (1 - sustain);
-        if (v.envLevel <= sustain) {
-          v.envLevel = sustain;
-          v.envStage = "s";
-        }
-        break;
-      }
-      case "s":
-        v.envLevel = sustain;
-        break;
-      case "r": {
-        v.envLevel -= dt / Math.max(0.001, release);
-        if (v.envLevel <= 0) {
-          v.envLevel = 0;
-          v.active = false;
-          v.envStage = "off";
-        }
-        break;
-      }
-      default:
-        break;
-    }
-  }
-
-  private voiceFreq(v: Voice, nowSec: number): number {
-    if (v.drumKind === "kick") return kickFreqAt(v.voiceStartSec, nowSec);
-    if (v.drumKind === "snare") return 190;
-    return midiToFreq(v.pitch);
+    if (!free) return;
+    const ev: NoteEvent = {
+      startSec: n.ctxTime,
+      endSec: n.noteOffTime,
+      pitch: n.pitch,
+      velocity: n.velocity,
+      waveform: n.waveform,
+      adsr: n.adsr,
+      pan: n.pan,
+      volume: n.volume,
+      drumKind: n.drumKind,
+      patch: n.patch,
+    };
+    triggerVoice(free, ev);
   }
 
   process(_inputs: Float32Array[][], outputs: Float32Array[][]) {
@@ -219,38 +132,11 @@ class SynthProcessor extends AudioWorkletProcessor {
       let r = 0;
       for (const v of this.voices) {
         if (!v.active) continue;
-        this.processEnv(v, 1 / sampleRate, now);
+        processVoiceEnv(v, 1 / sampleRate, now);
         if (!v.active) continue;
-
-        const freq = this.voiceFreq(v, now);
-        const phaseInc = (2 * Math.PI * freq) / sampleRate;
-        const noiseSeed = { v: v.noiseSeed };
-        const lpState = { v: v.lpState };
-        const hpState = { v: v.hpState };
-
-        const raw = oscSampleAdv({
-          waveform: v.waveform,
-          phase: v.phase,
-          phaseInc,
-          noiseSeed,
-          lpState,
-          hpState,
-          drumKind: v.drumKind,
-          voiceStartSec: v.voiceStartSec,
-          nowSec: now,
-          sampleRate,
-        });
-
-        v.noiseSeed = noiseSeed.v;
-        v.lpState = lpState.v;
-        v.hpState = hpState.v;
-        v.phase += phaseInc;
-
-        const amp = raw * v.envLevel * velocityGain(v.velocity) * v.volume;
-        const panL = Math.cos(((v.pan + 1) * Math.PI) / 4);
-        const panR = Math.sin(((v.pan + 1) * Math.PI) / 4);
-        l += amp * panL;
-        r += amp * panR;
+        const s = voiceSample(v, sampleRate, now);
+        l += s.l;
+        r += s.r;
       }
 
       const out = processMasterSample(l, r, lpL, lpR, sampleRate);

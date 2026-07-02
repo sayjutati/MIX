@@ -1,8 +1,8 @@
 /** オシレーター・ミックス処理（リアルタイム / オフライン共通） */
 
-export type OscWaveform = "sine" | "saw" | "square" | "noise";
+export type OscWaveform = "sine" | "saw" | "square" | "triangle" | "noise";
 
-export type DrumKind = "kick" | "snare" | "hat" | "tom" | "cymbal" | "noise";
+export type DrumKind = "kick" | "snare" | "hat" | "openhat" | "clap" | "tom" | "cymbal" | "noise";
 
 const TAU = 2 * Math.PI;
 
@@ -37,6 +37,12 @@ export const bandLimitedSquare = (phase: number, phaseInc: number): number => {
   return s;
 };
 
+/** 三角波（高調波が -12dB/oct で減衰するためナイーブでも実用上エイリアスは小さい） */
+export const triangleWave = (phase: number): number => {
+  const t = (phase % TAU) / TAU;
+  return 4 * Math.abs(t - 0.5) - 1;
+};
+
 export const nextNoise = (seed: { v: number }): number => {
   seed.v = (seed.v * 1664525 + 1013904223) | 0;
   return (seed.v >>> 0) / 0x7fffffff - 1;
@@ -53,6 +59,28 @@ export const onePoleHP = (state: { v: number }, input: number, cutoffHz: number,
   const y = onePoleLP(lp, input, cutoffHz, sampleRate);
   state.v = lp.v;
   return input - y;
+};
+
+/** 2ポール State Variable Filter（LP出力）。damp = 1/Q（小さいほどレゾナンス強） */
+export type SvfState = { low: number; band: number };
+
+export const svfLowpass = (
+  state: SvfState,
+  input: number,
+  cutoffHz: number,
+  damp: number,
+  sampleRate: number
+): number => {
+  const f = 2 * Math.sin(Math.PI * Math.min(0.22, cutoffHz / sampleRate));
+  state.low += f * state.band;
+  const high = input - state.low - damp * state.band;
+  state.band += f * high;
+  // 数値発散ガード
+  if (!Number.isFinite(state.low) || Math.abs(state.low) > 4) {
+    state.low = 0;
+    state.band = 0;
+  }
+  return state.low;
 };
 
 export const softClip = (x: number): number => {
@@ -116,12 +144,29 @@ export const oscSampleAdv = (opts: OscSampleOpts): number => {
     return tone + filtered * 0.62;
   }
 
-  if (drumKind === "hat") {
+  if (drumKind === "hat" || drumKind === "openhat") {
     const raw = nextNoise(noiseSeed);
     const hp = hpState ?? { v: 0 };
-    const filtered = onePoleHP(hp, raw, 6800, sampleRate);
+    const filtered = onePoleHP(hp, raw, drumKind === "openhat" ? 6200 : 6800, sampleRate);
     if (hpState) hpState.v = hp.v;
     return filtered * 0.85;
+  }
+
+  if (drumKind === "clap") {
+    // 909 系クラップ: 3連バースト + テール（バンドパス風 = HP→LP）
+    const t = Math.max(0, nowSec - voiceStartSec);
+    const raw = nextNoise(noiseSeed);
+    const hp = hpState ?? { v: 0 };
+    const highpassed = onePoleHP(hp, raw, 900, sampleRate);
+    if (hpState) hpState.v = hp.v;
+    const lp = lpState ?? { v: 0 };
+    const filtered = onePoleLP(lp, highpassed, 3800, sampleRate);
+    if (lpState) lpState.v = lp.v;
+    const burst =
+      t < 0.033
+        ? Math.exp(-((t * 1000) % 11) / 3.2)
+        : Math.exp(-(t - 0.033) / 0.09) * 0.7;
+    return filtered * burst * 2.2;
   }
 
   if (drumKind === "cymbal") {
@@ -147,13 +192,15 @@ export const oscSampleAdv = (opts: OscSampleOpts): number => {
   }
 
   if (waveform === "sine") return Math.sin(phase % TAU);
+  if (waveform === "triangle") return triangleWave(phase);
   if (waveform === "square") return bandLimitedSquare(phase, phaseInc);
   return bandLimitedSaw(phase, phaseInc);
 };
 
 /** マスター出力用：ステレオ LP + ソフトクリップ */
 export const MASTER_OUTPUT_GAIN = 0.42;
-export const MASTER_LP_HZ = 11800;
+/** 高域の空気感を残すため 16kHz（以前の 11.8kHz はこもりの原因だった） */
+export const MASTER_LP_HZ = 16000;
 
 export const processMasterSample = (
   l: number,

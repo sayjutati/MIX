@@ -1,4 +1,4 @@
-import type { SynthParams, Waveform } from "../types/project";
+import type { InstrumentKind, SynthParams, Waveform } from "../types/project";
 import type { DrumKind } from "./oscCore";
 
 export type DrumVoice = {
@@ -14,6 +14,7 @@ export const DRUM_LABELS: Record<number, string> = {
   36: "キック",
   37: "リム",
   38: "スネア",
+  39: "クラップ",
   40: "スネア2",
   41: "タム",
   42: "HH",
@@ -50,6 +51,12 @@ const DRUM_VOICES: Record<number, DrumVoice> = {
     waveform: "noise",
     drumKind: "snare",
     adsr: { attack: 0.001, decay: 0.16, sustain: 0, release: 0.07 },
+  },
+  39: {
+    pitch: 60,
+    waveform: "noise",
+    drumKind: "clap",
+    adsr: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.1 },
   },
   40: {
     pitch: 62,
@@ -90,7 +97,7 @@ const DRUM_VOICES: Record<number, DrumVoice> = {
   46: {
     pitch: 72,
     waveform: "noise",
-    drumKind: "hat",
+    drumKind: "openhat",
     adsr: { attack: 0.001, decay: 0.22, sustain: 0, release: 0.11 },
   },
   49: {
@@ -120,5 +127,20 @@ export const resolveDrumVoice = (pitch: number): DrumVoice =>
     drumKind: "noise",
     adsr: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.04 },
   };
+
+/** 単体ドラム音源：どの鍵盤を押しても同じ音（GM マップを使わない） */
+const FIXED_DRUM_VOICES: Partial<Record<InstrumentKind, DrumVoice>> = {
+  kick: DRUM_VOICES[36]!,
+  snare: DRUM_VOICES[38]!,
+  hihat: DRUM_VOICES[42]!,
+  openhat: DRUM_VOICES[46]!,
+  clap: DRUM_VOICES[39]!,
+  tom: DRUM_VOICES[45]!,
+  crash: DRUM_VOICES[49]!,
+  ride: DRUM_VOICES[51]!,
+};
+
+export const fixedDrumVoice = (kind: InstrumentKind): DrumVoice | null =>
+  FIXED_DRUM_VOICES[kind] ?? null;
 
 export const drumKeyboardLabel = (pitch: number) => DRUM_LABELS[pitch] ?? null;

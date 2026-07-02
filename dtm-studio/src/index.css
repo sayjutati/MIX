@@ -2009,3 +2009,122 @@ input[type="number"] {
   font-size: 11px;
   color: #fca5a5;
 }
+
+/* 楽器ピッカー */
+.inst-picker {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  max-width: 520px;
+  width: 100%;
+  max-height: 80vh;
+  overflow: auto;
+  box-shadow: var(--shadow-2);
+}
+
+.inst-picker__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.inst-picker__head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.inst-picker__close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 22px;
+  cursor: pointer;
+  line-height: 1;
+}
+.inst-picker__close:hover {
+  color: var(--text);
+}
+
+.inst-picker__hint {
+  margin: 10px 16px 0;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.inst-picker__body {
+  padding: 8px 16px 16px;
+}
+
+.inst-picker__group h3 {
+  margin: 14px 0 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+}
+
+.inst-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.inst-picker__card {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  overflow: hidden;
+  transition: border-color 0.12s, transform 0.12s;
+}
+.inst-picker__card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.inst-picker__pick {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.inst-picker__name {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.inst-picker__kind {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.inst-picker__preview {
+  width: 34px;
+  border: none;
+  border-left: 1px solid var(--border-soft);
+  background: transparent;
+  color: var(--green-soft);
+  font-size: 15px;
+  cursor: pointer;
+}
+.inst-picker__preview:hover {
+  background: rgba(52, 211, 153, 0.12);
+}
+
+/* ルーラーのスクラブ操作 */
+.beat-ruler,
+.audio-track-view__ruler,
+.arrangement__timeline {
+  cursor: ew-resize;
+  touch-action: none;
+  user-select: none;
+}

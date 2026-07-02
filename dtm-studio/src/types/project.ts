@@ -3,7 +3,7 @@ export const PROJECT_VERSION = 2;
 
 export type TrackKind = "midi" | "audio";
 
-export type Waveform = "sine" | "saw" | "square" | "noise";
+export type Waveform = "sine" | "saw" | "square" | "triangle" | "noise";
 
 export type SynthParams = {
   waveform: Waveform;
@@ -24,7 +24,25 @@ export type InstrumentKind =
   | "pad"
   | "pluck"
   | "organ"
+  | "piano"
+  | "epiano"
+  | "strings"
+  | "brass"
+  | "flute"
+  | "bell"
+  | "marimba"
+  | "guitar"
+  | "bass808"
+  | "supersaw"
   | "drumKit"
+  | "kick"
+  | "snare"
+  | "hihat"
+  | "openhat"
+  | "clap"
+  | "tom"
+  | "crash"
+  | "ride"
   | "perc";
 
 export type Instrument = {
@@ -190,11 +208,137 @@ export const DEFAULT_INSTRUMENTS: Instrument[] = [
     params: { waveform: "square", attack: 0.02, decay: 0.05, sustain: 0.9, release: 0.08 },
   },
   {
+    id: "inst-piano",
+    kind: "piano",
+    name: "ピアノ",
+    engine: "synth",
+    params: { waveform: "triangle", attack: 0.002, decay: 0.9, sustain: 0.16, release: 0.35 },
+  },
+  {
+    id: "inst-epiano",
+    kind: "epiano",
+    name: "エレピ",
+    engine: "synth",
+    params: { waveform: "sine", attack: 0.002, decay: 0.7, sustain: 0.3, release: 0.4 },
+  },
+  {
+    id: "inst-strings",
+    kind: "strings",
+    name: "ストリングス",
+    engine: "synth",
+    params: { waveform: "saw", attack: 0.18, decay: 0.3, sustain: 0.85, release: 0.5 },
+  },
+  {
+    id: "inst-brass",
+    kind: "brass",
+    name: "ブラス",
+    engine: "synth",
+    params: { waveform: "saw", attack: 0.06, decay: 0.2, sustain: 0.8, release: 0.25 },
+  },
+  {
+    id: "inst-flute",
+    kind: "flute",
+    name: "フルート",
+    engine: "synth",
+    params: { waveform: "sine", attack: 0.09, decay: 0.15, sustain: 0.85, release: 0.3 },
+  },
+  {
+    id: "inst-bell",
+    kind: "bell",
+    name: "ベル",
+    engine: "synth",
+    params: { waveform: "sine", attack: 0.001, decay: 1.4, sustain: 0, release: 1.0 },
+  },
+  {
+    id: "inst-marimba",
+    kind: "marimba",
+    name: "マリンバ",
+    engine: "synth",
+    params: { waveform: "sine", attack: 0.001, decay: 0.35, sustain: 0, release: 0.25 },
+  },
+  {
+    id: "inst-guitar",
+    kind: "guitar",
+    name: "ギター",
+    engine: "synth",
+    params: { waveform: "saw", attack: 0.002, decay: 0.5, sustain: 0.12, release: 0.3 },
+  },
+  {
+    id: "inst-bass808",
+    kind: "bass808",
+    name: "808ベース",
+    engine: "synth",
+    params: { waveform: "sine", attack: 0.001, decay: 0.6, sustain: 0.15, release: 0.25 },
+  },
+  {
+    id: "inst-supersaw",
+    kind: "supersaw",
+    name: "スーパーソー",
+    engine: "synth",
+    params: { waveform: "saw", attack: 0.01, decay: 0.2, sustain: 0.7, release: 0.3 },
+  },
+  {
     id: "inst-drum",
     kind: "drumKit",
     name: "ドラムキット",
     engine: "drum",
     params: { waveform: "noise", attack: 0.001, decay: 0.1, sustain: 0, release: 0.05 },
+  },
+  {
+    id: "inst-kick",
+    kind: "kick",
+    name: "キック",
+    engine: "drum",
+    params: { waveform: "sine", attack: 0.001, decay: 0.4, sustain: 0, release: 0.1 },
+  },
+  {
+    id: "inst-snare",
+    kind: "snare",
+    name: "スネア",
+    engine: "drum",
+    params: { waveform: "noise", attack: 0.001, decay: 0.16, sustain: 0, release: 0.07 },
+  },
+  {
+    id: "inst-hihat",
+    kind: "hihat",
+    name: "ハイハット",
+    engine: "drum",
+    params: { waveform: "noise", attack: 0.001, decay: 0.045, sustain: 0, release: 0.025 },
+  },
+  {
+    id: "inst-openhat",
+    kind: "openhat",
+    name: "オープンハット",
+    engine: "drum",
+    params: { waveform: "noise", attack: 0.001, decay: 0.22, sustain: 0, release: 0.11 },
+  },
+  {
+    id: "inst-clap",
+    kind: "clap",
+    name: "クラップ",
+    engine: "drum",
+    params: { waveform: "noise", attack: 0.001, decay: 0.2, sustain: 0, release: 0.1 },
+  },
+  {
+    id: "inst-tom",
+    kind: "tom",
+    name: "タム",
+    engine: "drum",
+    params: { waveform: "sine", attack: 0.001, decay: 0.3, sustain: 0, release: 0.09 },
+  },
+  {
+    id: "inst-crash",
+    kind: "crash",
+    name: "クラッシュ",
+    engine: "drum",
+    params: { waveform: "noise", attack: 0.001, decay: 0.65, sustain: 0, release: 0.32 },
+  },
+  {
+    id: "inst-ride",
+    kind: "ride",
+    name: "ライド",
+    engine: "drum",
+    params: { waveform: "noise", attack: 0.001, decay: 0.5, sustain: 0, release: 0.28 },
   },
   {
     id: "inst-perc",

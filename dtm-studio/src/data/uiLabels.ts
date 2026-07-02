@@ -9,7 +9,25 @@ export const INSTRUMENT_LABELS: Record<InstrumentKind, string> = {
   pad: "パッド",
   pluck: "プラック",
   organ: "オルガン",
+  piano: "ピアノ",
+  epiano: "エレピ",
+  strings: "ストリングス",
+  brass: "ブラス",
+  flute: "フルート",
+  bell: "ベル",
+  marimba: "マリンバ",
+  guitar: "ギター",
+  bass808: "808ベース",
+  supersaw: "スーパーソー",
   drumKit: "ドラムキット",
+  kick: "キック",
+  snare: "スネア",
+  hihat: "ハイハット",
+  openhat: "オープンハット",
+  clap: "クラップ",
+  tom: "タム",
+  crash: "クラッシュ",
+  ride: "ライド",
   perc: "パーカッション",
 };
 
@@ -20,6 +38,7 @@ export const WAVEFORM_LABELS: Record<Waveform, string> = {
   sine: "サイン波",
   saw: "のこぎり波",
   square: "矩形波",
+  triangle: "三角波",
   noise: "ノイズ",
 };
 
@@ -31,6 +50,24 @@ export const ADSR_LABELS = {
 } as const;
 
 export const INSTRUMENT_GROUPS: { label: string; kinds: InstrumentKind[] }[] = [
-  { label: "シンセ", kinds: ["basic", "bright", "warm", "lead", "bass", "pad", "pluck", "organ"] },
-  { label: "ドラム・パーカッション", kinds: ["drumKit", "perc"] },
+  {
+    label: "鍵盤・メロディ",
+    kinds: ["piano", "epiano", "organ", "bell", "marimba", "guitar", "flute"],
+  },
+  {
+    label: "シンセ",
+    kinds: ["basic", "bright", "warm", "lead", "supersaw", "pad", "pluck"],
+  },
+  {
+    label: "ベース",
+    kinds: ["bass", "bass808"],
+  },
+  {
+    label: "ストリングス・ブラス",
+    kinds: ["strings", "brass"],
+  },
+  {
+    label: "ドラム・パーカッション",
+    kinds: ["drumKit", "kick", "snare", "hihat", "openhat", "clap", "tom", "crash", "ride", "perc"],
+  },
 ];

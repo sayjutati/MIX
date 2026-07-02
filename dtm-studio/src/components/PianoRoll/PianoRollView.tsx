@@ -78,8 +78,6 @@ export function PianoRollView({
   const gridScrollRef = useRef<HTMLDivElement>(null);
   const keysScrollRef = useRef<HTMLDivElement>(null);
   const rulerScrollRef = useRef<HTMLDivElement>(null);
-  const scrollLeftRef = useRef(0);
-  const [scrollLeft, setScrollLeft] = useState(0);
   const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(
     null
   );
@@ -406,8 +404,6 @@ export function PianoRollView({
   };
 
   const syncScrollX = useCallback((left: number) => {
-    scrollLeftRef.current = left;
-    setScrollLeft(left);
     if (gridScrollRef.current && gridScrollRef.current.scrollLeft !== left) {
       gridScrollRef.current.scrollLeft = left;
     }
@@ -418,8 +414,6 @@ export function PianoRollView({
 
   const onGridScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
-    scrollLeftRef.current = el.scrollLeft;
-    setScrollLeft(el.scrollLeft);
     if (keysScrollRef.current && keysScrollRef.current.scrollTop !== el.scrollTop) {
       keysScrollRef.current.scrollTop = el.scrollTop;
     }
@@ -455,7 +449,6 @@ export function PianoRollView({
         playheadBeat={playheadBeat}
         playing={playing}
         quantizeGrid={quantizeGrid}
-        scrollLeft={scrollLeft}
         onScroll={syncScrollX}
         onLoopChange={onLoopChange}
         onSeekBeat={onSeekBeat}

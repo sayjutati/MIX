@@ -1,7 +1,8 @@
 import type { InstrumentEngine, SynthParams, Waveform } from "../../types/project";
 import { ADSR_LABELS, WAVEFORM_LABELS, instrumentDisplayName } from "../../data/uiLabels";
 import type { InstrumentKind } from "../../types/project";
-import { DRUM_LABELS } from "../../audio/drumMap";
+import { DRUM_LABELS, fixedDrumVoice } from "../../audio/drumMap";
+import { patchForKind } from "../../audio/voicePatch";
 
 type Props = {
   params: SynthParams;
@@ -11,7 +12,7 @@ type Props = {
   onChange: (patch: Partial<SynthParams>) => void;
 };
 
-const WAVEFORMS: Waveform[] = ["sine", "saw", "square", "noise"];
+const WAVEFORMS: Waveform[] = ["sine", "saw", "square", "triangle", "noise"];
 
 export function SynthPanel({
   params,
@@ -23,31 +24,47 @@ export function SynthPanel({
   const displayName = instrumentDisplayName(instrumentKind, instrumentName);
 
   if (engine === "drum") {
+    const isFixedDrum = instrumentKind ? fixedDrumVoice(instrumentKind) != null : false;
     return (
       <aside className="synth-panel">
         <div className="synth-panel__title">音色エディタ</div>
         <div className="synth-panel__subtitle">{displayName}</div>
-        <div className="synth-panel__section">ドラムマップ</div>
-        <p className="synth-panel__drum-hint">
-          ノートの高さでパッドが変わります。鍵盤・ピアノロールにパッド名を表示しています。
-        </p>
-        <ul className="synth-panel__drum-map">
-          {Object.entries(DRUM_LABELS).map(([pitch, label]) => (
-            <li key={pitch}>
-              <span className="synth-panel__drum-pitch">{pitch}</span>
-              {label}
-            </li>
-          ))}
-        </ul>
+        {isFixedDrum ? (
+          <p className="synth-panel__drum-hint">
+            単体ドラム音源です。どの鍵盤を押しても同じ音が鳴ります。
+          </p>
+        ) : (
+          <>
+            <div className="synth-panel__section">ドラムマップ</div>
+            <p className="synth-panel__drum-hint">
+              ノートの高さでパッドが変わります。鍵盤・ピアノロールにパッド名を表示しています。
+            </p>
+            <ul className="synth-panel__drum-map">
+              {Object.entries(DRUM_LABELS).map(([pitch, label]) => (
+                <li key={pitch}>
+                  <span className="synth-panel__drum-pitch">{pitch}</span>
+                  {label}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
       </aside>
     );
   }
+
+  const hasPatch = instrumentKind ? patchForKind(instrumentKind) != null : false;
 
   return (
     <aside className="synth-panel">
       <div className="synth-panel__title">音色エディタ</div>
       <div className="synth-panel__subtitle">{displayName}</div>
       <div className="synth-panel__section">オシレーター</div>
+      {hasPatch ? (
+        <p className="synth-panel__drum-hint">
+          専用パッチ音源（マルチオシレーター＋フィルター）です。エンベロープは下で調整できます。
+        </p>
+      ) : (
       <label className="synth-panel__row tooltip" data-tooltip="基本波形の種類">
         波形
         <select
@@ -61,6 +78,7 @@ export function SynthPanel({
           ))}
         </select>
       </label>
+      )}
       <div className="synth-panel__section">エンベロープ（ADSR）</div>
       {(["attack", "decay", "sustain", "release"] as const).map((key) => (
         <label
