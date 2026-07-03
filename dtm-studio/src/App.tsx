@@ -62,6 +62,9 @@ import {
 } from "./utils/noteEdit";
 import { filterAudioFiles, importAudioFile, importRecordedBlob } from "./utils/audioImport";
 import { audioClipPlayer } from "./audio/audioClipPlayer";
+import { VoiceCaptureModal, type VoiceCaptureResult } from "./components/VoiceCapture/VoiceCaptureModal";
+import { ensureVoiceSamples } from "./audio/voiceSampleLoader";
+import { makeAssetId, saveAudioAsset } from "./storage/audioAssetStorage";
 import "./index.css";
 
 const HELP_STORAGE_KEY = "dtm-help-on";
@@ -103,6 +106,7 @@ export default function App() {
   const removeChord = useProjectStore((s) => s.removeChord);
   const setChordProgression = useProjectStore((s) => s.setChordProgression);
   const replaceNotesInRange = useProjectStore((s) => s.replaceNotesInRange);
+  const addVoiceTrack = useProjectStore((s) => s.addVoiceTrack);
   const touch = useProjectStore((s) => s.touch);
 
   const quantizeGrid = useEditorStore((s) => s.quantizeGrid);
@@ -183,9 +187,17 @@ export default function App() {
   const [dragOver, setDragOver] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [instPickerOpen, setInstPickerOpen] = useState(false);
+  const [voiceCaptureOpen, setVoiceCaptureOpen] = useState(false);
   const [chordCollapsed, setChordCollapsed] = useState(() => {
     try {
       return localStorage.getItem("dtm-chord-collapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [mixerCollapsed, setMixerCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("dtm-mixer-collapsed") === "1";
     } catch {
       return false;
     }
@@ -540,10 +552,57 @@ export default function App() {
     [pushHistory, addTrack, touch]
   );
 
+  const handleVoiceCreate = useCallback(
+    async (result: VoiceCaptureResult) => {
+      pushHistory();
+      const p = useProjectStore.getState().project;
+      let assetId: string | undefined;
+      if (result.useSampler) {
+        assetId = makeAssetId();
+        await saveAudioAsset(
+          p.id,
+          assetId,
+          result.blob,
+          result.name,
+          result.blob.type || "audio/webm"
+        );
+      }
+      addVoiceTrack({
+        name: result.name,
+        sampleAssetId: assetId,
+        rootPitch: result.rootPitch,
+        notes: result.useNotes ? result.notes : [],
+      });
+      touch();
+      setVoiceCaptureOpen(false);
+      if (assetId) {
+        await ensureVoiceSamples(useProjectStore.getState().project);
+      }
+      if (useTransportStore.getState().playing) void scheduler.invalidatePending();
+    },
+    [pushHistory, addVoiceTrack, touch]
+  );
+
+  // プロジェクト読み込み後に voice 音源のサンプルを復元
+  useEffect(() => {
+    if (project.instruments.some((i) => i.kind === "voice" && i.sampleAssetId)) {
+      void ensureVoiceSamples(project);
+    }
+  }, [project]);
+
   const handleChordCollapsed = useCallback((v: boolean) => {
     setChordCollapsed(v);
     try {
       localStorage.setItem("dtm-chord-collapsed", v ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const handleMixerCollapsed = useCallback((v: boolean) => {
+    setMixerCollapsed(v);
+    try {
+      localStorage.setItem("dtm-mixer-collapsed", v ? "1" : "0");
     } catch {
       /* ignore */
     }
@@ -948,6 +1007,12 @@ export default function App() {
         onPick={handlePickInstrument}
         onClose={() => setInstPickerOpen(false)}
       />
+      <VoiceCaptureModal
+        open={voiceCaptureOpen}
+        tempo={project.tempo}
+        onClose={() => setVoiceCaptureOpen(false)}
+        onCreate={(r) => void handleVoiceCreate(r)}
+      />
       <div className="app">
       <TransportBar
         projectName={project.name}
@@ -1016,12 +1081,14 @@ export default function App() {
           onToggleOverlay={handleToggleOverlay}
           onAddTrack={() => setInstPickerOpen(true)}
           onAddAudioTrack={addAudioTrack}
+          onAddVoiceTrack={() => setVoiceCaptureOpen(true)}
           onRemoveTrack={handleRemoveTrack}
           onDuplicateTrack={handleDuplicateTrack}
           onUpdateTrack={handleMixerUpdate}
         />
         </aside>
         <ResizablePanel side="left" width={trackListW} onWidthChange={setTrackListW} />
+        <div className="editor-column">
         <div className="editor-stack">
           <ArrangementView
             project={project}
@@ -1151,6 +1218,7 @@ export default function App() {
           )}
         </main>
         </div>
+        </div>
         <ResizablePanel side="right" width={sidePanelW} onWidthChange={setSidePanelW} />
         <div className="side-panel" style={{ width: sidePanelW }}>
         {trackIsAudio ? (
@@ -1184,14 +1252,31 @@ export default function App() {
         )}
         </div>
       </div>
-      <MixerPanel
-        tracks={project.tracks}
-        selectedId={selectedTrackId}
-        masterVolume={project.masterVolume ?? 0.9}
-        onSelect={selectTrack}
-        onUpdate={handleMixerUpdate}
-        onMasterVolumeChange={handleMasterVolume}
-      />
+      <footer className="app__footer">
+        <div className="app__footer-bar">
+          <button
+            type="button"
+            className="app__footer-toggle tooltip"
+            data-tooltip={mixerCollapsed ? "ミキサーを開く" : "ミキサーをたたむ"}
+            onClick={() => handleMixerCollapsed(!mixerCollapsed)}
+          >
+            {mixerCollapsed ? "▸" : "▾"} ミキサー
+          </button>
+          <span className="app__footer-meta">
+            {project.tracks.length} トラック · マスター {Math.round((project.masterVolume ?? 0.9) * 100)}%
+          </span>
+        </div>
+        {!mixerCollapsed && (
+          <MixerPanel
+            tracks={project.tracks}
+            selectedId={selectedTrackId}
+            masterVolume={project.masterVolume ?? 0.9}
+            onSelect={selectTrack}
+            onUpdate={handleMixerUpdate}
+            onMasterVolumeChange={handleMasterVolume}
+          />
+        )}
+      </footer>
       </div>
     </>
   );

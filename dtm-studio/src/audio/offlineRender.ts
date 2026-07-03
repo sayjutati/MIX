@@ -10,6 +10,7 @@ import {
 } from "./synthCore";
 import { getAudioAssetBlob } from "../storage/audioAssetStorage";
 import { decodeAudioBlob } from "./decode";
+import { ensureVoiceSamplesLocal } from "./voiceSampleLoader";
 
 /** プロジェクトの終端拍（書き出し長さ用） */
 export const projectEndBeat = (project: Project): number => {
@@ -62,6 +63,7 @@ export const collectNoteEvents = (
         volume: track.volume * master,
         drumKind: voice.drumKind,
         patch: voice.patch,
+        sampleId: voice.sampleId,
       });
     }
   }
@@ -159,6 +161,10 @@ export const renderProjectOffline = async (
   const coreDuration = beatToSec(endBeat - startBeat, project.tempo);
   const totalSec = coreDuration + tailSec;
   const length = Math.max(1, Math.ceil(totalSec * sampleRate));
+
+  if (project.instruments.some((i) => i.kind === "voice" && i.sampleAssetId)) {
+    await ensureVoiceSamplesLocal(project);
+  }
 
   const events = collectNoteEvents(project, startBeat, endBeat);
   const voices = Array.from({ length: MAX_VOICES }, createVoice);

@@ -153,6 +153,19 @@ var processMasterSample = (l, r, lpL, lpR, sampleRate2) => {
   return { l: softClip(ml), r: softClip(mr) };
 };
 
+// src/audio/sampleBank.ts
+var bank = /* @__PURE__ */ new Map();
+var setSample = (id, sample) => {
+  bank.set(id, sample);
+};
+var getSample = (id) => bank.get(id);
+var readSampleLinear = (s, pos) => {
+  if (pos < 0 || pos >= s.data.length - 1) return 0;
+  const i = Math.floor(pos);
+  const frac = pos - i;
+  return s.data[i] * (1 - frac) + s.data[i + 1] * frac;
+};
+
 // src/audio/synthCore.ts
 var MAX_OSC_LAYERS = 3;
 var TAU2 = 2 * Math.PI;
@@ -173,7 +186,8 @@ var createVoice = () => ({
   envLevel: 0,
   envStage: "off",
   noteOffAt: Infinity,
-  voiceStartSec: 0
+  voiceStartSec: 0,
+  samplePos: 0
 });
 var triggerVoice = (v, ev) => {
   v.active = true;
@@ -185,6 +199,8 @@ var triggerVoice = (v, ev) => {
   v.volume = ev.volume;
   v.drumKind = ev.drumKind;
   v.patch = ev.patch;
+  v.sampleId = ev.sampleId;
+  v.samplePos = 0;
   v.phase = 0;
   for (let i = 0; i < MAX_OSC_LAYERS; i++) v.oscPhases[i] = i * 1.9;
   v.svf.low = 0;
@@ -278,10 +294,25 @@ var patchSample = (v, patch, sampleRate2, nowSec) => {
   }
   return sum;
 };
+var samplerSample = (v, s, sampleRate2) => {
+  const rate = midiToFreq(v.pitch) / s.rootHz * (s.sampleRate / sampleRate2);
+  if (s.loopEnd > s.loopStart) {
+    const loopLen = s.loopEnd - s.loopStart;
+    while (v.samplePos >= s.loopEnd) v.samplePos -= loopLen;
+  } else if (v.samplePos >= s.data.length - 1) {
+    return 0;
+  }
+  const out = readSampleLinear(s, v.samplePos);
+  v.samplePos += rate;
+  return out;
+};
 var voiceSample = (v, sampleRate2, nowSec) => {
   if (!v.active) return { l: 0, r: 0 };
   let raw;
-  if (!v.drumKind && v.patch) {
+  const sample = v.sampleId ? getSample(v.sampleId) : void 0;
+  if (sample) {
+    raw = samplerSample(v, sample, sampleRate2);
+  } else if (!v.drumKind && v.patch) {
     raw = patchSample(v, v.patch, sampleRate2, nowSec);
   } else {
     let freq = midiToFreq(v.pitch);
@@ -348,6 +379,14 @@ var SynthProcessor = class extends AudioWorkletProcessor {
         }
       } else if (d.type === "clearQueue") {
         this.queue = [];
+      } else if (d.type === "sample") {
+        setSample(d.id, {
+          data: d.data,
+          sampleRate: d.sampleRate,
+          rootHz: d.rootHz,
+          loopStart: d.loopStart,
+          loopEnd: d.loopEnd
+        });
       }
     };
   }
@@ -382,7 +421,8 @@ var SynthProcessor = class extends AudioWorkletProcessor {
       pan: n.pan,
       volume: n.volume,
       drumKind: n.drumKind,
-      patch: n.patch
+      patch: n.patch,
+      sampleId: n.sampleId
     };
     triggerVoice(free, ev);
   }

@@ -71,6 +71,17 @@ input[type="number"] {
   border: 2px solid transparent;
   background-clip: padding-box;
 }
+::-webkit-scrollbar-thumb:hover {
+  background: #45455a;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner {
+  background: var(--bg);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #33333f transparent;
+}
 
 /* Tooltip */
 .tooltip {
@@ -113,7 +124,48 @@ input[type="number"] {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  overflow: hidden;
   background: var(--bg);
+}
+
+.app__footer {
+  flex-shrink: 0;
+  min-height: 0;
+  border-top: 1px solid var(--border-soft);
+  background: var(--surface-1);
+  display: flex;
+  flex-direction: column;
+}
+
+.app__footer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--surface-2);
+  flex-shrink: 0;
+}
+
+.app__footer-toggle {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+}
+.app__footer-toggle:hover {
+  color: var(--text);
+  background: var(--surface-3);
+}
+
+.app__footer-meta {
+  font-size: 10px;
+  color: var(--text-faint);
 }
 
 .app--empty {
@@ -434,7 +486,18 @@ input[type="number"] {
   flex: 1;
   display: flex;
   min-height: 0;
+  overflow: hidden;
   background: var(--bg);
+}
+
+/* 中央カラム：アレンジ + コード + ピアノロール + ミキサー */
+.editor-column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* Track list */
@@ -717,6 +780,8 @@ input[type="number"] {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   background: var(--bg);
 }
 
@@ -1024,6 +1089,7 @@ input[type="number"] {
   grid-row: 2;
   overflow: auto;
   min-height: 0;
+  overscroll-behavior: contain;
 }
 
 .piano-roll__canvas {
@@ -1051,51 +1117,32 @@ input[type="number"] {
 .mixer {
   display: flex;
   align-items: stretch;
-  gap: 12px;
-  padding: 10px 14px;
+  gap: 10px;
+  padding: 8px 12px;
   background: var(--surface-1);
-  border-top: 1px solid var(--border);
+  border-top: none;
   flex-shrink: 0;
-  min-height: 128px;
   overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .mixer__master {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  width: 72px;
+  align-items: stretch;
+  gap: 4px;
+  width: 84px;
   flex-shrink: 0;
-  padding: 8px;
+  padding: 6px;
   background: var(--surface-2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--accent-dim, #33415e);
   border-radius: var(--radius-sm);
 }
 
-.mixer__master input[type="range"] {
-  width: 100%;
-  accent-color: var(--accent);
-  writing-mode: vertical-lr;
-  direction: rtl;
-  height: 64px;
-}
-
-.mixer__master .mixer__label {
-  writing-mode: horizontal-tb;
-  text-orientation: mixed;
-  letter-spacing: 0.06em;
-}
-
-.mixer__label {
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  color: var(--text-faint);
-  padding: 4px 0;
-  flex-shrink: 0;
+.mixer__strip-name--master {
+  border-color: var(--accent);
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
 }
 
 .mixer__strips {
@@ -1110,12 +1157,21 @@ input[type="number"] {
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 8px 6px;
+  padding: 6px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   cursor: pointer;
   transition: border-color 0.15s;
+}
+
+.mixer__strip-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
 }
 .mixer__strip:hover {
   border-color: #3a3a48;
@@ -1154,22 +1210,15 @@ input[type="number"] {
   accent-color: var(--green-soft);
 }
 
-.mixer__val {
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 10px;
-}
-
 .mixer__buttons {
   display: flex;
   gap: 4px;
   justify-content: center;
-  margin-top: auto;
 }
 
 .mixer__btn {
-  width: 30px;
-  height: 24px;
+  width: 26px;
+  height: 18px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface-3);
@@ -1410,6 +1459,12 @@ input[type="number"] {
   margin-left: 4px;
   background: rgba(138, 240, 192, 0.15);
   border-color: rgba(138, 240, 192, 0.4);
+}
+
+.track-list__add--voice {
+  margin-left: 4px;
+  background: rgba(255, 107, 138, 0.15);
+  border-color: rgba(255, 107, 138, 0.4);
 }
 
 .track-list__badge--audio {
@@ -1687,11 +1742,13 @@ input[type="number"] {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
 }
 
 .side-panel {
   flex-shrink: 0;
   min-width: 180px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1892,48 +1949,55 @@ input[type="number"] {
 }
 
 .mixer__fader-v {
-  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 72px;
 }
 .mixer__fader-v input[type="range"],
 .mixer__fader-v-input {
   writing-mode: vertical-lr;
   direction: rtl;
-  height: 72px;
-  width: 28px;
+  height: 56px;
+  width: 22px;
   accent-color: var(--accent);
+  cursor: ns-resize;
 }
 
 .mixer__meter {
-  width: 6px;
-  height: 48px;
+  width: 5px;
+  height: 56px;
   background: #0a0a10;
   border-radius: 2px;
   overflow: hidden;
-  align-self: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  flex-shrink: 0;
 }
 .mixer__meter-fill {
   width: 100%;
   background: linear-gradient(to top, var(--green-soft), var(--amber));
-  margin-top: auto;
   transition: height 0.08s;
 }
 
-.mixer__pan-row input {
-  width: 100%;
-  accent-color: var(--accent);
+.mixer__val {
+  font-size: 9px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  width: 18px;
+  text-align: right;
+  flex-shrink: 0;
 }
 
-.mixer__strip {
-  width: 72px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 6px;
+.mixer__pan-row {
+  display: block;
+  padding: 0 2px;
+}
+.mixer__pan-row input {
+  width: 100%;
+  height: 12px;
+  accent-color: var(--green-soft);
+  cursor: ew-resize;
 }
 
 .modal-overlay {
@@ -2272,6 +2336,11 @@ input[type="number"] {
   font-size: 9px;
   color: var(--text-faint);
   margin-left: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 38%;
+  min-width: 0;
 }
 
 .chord-track__scroll {
@@ -2531,4 +2600,260 @@ input[type="number"] {
 }
 .chord-picker__delete:hover {
   background: rgba(248, 113, 113, 0.1);
+}
+
+/* Voice capture（声から音源・メロディ作成） */
+.voice-capture {
+  width: min(620px, 94vw);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-2);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.voice-capture__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.voice-capture__title {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.voice-capture__close {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+.voice-capture__close:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.voice-capture__lead {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+
+.voice-capture__setup {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.voice-capture__setup-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.voice-capture__field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.voice-capture__field select,
+.voice-capture__field input {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 5px 8px;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.voice-capture__record-btn {
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  border-radius: var(--radius-pill);
+  background: rgba(239, 68, 68, 0.14);
+  color: #fca5a5;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 20px;
+  cursor: pointer;
+}
+.voice-capture__record-btn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.25);
+}
+.voice-capture__record-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.voice-capture__file-btn {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+.voice-capture__file-btn:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.voice-capture__status {
+  margin: 0;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.voice-capture__recording {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.voice-capture__wave {
+  width: 100%;
+  height: 90px;
+  background: #0e0e14;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+
+.voice-capture__rec-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.voice-capture__rec-time {
+  font-size: 12px;
+  color: #fca5a5;
+  font-variant-numeric: tabular-nums;
+}
+
+.voice-capture__stop-btn {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 20px;
+  cursor: pointer;
+}
+.voice-capture__stop-btn:hover {
+  background: var(--surface-hover);
+}
+
+.voice-capture__result {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.voice-capture__preview {
+  width: 100%;
+  height: 160px;
+  background: #12121a;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+
+.voice-capture__meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.voice-capture__meta strong {
+  color: var(--text);
+}
+
+.voice-capture__audio {
+  height: 30px;
+  max-width: 220px;
+  margin-left: auto;
+}
+
+.voice-capture__options {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.voice-capture__checks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.voice-capture__check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+.voice-capture__check input {
+  accent-color: var(--accent);
+}
+
+.voice-capture__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.voice-capture__retry {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+.voice-capture__retry:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.voice-capture__create {
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 22px;
+  cursor: pointer;
+}
+.voice-capture__create:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+.voice-capture__create:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.voice-capture__error {
+  margin: 0;
+  font-size: 12px;
+  color: #fca5a5;
 }

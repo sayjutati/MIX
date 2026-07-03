@@ -13,6 +13,7 @@ import {
   velocityGain,
 } from "./oscCore";
 import type { VoicePatch } from "./voicePatch";
+import { getSample, readSampleLinear, type SampleData } from "./sampleBank";
 
 export type Adsr = { attack: number; decay: number; sustain: number; release: number };
 
@@ -27,6 +28,8 @@ export type NoteEvent = {
   volume: number;
   drumKind?: DrumKind;
   patch?: VoicePatch;
+  /** サンプラー再生用（sampleBank のキー） */
+  sampleId?: string;
 };
 
 const MAX_OSC_LAYERS = 3;
@@ -53,6 +56,8 @@ export type VoiceState = {
   voiceStartSec: number;
   drumKind?: DrumKind;
   patch?: VoicePatch;
+  sampleId?: string;
+  samplePos: number;
 };
 
 export { midiToFreq };
@@ -75,6 +80,7 @@ export const createVoice = (): VoiceState => ({
   envStage: "off",
   noteOffAt: Infinity,
   voiceStartSec: 0,
+  samplePos: 0,
 });
 
 export const triggerVoice = (v: VoiceState, ev: NoteEvent) => {
@@ -87,6 +93,8 @@ export const triggerVoice = (v: VoiceState, ev: NoteEvent) => {
   v.volume = ev.volume;
   v.drumKind = ev.drumKind;
   v.patch = ev.patch;
+  v.sampleId = ev.sampleId;
+  v.samplePos = 0;
   v.phase = 0;
   // レイヤー間の位相をずらして位相打ち消しを避ける
   for (let i = 0; i < MAX_OSC_LAYERS; i++) v.oscPhases[i] = i * 1.9;
@@ -190,6 +198,20 @@ const patchSample = (v: VoiceState, patch: VoicePatch, sampleRate: number, nowSe
   return sum;
 };
 
+/** サンプラー音源のモノラルサンプル生成（ピッチシフト＋サステインループ） */
+const samplerSample = (v: VoiceState, s: SampleData, sampleRate: number): number => {
+  const rate = (midiToFreq(v.pitch) / s.rootHz) * (s.sampleRate / sampleRate);
+  if (s.loopEnd > s.loopStart) {
+    const loopLen = s.loopEnd - s.loopStart;
+    while (v.samplePos >= s.loopEnd) v.samplePos -= loopLen;
+  } else if (v.samplePos >= s.data.length - 1) {
+    return 0;
+  }
+  const out = readSampleLinear(s, v.samplePos);
+  v.samplePos += rate;
+  return out;
+};
+
 export const voiceSample = (
   v: VoiceState,
   sampleRate: number,
@@ -198,8 +220,11 @@ export const voiceSample = (
   if (!v.active) return { l: 0, r: 0 };
 
   let raw: number;
+  const sample = v.sampleId ? getSample(v.sampleId) : undefined;
 
-  if (!v.drumKind && v.patch) {
+  if (sample) {
+    raw = samplerSample(v, sample, sampleRate);
+  } else if (!v.drumKind && v.patch) {
     raw = patchSample(v, v.patch, sampleRate, nowSec);
   } else {
     let freq = midiToFreq(v.pitch);

@@ -11,6 +11,7 @@ type Props = {
   onToggleOverlay: (id: string) => void;
   onAddTrack: () => void;
   onAddAudioTrack: () => void;
+  onAddVoiceTrack: () => void;
   onRemoveTrack: (id: string) => void;
   onDuplicateTrack: (id: string) => void;
   onUpdateTrack: (id: string, patch: Partial<Track>) => void;
@@ -25,6 +26,7 @@ export function TrackList({
   onToggleOverlay,
   onAddTrack,
   onAddAudioTrack,
+  onAddVoiceTrack,
   onRemoveTrack,
   onDuplicateTrack,
   onUpdateTrack,
@@ -50,6 +52,15 @@ export function TrackList({
           aria-label="オーディオトラック追加"
         >
           +A
+        </button>
+        <button
+          type="button"
+          className="track-list__add track-list__add--voice tooltip"
+          data-tooltip="声を録音して音源・メロディを作成"
+          onClick={onAddVoiceTrack}
+          aria-label="声から作成"
+        >
+          +声
         </button>
       </div>
       <p className="track-list__hint">クリック = 編集 · 重ね = ロールに表示</p>

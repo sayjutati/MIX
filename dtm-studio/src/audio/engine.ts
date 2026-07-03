@@ -3,6 +3,7 @@ import { beatToSec, isAudioTrack } from "../types/project";
 import type { DrumKind } from "./oscCore";
 import { resolveVoiceParams } from "./instrumentVoice";
 import type { VoicePatch } from "./voicePatch";
+import type { SampleData } from "./sampleBank";
 
 const WORKLET_BASE = `${import.meta.env.BASE_URL}worklets/`;
 
@@ -101,7 +102,25 @@ export type NoteSchedulePayload = {
   volume: number;
   drumKind?: DrumKind;
   patch?: VoicePatch;
+  sampleId?: string;
 };
+
+/** サンプラー用波形を worklet 側のサンプルバンクへ転送する */
+export function sendSampleToSynth(synth: AudioWorkletNode, id: string, sample: SampleData) {
+  const copy = sample.data.slice();
+  synth.port.postMessage(
+    {
+      type: "sample",
+      id,
+      data: copy,
+      sampleRate: sample.sampleRate,
+      rootHz: sample.rootHz,
+      loopStart: sample.loopStart,
+      loopEnd: sample.loopEnd,
+    },
+    [copy.buffer]
+  );
+}
 
 export function scheduleNotesToSynth(synth: AudioWorkletNode, notes: NoteSchedulePayload[]) {
   if (notes.length === 0) return;
@@ -124,6 +143,7 @@ export function scheduleNotesToSynth(synth: AudioWorkletNode, notes: NoteSchedul
       volume: n.volume,
       drumKind: n.drumKind,
       patch: n.patch,
+      sampleId: n.sampleId,
     })),
   });
 }
@@ -169,6 +189,7 @@ export function buildNoteSchedules(
         volume: track.volume * master,
         drumKind: voice.drumKind,
         patch: voice.patch,
+        sampleId: voice.sampleId,
       });
     }
   }

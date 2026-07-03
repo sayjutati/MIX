@@ -43,7 +43,8 @@ export type InstrumentKind =
   | "tom"
   | "crash"
   | "ride"
-  | "perc";
+  | "perc"
+  | "voice";
 
 export type Instrument = {
   id: string;
@@ -52,6 +53,10 @@ export type Instrument = {
   /** 省略時は synth（旧プロジェクト互換） */
   engine?: InstrumentEngine;
   params: SynthParams;
+  /** voice（サンプラー）用: IndexedDB オーディオアセット ID */
+  sampleAssetId?: string;
+  /** voice 用: 録音のルート音（MIDI ノート番号） */
+  sampleRootPitch?: number;
 };
 
 export type MidiNote = {

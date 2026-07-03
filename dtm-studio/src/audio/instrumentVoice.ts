@@ -9,6 +9,7 @@ export type ResolvedVoice = {
   adsr: Pick<SynthParams, "attack" | "decay" | "sustain" | "release">;
   drumKind?: DrumKind;
   patch?: VoicePatch;
+  sampleId?: string;
 };
 
 export const instrumentEngine = (inst: Instrument): "synth" | "drum" =>
@@ -22,6 +23,14 @@ export const resolveVoiceParams = (inst: Instrument, notePitch: number): Resolve
       waveform: drum.waveform,
       adsr: drum.adsr,
       drumKind: drum.drumKind,
+    };
+  }
+  if (inst.kind === "voice" && inst.sampleAssetId) {
+    return {
+      pitch: notePitch,
+      waveform: "sine",
+      adsr: inst.params,
+      sampleId: inst.sampleAssetId,
     };
   }
   const patch = patchForKind(inst.kind);

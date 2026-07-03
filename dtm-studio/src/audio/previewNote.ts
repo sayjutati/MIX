@@ -26,6 +26,7 @@ export async function previewNote(
       volume: track.volume,
       drumKind: voice.drumKind,
       patch: voice.patch,
+      sampleId: voice.sampleId,
     },
   ]);
 }

@@ -54,13 +54,18 @@ export function SynthPanel({
   }
 
   const hasPatch = instrumentKind ? patchForKind(instrumentKind) != null : false;
+  const isSampler = instrumentKind === "voice";
 
   return (
     <aside className="synth-panel">
       <div className="synth-panel__title">音色エディタ</div>
       <div className="synth-panel__subtitle">{displayName}</div>
       <div className="synth-panel__section">オシレーター</div>
-      {hasPatch ? (
+      {isSampler ? (
+        <p className="synth-panel__drum-hint">
+          録音した声のサンプラー音源です。ノートの高さに合わせてピッチシフトして鳴ります。エンベロープは下で調整できます。
+        </p>
+      ) : hasPatch ? (
         <p className="synth-panel__drum-hint">
           専用パッチ音源（マルチオシレーター＋フィルター）です。エンベロープは下で調整できます。
         </p>

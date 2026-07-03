@@ -29,6 +29,7 @@ export const INSTRUMENT_LABELS: Record<InstrumentKind, string> = {
   crash: "クラッシュ",
   ride: "ライド",
   perc: "パーカッション",
+  voice: "自分の声",
 };
 
 export const instrumentDisplayName = (kind: InstrumentKind | undefined, fallback: string) =>
@@ -69,5 +70,9 @@ export const INSTRUMENT_GROUPS: { label: string; kinds: InstrumentKind[] }[] = [
   {
     label: "ドラム・パーカッション",
     kinds: ["drumKit", "kick", "snare", "hihat", "openhat", "clap", "tom", "crash", "ride", "perc"],
+  },
+  {
+    label: "ボイス（録音サンプラー）",
+    kinds: ["voice"],
   },
 ];

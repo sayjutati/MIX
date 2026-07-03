@@ -11,6 +11,7 @@ import {
   type VoiceState,
 } from "./synthCore";
 import type { VoicePatch } from "./voicePatch";
+import { setSample } from "./sampleBank";
 
 type Adsr = { attack: number; decay: number; sustain: number; release: number };
 
@@ -26,6 +27,7 @@ type ScheduledNote = {
   noteOffTime: number;
   drumKind?: DrumKind;
   patch?: VoicePatch;
+  sampleId?: string;
   triggered: boolean;
 };
 
@@ -62,6 +64,14 @@ class SynthProcessor extends AudioWorkletProcessor {
         }
       } else if (d.type === "clearQueue") {
         this.queue = [];
+      } else if (d.type === "sample") {
+        setSample(d.id, {
+          data: d.data,
+          sampleRate: d.sampleRate,
+          rootHz: d.rootHz,
+          loopStart: d.loopStart,
+          loopEnd: d.loopEnd,
+        });
       }
     };
   }
@@ -101,6 +111,7 @@ class SynthProcessor extends AudioWorkletProcessor {
       volume: n.volume,
       drumKind: n.drumKind,
       patch: n.patch,
+      sampleId: n.sampleId,
     };
     triggerVoice(free, ev);
   }

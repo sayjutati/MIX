@@ -78,6 +78,13 @@ type ProjectState = {
   insertNotes: (trackId: string, notes: Omit<MidiNote, "id">[]) => void;
   transposeNotes: (trackId: string, noteIds: string[], semitones: number) => void;
   setMasterVolume: (v: number) => void;
+  /** 録音した声からサンプラー音源＋トラックを作成。作成したトラック ID を返す */
+  addVoiceTrack: (args: {
+    name: string;
+    sampleAssetId?: string;
+    rootPitch?: number;
+    notes: Omit<MidiNote, "id">[];
+  }) => string;
   addChord: (chord: Omit<ChordEvent, "id">) => string;
   updateChord: (id: string, patch: Partial<ChordEvent>) => void;
   removeChord: (id: string) => void;
@@ -504,6 +511,39 @@ export const useProjectStore = create<ProjectState>((set) => ({
         masterVolume: Math.max(0, Math.min(1, v)),
       }),
     })),
+
+  addVoiceTrack: ({ name, sampleAssetId, rootPitch, notes }) => {
+    const useSampler = !!sampleAssetId;
+    const inst: Instrument | null = useSampler
+      ? {
+          id: `inst-voice-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          kind: "voice",
+          name,
+          engine: "synth",
+          params: { waveform: "sine", attack: 0.005, decay: 0.12, sustain: 0.85, release: 0.18 },
+          sampleAssetId,
+          sampleRootPitch: rootPitch,
+        }
+      : null;
+    const track = makeTrack({
+      name,
+      instrumentId: inst ? inst.id : "inst-piano",
+      notes: notes.map((n) => makeNote(n)),
+    });
+    set((s) => ({
+      project: touchProject({
+        ...s.project,
+        instruments: inst ? [...s.project.instruments, inst] : s.project.instruments,
+        tracks: [
+          ...s.project.tracks,
+          { ...track, color: TRACK_COLORS[s.project.tracks.length % TRACK_COLORS.length]! },
+        ],
+      }),
+      selectedTrackId: track.id,
+      selectedNoteIds: new Set<string>(),
+    }));
+    return track.id;
+  },
 
   addChord: (chord) => {
     const ev = makeChordEvent(chord);

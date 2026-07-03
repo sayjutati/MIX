@@ -28,51 +28,62 @@ export function MixerPanel({
   };
 
   return (
-    <footer className="mixer">
-      <div className="mixer__master tooltip" data-tooltip="マスター出力">
-        <span className="mixer__label">MST</span>
-        <div className="mixer__fader-v">
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.01}
-            value={masterVolume}
-            className="mixer__fader-v-input"
-            onChange={(e) => onMasterVolumeChange(Number(e.target.value))}
-            aria-label="マスター音量"
-          />
+    <div className="mixer">
+      <div className="mixer__master">
+        <div className="mixer__strip-name mixer__strip-name--master">MASTER</div>
+        <div className="mixer__strip-body">
+          <div className="mixer__fader-v">
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={masterVolume}
+              className="mixer__fader-v-input"
+              onChange={(e) => onMasterVolumeChange(Number(e.target.value))}
+              aria-label="マスター音量"
+            />
+          </div>
+          <span className="mixer__val">{Math.round(masterVolume * 100)}</span>
         </div>
-        <span className="mixer__val">{Math.round(masterVolume * 100)}</span>
       </div>
       <div className="mixer__strips">
         {tracks.map((t) => (
           <div
             key={t.id}
-            className={`mixer__strip tooltip${t.id === selectedId ? " is-selected" : ""}`}
-            data-tooltip="クリックで編集トラックを選択"
+            className={`mixer__strip${t.id === selectedId ? " is-selected" : ""}`}
             onClick={() => onSelect(t.id)}
           >
             <div className="mixer__strip-name" style={{ borderColor: t.color }}>
               {t.name}
             </div>
-            <div className="mixer__meter" aria-hidden>
-              <div className="mixer__meter-fill" style={{ height: `${Math.round(t.volume * 100)}%` }} />
+            <div className="mixer__strip-body">
+              <div className="mixer__meter" aria-hidden>
+                <div
+                  className="mixer__meter-fill"
+                  style={{ height: `${Math.round(t.volume * 100)}%` }}
+                />
+              </div>
+              <div className="mixer__fader-v">
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={t.volume}
+                  className="mixer__fader-v-input"
+                  onChange={(e) => onUpdate(t.id, { volume: Number(e.target.value) })}
+                  onClick={(e) => e.stopPropagation()}
+                  aria-label={`${t.name} 音量`}
+                />
+              </div>
+              <span className="mixer__val">{Math.round(t.volume * 100)}</span>
             </div>
-            <div className="mixer__fader-v">
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={t.volume}
-                className="mixer__fader-v-input"
-                onChange={(e) => onUpdate(t.id, { volume: Number(e.target.value) })}
-                onClick={(e) => e.stopPropagation()}
-                aria-label={`${t.name} 音量`}
-              />
-            </div>
-            <label className="mixer__pan-row" onClick={(e) => e.stopPropagation()}>
+            <label
+              className="mixer__pan-row tooltip"
+              data-tooltip="パン（左右バランス）"
+              onClick={(e) => e.stopPropagation()}
+            >
               <input
                 type="range"
                 min={-1}
@@ -80,6 +91,7 @@ export function MixerPanel({
                 step={0.01}
                 value={t.pan}
                 onChange={(e) => onUpdate(t.id, { pan: Number(e.target.value) })}
+                onDoubleClick={() => onUpdate(t.id, { pan: 0 })}
                 aria-label={`${t.name} パン`}
               />
             </label>
@@ -110,6 +122,6 @@ export function MixerPanel({
           </div>
         ))}
       </div>
-    </footer>
+    </div>
   );
 }
