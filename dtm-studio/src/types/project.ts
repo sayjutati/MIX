@@ -63,6 +63,42 @@ export type MidiNote = {
   velocity: number;
 };
 
+/** コード品質（表記は utils/chords.ts の QUALITY_LABELS） */
+export type ChordQuality =
+  | "maj"
+  | "min"
+  | "7"
+  | "maj7"
+  | "min7"
+  | "dim"
+  | "m7b5"
+  | "aug"
+  | "sus2"
+  | "sus4"
+  | "add9"
+  | "6"
+  | "m6"
+  | "9";
+
+/** コード進行トラック上の1コード */
+export type ChordEvent = {
+  id: string;
+  /** ルート音のピッチクラス 0=C 〜 11=B */
+  root: number;
+  quality: ChordQuality;
+  startBeat: number;
+  durationBeats: number;
+};
+
+export const makeChordEvent = (
+  partial: Partial<ChordEvent> & Pick<ChordEvent, "root" | "startBeat">
+): ChordEvent => ({
+  id: `ch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  quality: "maj",
+  durationBeats: 4,
+  ...partial,
+});
+
 /** オーディオクリップ（波形トラック上の区間） */
 export type AudioClip = {
   id: string;
@@ -148,6 +184,8 @@ export type Project = {
   masterVolume: number;
   tracks: Track[];
   instruments: Instrument[];
+  /** コード進行（作曲補助トラック） */
+  chordProgression?: ChordEvent[];
 };
 
 export const DEFAULT_INSTRUMENTS: Instrument[] = [
@@ -416,6 +454,7 @@ export const makeProject = (partial?: Partial<Project>): Project => {
     masterVolume: 0.9,
     instruments: DEFAULT_INSTRUMENTS.map((i) => ({ ...i, params: { ...i.params } })),
     tracks: [makeTrack()],
+    chordProgression: [],
     ...partial,
   };
   return {

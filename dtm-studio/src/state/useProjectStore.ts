@@ -3,11 +3,13 @@ import {
   DEFAULT_INSTRUMENTS,
   makeAudioClip,
   makeAudioTrack,
+  makeChordEvent,
   makeNote,
   makeProject,
   makeTrack,
   normalizeTrack,
   type AudioClip,
+  type ChordEvent,
   type Instrument,
   type MidiNote,
   type PluginSlot,
@@ -26,6 +28,7 @@ const mergeDefaultInstruments = (p: Project): Project => {
     ...p,
     masterVolume: p.masterVolume ?? 0.9,
     tracks: p.tracks.map(normalizeTrack),
+    chordProgression: p.chordProgression ?? [],
   };
   if (missing.length === 0) return withMaster;
   return {
@@ -75,6 +78,17 @@ type ProjectState = {
   insertNotes: (trackId: string, notes: Omit<MidiNote, "id">[]) => void;
   transposeNotes: (trackId: string, noteIds: string[], semitones: number) => void;
   setMasterVolume: (v: number) => void;
+  addChord: (chord: Omit<ChordEvent, "id">) => string;
+  updateChord: (id: string, patch: Partial<ChordEvent>) => void;
+  removeChord: (id: string) => void;
+  setChordProgression: (chords: ChordEvent[]) => void;
+  /** 指定範囲内のノートを削除して新しいノートを挿入（コード書き出し用） */
+  replaceNotesInRange: (
+    trackId: string,
+    fromBeat: number,
+    toBeat: number,
+    notes: Omit<MidiNote, "id">[]
+  ) => void;
   touch: () => void;
 };
 
@@ -488,6 +502,58 @@ export const useProjectStore = create<ProjectState>((set) => ({
       project: touchProject({
         ...s.project,
         masterVolume: Math.max(0, Math.min(1, v)),
+      }),
+    })),
+
+  addChord: (chord) => {
+    const ev = makeChordEvent(chord);
+    set((s) => ({
+      project: touchProject({
+        ...s.project,
+        chordProgression: [...(s.project.chordProgression ?? []), ev],
+      }),
+    }));
+    return ev.id;
+  },
+
+  updateChord: (id, patch) =>
+    set((s) => ({
+      project: touchProject({
+        ...s.project,
+        chordProgression: (s.project.chordProgression ?? []).map((c) =>
+          c.id === id ? { ...c, ...patch } : c
+        ),
+      }),
+    })),
+
+  removeChord: (id) =>
+    set((s) => ({
+      project: touchProject({
+        ...s.project,
+        chordProgression: (s.project.chordProgression ?? []).filter((c) => c.id !== id),
+      }),
+    })),
+
+  setChordProgression: (chords) =>
+    set((s) => ({
+      project: touchProject({ ...s.project, chordProgression: chords }),
+    })),
+
+  replaceNotesInRange: (trackId, fromBeat, toBeat, notes) =>
+    set((s) => ({
+      project: touchProject({
+        ...s.project,
+        tracks: s.project.tracks.map((t) =>
+          t.id === trackId
+            ? {
+                ...t,
+                notes: [
+                  ...t.notes.filter((n) => n.start >= toBeat || n.start + n.duration <= fromBeat),
+                  ...notes.map((n) => makeNote(n)),
+                ],
+              }
+            : t
+        ),
       }),
     })),
 

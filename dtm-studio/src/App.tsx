@@ -5,6 +5,7 @@ import { playMetronomeClick } from "./audio/metronome";
 import { downloadBlob, encodeExport, safeFilename, type ExportFormat } from "./audio/export";
 import { normalizeBuffer, projectEndBeat, renderProjectOffline } from "./audio/offlineRender";
 import { ArrangementView } from "./components/Arrangement/ArrangementView";
+import { ChordTrack } from "./components/ChordTrack/ChordTrack";
 import { ResizablePanel } from "./components/ResizablePanel";
 import { ShortcutHelp } from "./components/ShortcutHelp";
 import { InstrumentPicker } from "./components/InstrumentPicker";
@@ -40,8 +41,15 @@ import {
 import { instrumentEngine } from "./audio/instrumentVoice";
 import { fixedDrumVoice } from "./audio/drumMap";
 import { previewNote } from "./audio/previewNote";
-import type { Project, Track } from "./types/project";
-import { isAudioTrack, secToBeat } from "./types/project";
+import type { ChordEvent, ChordQuality, Project, Track } from "./types/project";
+import { isAudioTrack, makeChordEvent, secToBeat } from "./types/project";
+import {
+  chordPreviewPitches,
+  chordsEndBeat,
+  generateChordNotes,
+  type ChordPattern,
+  type ChordTarget,
+} from "./utils/chords";
 import type { QuantizeGrid } from "./utils/quantize";
 import { snapBeat } from "./utils/quantize";
 import { pitchFromComputerKey } from "./utils/computerPiano";
@@ -90,6 +98,11 @@ export default function App() {
   const setMasterVolume = useProjectStore((s) => s.setMasterVolume);
   const updateTrack = useProjectStore((s) => s.updateTrack);
   const updateInstrumentForTrack = useProjectStore((s) => s.updateInstrumentForTrack);
+  const addChord = useProjectStore((s) => s.addChord);
+  const updateChord = useProjectStore((s) => s.updateChord);
+  const removeChord = useProjectStore((s) => s.removeChord);
+  const setChordProgression = useProjectStore((s) => s.setChordProgression);
+  const replaceNotesInRange = useProjectStore((s) => s.replaceNotesInRange);
   const touch = useProjectStore((s) => s.touch);
 
   const quantizeGrid = useEditorStore((s) => s.quantizeGrid);
@@ -170,6 +183,13 @@ export default function App() {
   const [dragOver, setDragOver] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [instPickerOpen, setInstPickerOpen] = useState(false);
+  const [chordCollapsed, setChordCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("dtm-chord-collapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [trackListW, setTrackListW] = useState(240);
   const [sidePanelW, setSidePanelW] = useState(220);
@@ -183,8 +203,10 @@ export default function App() {
   const restored = useRef(false);
   const lastMetBeat = useRef(-1);
 
+  const chords = project.chordProgression ?? [];
+
   const beatsVisible = useMemo(
-    () => Math.max(32, projectEndBeat(project) + 8),
+    () => Math.max(32, projectEndBeat(project) + 8, chordsEndBeat(project.chordProgression ?? []) + 8),
     [project]
   );
   const beatWidth = BEAT_W * beatZoom;
@@ -517,6 +539,78 @@ export default function App() {
     },
     [pushHistory, addTrack, touch]
   );
+
+  const handleChordCollapsed = useCallback((v: boolean) => {
+    setChordCollapsed(v);
+    try {
+      localStorage.setItem("dtm-chord-collapsed", v ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const handlePreviewChord = useCallback((root: number, quality: ChordQuality) => {
+    const p = useProjectStore.getState().project;
+    const inst = p.instruments.find((i) => i.kind === "piano") ?? p.instruments[0];
+    if (!inst) return;
+    for (const pitch of chordPreviewPitches(root, quality)) {
+      void previewNote(pitch, 92, inst, { pan: 0, volume: 0.8 });
+    }
+  }, []);
+
+  const handleAppendChords = useCallback(
+    (list: Omit<ChordEvent, "id">[]) => {
+      const cur = useProjectStore.getState().project.chordProgression ?? [];
+      setChordProgression([...cur, ...list.map((c) => makeChordEvent(c))]);
+    },
+    [setChordProgression]
+  );
+
+  const handleSetChords = useCallback(
+    (list: Omit<ChordEvent, "id">[]) => {
+      setChordProgression(list.map((c) => makeChordEvent(c)));
+    },
+    [setChordProgression]
+  );
+
+  const handleGenerateChords = useCallback(
+    (target: ChordTarget, pattern: ChordPattern) => {
+      const p = useProjectStore.getState().project;
+      const chordList = p.chordProgression ?? [];
+      if (chordList.length === 0) return;
+      pushHistory();
+      const notes = generateChordNotes(chordList, target, pattern);
+
+      const kindMatch = (t: Track) => {
+        if (isAudioTrack(t)) return false;
+        const inst = p.instruments.find((i) => i.id === t.instrumentId);
+        return inst?.kind === target;
+      };
+      const sel = p.tracks.find((t) => t.id === useProjectStore.getState().selectedTrackId);
+      let trackId = sel && kindMatch(sel) ? sel.id : p.tracks.find(kindMatch)?.id ?? null;
+      if (!trackId) {
+        const inst = p.instruments.find((i) => i.kind === target);
+        addTrack(inst?.id);
+        trackId = useProjectStore.getState().selectedTrackId;
+      }
+      if (!trackId) return;
+
+      const start = Math.min(...chordList.map((c) => c.startBeat));
+      replaceNotesInRange(trackId, start, chordsEndBeat(chordList), notes);
+      selectTrack(trackId);
+      touch();
+      if (useTransportStore.getState().playing) void scheduler.invalidatePending();
+    },
+    [pushHistory, addTrack, replaceNotesInRange, selectTrack, touch]
+  );
+
+  const handleLoopToChords = useCallback(() => {
+    const chordList = useProjectStore.getState().project.chordProgression ?? [];
+    if (chordList.length === 0) return;
+    const start = Math.min(...chordList.map((c) => c.startBeat));
+    setLoop(start, chordsEndBeat(chordList));
+    setLoopEnabled(true);
+  }, [setLoop, setLoopEnabled]);
 
   const handleDuplicateTrack = useCallback(
     (trackId: string) => {
@@ -938,6 +1032,24 @@ export default function App() {
             beatWidth={beatWidth}
             onSelectTrack={selectTrack}
             onSeekBeat={(b) => void seekToBeat(b)}
+          />
+          <ChordTrack
+            chords={chords}
+            beatsVisible={beatsVisible}
+            beatWidth={beatWidth}
+            playheadBeat={playheadBeat}
+            playing={playing}
+            collapsed={chordCollapsed}
+            onCollapsedChange={handleChordCollapsed}
+            onAddChord={(c) => addChord(c)}
+            onUpdateChord={updateChord}
+            onRemoveChord={removeChord}
+            onSetChords={handleSetChords}
+            onAppendChords={handleAppendChords}
+            onPreviewChord={handlePreviewChord}
+            onGenerate={handleGenerateChords}
+            onLoopToProgression={handleLoopToChords}
+            onEditStart={handleEditStart}
           />
         <main className={`piano-roll${trackIsAudio ? " piano-roll--audio" : ""}`}>
           {trackIsAudio ? (
