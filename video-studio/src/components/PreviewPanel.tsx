@@ -89,6 +89,7 @@ export const PreviewPanel = ({ state, editor, onCanvasReady }: Props) => {
     if (!hit) return;
     e.preventDefault();
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    editor.beginGesture();
     editor.patch({ selectedClipId: hit.id });
     dragRef.current = {
       clipId: hit.id,
@@ -114,6 +115,7 @@ export const PreviewPanel = ({ state, editor, onCanvasReady }: Props) => {
 
   const onPointerUp = (e: React.PointerEvent) => {
     if (dragRef.current) {
+      editor?.endGesture();
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);
       dragRef.current = null;
       setDragging(false);

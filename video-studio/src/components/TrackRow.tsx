@@ -25,12 +25,31 @@ export const TrackRow = ({ track, state, editor }: Props) => {
   };
 
   const dragClip = (clip: TimelineClip, e: React.MouseEvent) => {
+    editor.beginGesture();
     const startX = e.clientX;
     const origStart = clip.start;
     const onMove = (ev: MouseEvent) => {
       editor.moveClip(clip.id, origStart + (ev.clientX - startX) / state.pxPerSec);
     };
     const onUp = () => {
+      editor.endGesture();
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  const trimDrag = (clipId: string, edge: "start" | "end", e: React.MouseEvent) => {
+    editor.beginGesture();
+    let lastX = e.clientX;
+    const onMove = (ev: MouseEvent) => {
+      const delta = (ev.clientX - lastX) / state.pxPerSec;
+      lastX = ev.clientX;
+      if (Math.abs(delta) > 0.0001) editor.trimClip(clipId, edge, delta);
+    };
+    const onUp = () => {
+      editor.endGesture();
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
@@ -62,8 +81,8 @@ export const TrackRow = ({ track, state, editor }: Props) => {
               isAudioTrack={isAudio}
               assetUrl={asset?.url}
               onSelect={() => editor.patch({ selectedClipId: clip.id })}
-              onTrimStart={(d) => editor.trimClip(clip.id, "start", d)}
-              onTrimEnd={(d) => editor.trimClip(clip.id, "end", d)}
+              onTrimStart={(e) => trimDrag(clip.id, "start", e)}
+              onTrimEnd={(e) => trimDrag(clip.id, "end", e)}
               onDragStart={(e) => !track.locked && dragClip(clip, e)}
               onToggleAudio={
                 isAudio ? () => editor.toggleClipAudio(clip.id) : undefined

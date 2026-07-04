@@ -11,8 +11,8 @@ interface Props {
   isAudioTrack: boolean;
   assetUrl?: string;
   onSelect: () => void;
-  onTrimStart: (delta: number) => void;
-  onTrimEnd: (delta: number) => void;
+  onTrimStart: (e: React.MouseEvent) => void;
+  onTrimEnd: (e: React.MouseEvent) => void;
   onDragStart: (e: React.MouseEvent) => void;
   onToggleAudio?: () => void;
 }
@@ -39,10 +39,11 @@ export const ClipBlock = ({
   const left = timelineX(clip.start, state.pxPerSec) - timelineX(0, state.pxPerSec);
   const width = clip.duration * state.pxPerSec;
   const origin = getClipOrigin(clip);
+  const hasCrossfade = clip.transitionOut?.kind === "crossfade";
 
   return (
     <div
-      className={`clip-block ${originClass[origin] ?? ""} ${selected ? "clip-block--selected" : ""} ${clip.audioMuted ? "clip-block--audio-off" : ""}`}
+      className={`clip-block ${originClass[origin] ?? ""} ${selected ? "clip-block--selected" : ""} ${clip.audioMuted ? "clip-block--audio-off" : ""} ${hasCrossfade ? "clip-block--xfade" : ""}`}
       style={{ left, width: Math.max(width, 8) }}
       onClick={(e) => {
         e.stopPropagation();
@@ -57,14 +58,7 @@ export const ClipBlock = ({
         className="clip-block__handle clip-block__handle--left"
         onMouseDown={(e) => {
           e.stopPropagation();
-          const startX = e.clientX;
-          const onMove = (ev: MouseEvent) => onTrimStart((ev.clientX - startX) / state.pxPerSec);
-          const onUp = () => {
-            window.removeEventListener("mousemove", onMove);
-            window.removeEventListener("mouseup", onUp);
-          };
-          window.addEventListener("mousemove", onMove);
-          window.addEventListener("mouseup", onUp);
+          onTrimStart(e);
         }}
       />
       <div className="clip-block__body">
@@ -87,6 +81,7 @@ export const ClipBlock = ({
           )}
           {origin === "daw" && <span className="clip-block__tag">DAW</span>}
           {origin === "video-linked" && <span className="clip-block__tag">動画音</span>}
+          {hasCrossfade && <span className="clip-block__tag clip-block__tag--xfade">XF</span>}
           {label}
         </span>
       </div>
@@ -94,14 +89,7 @@ export const ClipBlock = ({
         className="clip-block__handle clip-block__handle--right"
         onMouseDown={(e) => {
           e.stopPropagation();
-          const startX = e.clientX;
-          const onMove = (ev: MouseEvent) => onTrimEnd((ev.clientX - startX) / state.pxPerSec);
-          const onUp = () => {
-            window.removeEventListener("mousemove", onMove);
-            window.removeEventListener("mouseup", onUp);
-          };
-          window.addEventListener("mousemove", onMove);
-          window.addEventListener("mouseup", onUp);
+          onTrimEnd(e);
         }}
       />
     </div>

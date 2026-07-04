@@ -26,10 +26,30 @@ const firstTrackOfKind = (s: EditorState, kind: TrackKind) =>
 export const useEditor = () => {
   const [state, setState] = useState<EditorState>(initialEditorState);
   const histRef = useRef<HistoryStack>(createHistory());
+  const gestureActive = useRef(false);
+  const clipClipboardRef = useRef<{
+    clips: TimelineClip[];
+    textClips: TextClip[];
+  } | null>(null);
+
+  const beginGesture = useCallback(() => {
+    if (gestureActive.current) return;
+    setState((prev) => {
+      histRef.current = pushHistory(histRef.current, prev);
+      gestureActive.current = true;
+      return prev;
+    });
+  }, []);
+
+  const endGesture = useCallback(() => {
+    gestureActive.current = false;
+  }, []);
 
   const commit = useCallback((updater: (s: EditorState) => EditorState) => {
     setState((prev) => {
-      histRef.current = pushHistory(histRef.current, prev);
+      if (!gestureActive.current) {
+        histRef.current = pushHistory(histRef.current, prev);
+      }
       const next = updater(prev);
       return {
         ...next,
@@ -62,15 +82,18 @@ export const useEditor = () => {
     async (files: FileList | File[]) => {
       const list = Array.from(files);
       const newAssets: MediaAsset[] = [];
+      const failed: string[] = [];
       for (const f of list) {
         try {
           newAssets.push(await fileToAsset(f));
         } catch {
-          /* skip */
+          failed.push(f.name);
         }
       }
-      if (!newAssets.length) return;
-      commit((s) => ({ ...s, assets: [...s.assets, ...newAssets] }));
+      if (newAssets.length) {
+        commit((s) => ({ ...s, assets: [...s.assets, ...newAssets] }));
+      }
+      return { added: newAssets.length, failed };
     },
     [commit]
   );
@@ -87,28 +110,40 @@ export const useEditor = () => {
   }, [commit]);
 
   const addClipFromAsset = useCallback(
-    (assetId: string, trackId?: string, at?: number) => {
+    (assetId: string, trackId?: string, at?: number): { ok: boolean; reason?: string } => {
+      let result: { ok: boolean; reason?: string } = { ok: false, reason: "配置できませんでした" };
       commit((s) => {
         const track = trackId ? s.tracks.find((t) => t.id === trackId) : undefined;
         if (track?.kind === "text") {
           const start = snapTime(at ?? s.playhead, SNAP_GRID_SEC, s.snapEnabled);
           const textClip = createTextClip({ trackId: track.id, start });
+          result = { ok: true };
           return { ...s, textClips: [...s.textClips, textClip], selectedClipId: textClip.id };
         }
 
         const asset = s.assets.find((a) => a.id === assetId);
-        if (!asset) return s;
+        if (!asset) {
+          result = { ok: false, reason: "素材が見つかりません" };
+          return s;
+        }
         const start = snapTime(at ?? s.playhead, SNAP_GRID_SEC, s.snapEnabled);
 
         if (asset.kind === "video") {
           const vTrack = track?.kind === "video" ? track : firstTrackOfKind(s, "video");
           const aTrack = firstTrackOfKind(s, "audio");
-          if (!vTrack) return s;
+          if (!vTrack) {
+            result = { ok: false, reason: "映像トラックがありません" };
+            return s;
+          }
           const duration = asset.duration;
-          if (!canPlaceClip(s.clips, vTrack.id, start, duration)) return s;
+          if (!canPlaceClip(s.clips, vTrack.id, start, duration)) {
+            result = { ok: false, reason: "この位置には配置できません（重なり）" };
+            return s;
+          }
 
           if (asset.hasAudio !== false && aTrack) {
             const pair = makeVideoWithLinkedAudio(asset, vTrack.id, aTrack.id, start);
+            result = { ok: true };
             return {
               ...s,
               clips: [...s.clips, ...pair],
@@ -117,6 +152,7 @@ export const useEditor = () => {
             };
           }
           const clip = makeClip(asset, vTrack.id, start);
+          result = { ok: true };
           return {
             ...s,
             clips: [...s.clips, clip],
@@ -127,9 +163,16 @@ export const useEditor = () => {
 
         if (asset.kind === "audio") {
           const aTrack = track?.kind === "audio" ? track : firstTrackOfKind(s, "audio");
-          if (!aTrack) return s;
+          if (!aTrack) {
+            result = { ok: false, reason: "音声トラックがありません" };
+            return s;
+          }
           const clip = makeClip(asset, aTrack.id, start, { origin: "media" });
-          if (!canPlaceClip(s.clips, aTrack.id, start, clip.duration)) return s;
+          if (!canPlaceClip(s.clips, aTrack.id, start, clip.duration)) {
+            result = { ok: false, reason: "この位置には配置できません（重なり）" };
+            return s;
+          }
+          result = { ok: true };
           return {
             ...s,
             clips: [...s.clips, clip],
@@ -139,9 +182,16 @@ export const useEditor = () => {
         }
 
         const oTrack = track?.kind === "overlay" ? track : firstTrackOfKind(s, "overlay");
-        if (!oTrack) return s;
+        if (!oTrack) {
+          result = { ok: false, reason: "オーバーレイトラックがありません" };
+          return s;
+        }
         const clip = makeClip(asset, oTrack.id, start);
-        if (!canPlaceClip(s.clips, oTrack.id, start, clip.duration)) return s;
+        if (!canPlaceClip(s.clips, oTrack.id, start, clip.duration)) {
+          result = { ok: false, reason: "この位置には配置できません（重なり）" };
+          return s;
+        }
+        result = { ok: true };
         return {
           ...s,
           clips: [...s.clips, clip],
@@ -149,6 +199,7 @@ export const useEditor = () => {
           selectedTrackId: oTrack.id,
         };
       });
+      return result;
     },
     [commit]
   );
@@ -189,16 +240,21 @@ export const useEditor = () => {
         const ids = withLinked(s, clipId);
         const patchOne = (c: TimelineClip): TimelineClip => {
           if (!ids.includes(c.id)) return c;
+          const asset = s.assets.find((a) => a.id === c.assetId);
+          const maxSource = asset?.duration ?? Infinity;
           if (edge === "start") {
             const ds = Math.min(deltaSec, c.duration - 0.1);
+            const nextIn = c.inPoint + ds * c.speed;
+            if (nextIn >= maxSource - 0.05) return c;
             return {
               ...c,
               start: c.start + ds,
-              inPoint: c.inPoint + ds * c.speed,
+              inPoint: nextIn,
               duration: c.duration - ds,
             };
           }
-          return { ...c, duration: Math.max(0.1, c.duration + deltaSec) };
+          const maxDur = Math.max(0.1, (maxSource - c.inPoint) / c.speed);
+          return { ...c, duration: Math.max(0.1, Math.min(c.duration + deltaSec, maxDur)) };
         };
         if (s.textClips.some((c) => c.id === clipId)) {
           return {
@@ -566,13 +622,66 @@ export const useEditor = () => {
 
   const loadState = useCallback((next: EditorState) => {
     histRef.current = createHistory();
+    gestureActive.current = false;
     setState(next);
   }, []);
+
+  const copySelectedClip = useCallback(() => {
+    const id = state.selectedClipId;
+    if (!id) return false;
+    const text = state.textClips.find((c) => c.id === id);
+    if (text) {
+      clipClipboardRef.current = { clips: [], textClips: [structuredClone(text)] };
+      return true;
+    }
+    const ids = new Set(withLinked(state, id));
+    const clips = state.clips.filter((c) => ids.has(c.id)).map((c) => structuredClone(c));
+    if (!clips.length) return false;
+    clipClipboardRef.current = { clips, textClips: [] };
+    return true;
+  }, [state]);
+
+  const pasteClipboard = useCallback(() => {
+    const buf = clipClipboardRef.current;
+    if (!buf) return false;
+    commit((s) => {
+      const at = snapTime(s.playhead, SNAP_GRID_SEC, s.snapEnabled);
+      if (buf.textClips.length) {
+        const src = buf.textClips[0]!;
+        const copy: TextClip = {
+          ...structuredClone(src),
+          id: uid(),
+          start: at,
+          style: structuredClone(src.style),
+        };
+        return { ...s, textClips: [...s.textClips, copy], selectedClipId: copy.id };
+      }
+      const idMap = new Map<string, string>();
+      for (const c of buf.clips) idMap.set(c.id, uid());
+      const pasted = buf.clips.map((c) => ({
+        ...structuredClone(c),
+        id: idMap.get(c.id)!,
+        start: at + (c.start - buf.clips[0]!.start),
+        linkedClipId: c.linkedClipId ? idMap.get(c.linkedClipId) : undefined,
+      }));
+      for (const c of pasted) {
+        if (!canPlaceClip(s.clips, c.trackId, c.start, c.duration)) return s;
+      }
+      return {
+        ...s,
+        clips: [...s.clips, ...pasted],
+        selectedClipId: pasted[0]?.id ?? s.selectedClipId,
+      };
+    });
+    return true;
+  }, [commit]);
 
   return {
     state,
     patch,
     commit,
+    beginGesture,
+    endGesture,
     undo: undoAction,
     redo: redoAction,
     importFiles,
@@ -597,6 +706,8 @@ export const useEditor = () => {
     applyTelopPreset,
     addTelopFromPreset,
     loadState,
+    copySelectedClip,
+    pasteClipboard,
   };
 };
 

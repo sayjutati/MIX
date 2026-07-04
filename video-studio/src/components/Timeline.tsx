@@ -8,10 +8,24 @@ import { TrackRow } from "./TrackRow";
 interface Props {
   state: EditorState;
   editor: EditorApi;
+  onPlacementFailed?: (reason: string) => void;
 }
 
-export const Timeline = ({ state, editor }: Props) => {
+export const Timeline = ({ state, editor, onPlacementFailed }: Props) => {
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const dropAsset = (e: React.DragEvent) => {
+    e.preventDefault();
+    const assetId = e.dataTransfer.getData("application/x-mix-asset");
+    if (!assetId) return;
+    const scroll = scrollRef.current;
+    if (!scroll) return;
+    const rect = scroll.getBoundingClientRect();
+    const x = e.clientX - rect.left + scroll.scrollLeft;
+    const at = timeFromTimelineX(x, state.pxPerSec);
+    const result = editor.addClipFromAsset(assetId, undefined, at);
+    if (!result.ok && result.reason) onPlacementFailed?.(result.reason);
+  };
 
   return (
     <section className="timeline">
@@ -25,8 +39,17 @@ export const Timeline = ({ state, editor }: Props) => {
           />
           グリッドにスナップ
         </label>
+        <span className="timeline__hint">素材をここへドラッグして配置</span>
       </div>
-      <div className="timeline__scroll" ref={scrollRef}>
+      <div
+        className="timeline__scroll"
+        ref={scrollRef}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+        }}
+        onDrop={dropAsset}
+      >
         <TimelineRuler
           duration={state.duration}
           pxPerSec={state.pxPerSec}

@@ -43,9 +43,30 @@ const filterCss = (fx: ClipEffects) => {
 };
 
 const seekVideo = (video: HTMLVideoElement, sourceTime: number) => {
-  if (Math.abs(video.currentTime - sourceTime) > 0.05) {
-    video.currentTime = Math.max(0, sourceTime);
+  const t = Math.max(0, sourceTime);
+  if (Math.abs(video.currentTime - t) > 0.05) {
+    video.currentTime = Number.isFinite(video.duration)
+      ? Math.min(t, Math.max(0, video.duration - 0.001))
+      : t;
   }
+};
+
+/** 書き出し用: seeked を待ってから描画（フレームずれ防止） */
+export const seekVideoAsync = (video: HTMLVideoElement, sourceTime: number): Promise<void> => {
+  const t = Math.max(
+    0,
+    Number.isFinite(video.duration) ? Math.min(sourceTime, video.duration - 0.001) : sourceTime
+  );
+  if (Math.abs(video.currentTime - t) < 0.025) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      video.removeEventListener("seeked", done);
+      resolve();
+    };
+    video.addEventListener("seeked", done, { once: true });
+    video.currentTime = t;
+    window.setTimeout(done, 300);
+  });
 };
 
 const drawClipMedia = (
@@ -73,6 +94,43 @@ const drawClipMedia = (
     ctx.drawImage(video, (w - dw) / 2, (h - dh) / 2, dw, dh);
   } else if (asset.kind === "image") {
     const img = getImageElement(asset.url);
+    const iw = img.naturalWidth || w;
+    const ih = img.naturalHeight || h;
+    const scale = Math.min(w / iw, h / ih);
+    const dw = iw * scale;
+    const dh = ih * scale;
+    ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
+  }
+
+  ctx.restore();
+};
+
+const drawClipMediaAsync = async (
+  ctx: CanvasRenderingContext2D,
+  asset: MediaAsset,
+  clip: TimelineClip,
+  localSec: number,
+  w: number,
+  h: number,
+  alpha: number
+) => {
+  const sourceT = clip.inPoint + localSec * clip.speed;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.filter = filterCss(clip.effects);
+
+  if (asset.kind === "video") {
+    const video = getVideoElement(asset.url);
+    await seekVideoAsync(video, sourceT);
+    const vw = video.videoWidth || w;
+    const vh = video.videoHeight || h;
+    const scale = Math.min(w / vw, h / vh);
+    const dw = vw * scale;
+    const dh = vh * scale;
+    ctx.drawImage(video, (w - dw) / 2, (h - dh) / 2, dw, dh);
+  } else if (asset.kind === "image") {
+    const img = getImageElement(asset.url);
+    if (!img.complete) await new Promise<void>((r) => { img.onload = () => r(); img.onerror = () => r(); });
     const iw = img.naturalWidth || w;
     const ih = img.naturalHeight || h;
     const scale = Math.min(w / iw, h / ih);
@@ -133,8 +191,8 @@ export const renderFrame = (
     }
   }
 
-  const overlayTrack = state.tracks.find((t) => t.kind === "overlay" && !t.hidden);
-  if (overlayTrack) {
+  const overlayTracks = state.tracks.filter((t) => t.kind === "overlay" && !t.hidden);
+  for (const overlayTrack of overlayTracks) {
     for (const clip of clipsOnTrack(state.clips, overlayTrack.id)) {
       const end = clipTimelineEnd(clip);
       if (time < clip.start || time >= end) continue;
@@ -143,6 +201,71 @@ export const renderFrame = (
       const local = time - clip.start;
       const alpha = clipOpacityAt(clip, local) / 100;
       drawClipMedia(ctx, asset, clip, local, w, h, alpha);
+    }
+  }
+
+  const textTracks = state.tracks.filter((t) => t.kind === "text" && !t.hidden);
+  for (const track of textTracks) {
+    for (const t of state.textClips.filter((c) => c.trackId === track.id)) {
+      const end = clipTimelineEnd(t);
+      if (time < t.start || time >= end) continue;
+      drawTelop(ctx, t, time - t.start, w, h);
+    }
+  }
+};
+
+/** 書き出し用: 動画 seek を待ってからフレームを合成 */
+export const renderFrameAsync = async (
+  ctx: CanvasRenderingContext2D,
+  state: EditorState,
+  time: number
+) => {
+  const { previewWidth: w, previewHeight: h } = state;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, w, h);
+
+  const assetMap = new Map(state.assets.map((a) => [a.id, a]));
+
+  const videoTracks = state.tracks.filter((t) => t.kind === "video" && !t.hidden);
+  for (const track of videoTracks) {
+    const list = clipsOnTrack(state.clips, track.id);
+    for (let i = 0; i < list.length; i++) {
+      const clip = list[i]!;
+      const end = clipTimelineEnd(clip);
+      if (time < clip.start || time >= end) continue;
+      const asset = assetMap.get(clip.assetId);
+      if (!asset || asset.kind !== "video") continue;
+
+      const local = time - clip.start;
+      let alpha = clipOpacityAt(clip, local) / 100;
+      const next = list[i + 1];
+      const overlap = transitionOverlap(clip, next);
+      if (overlap > 0 && next) {
+        const tail = end - time;
+        if (tail <= overlap) alpha *= tail / overlap;
+      }
+      if (i > 0) {
+        const prev = list[i - 1]!;
+        const prevOverlap = transitionOverlap(prev, clip);
+        if (prevOverlap > 0 && time - clip.start < prevOverlap) {
+          alpha *= (time - clip.start) / prevOverlap;
+        }
+      }
+
+      await drawClipMediaAsync(ctx, asset, clip, local, w, h, alpha);
+    }
+  }
+
+  const overlayTracks = state.tracks.filter((t) => t.kind === "overlay" && !t.hidden);
+  for (const overlayTrack of overlayTracks) {
+    for (const clip of clipsOnTrack(state.clips, overlayTrack.id)) {
+      const end = clipTimelineEnd(clip);
+      if (time < clip.start || time >= end) continue;
+      const asset = assetMap.get(clip.assetId);
+      if (!asset || asset.kind !== "image") continue;
+      const local = time - clip.start;
+      const alpha = clipOpacityAt(clip, local) / 100;
+      await drawClipMediaAsync(ctx, asset, clip, local, w, h, alpha);
     }
   }
 

@@ -11,12 +11,13 @@ import { StatusBar } from "./components/StatusBar";
 import { Timeline } from "./components/Timeline";
 import { TransportBar } from "./components/TransportBar";
 import { WelcomeScreen } from "./components/WelcomeScreen";
+import { ToastStack, type ToastMessage } from "./components/Toast";
 import { downloadBlob, exportVideo } from "./export/exportVideo";
 import { useEditor } from "./hooks/useEditor";
 import { usePlayback } from "./hooks/usePlayback";
 import { useUiPrefs } from "./hooks/useUiPrefs";
 import { deserializeProject, downloadProject } from "./project";
-import { projectDuration } from "./types";
+import { MAX_PX_PER_SEC, MIN_PX_PER_SEC, projectDuration } from "./types";
 
 function App() {
   const editor = useEditor();
@@ -28,9 +29,29 @@ function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const playRaf = useRef(0);
   const lastTick = useRef(0);
+  const toastId = useRef(0);
   const [exporting, setExporting] = useState(false);
   const [exportPct, setExportPct] = useState(0);
   const [exportStatus, setExportStatus] = useState<string | undefined>();
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const pushToast = useCallback((text: string, kind: ToastMessage["kind"] = "info") => {
+    const id = `t-${++toastId.current}`;
+    setToasts((prev) => [...prev.slice(-4), { id, text, kind }]);
+  }, []);
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const placeAsset = useCallback(
+    (assetId: string, at?: number) => {
+      const result = editor.addClipFromAsset(assetId, undefined, at);
+      if (result.ok) pushToast("タイムラインに配置しました", "success");
+      else if (result.reason) pushToast(result.reason, "error");
+    },
+    [editor, pushToast]
+  );
 
   usePlayback(state);
 
@@ -85,6 +106,32 @@ function App() {
         if (state.selectedClipId) editor.toggleClipAudio(state.selectedClipId);
       }
       if (e.key === "Delete" && state.selectedClipId) editor.deleteClip(state.selectedClipId);
+      if (e.key === "+" || e.key === "=") {
+        patch({ pxPerSec: Math.min(MAX_PX_PER_SEC, state.pxPerSec + 8) });
+      }
+      if (e.key === "-") {
+        patch({ pxPerSec: Math.max(MIN_PX_PER_SEC, state.pxPerSec - 8) });
+      }
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        patch({ playhead: Math.max(0, state.playhead - (e.shiftKey ? 1 : 1 / 30)) });
+      }
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        const end = projectDuration(state.clips, state.textClips);
+        patch({ playhead: Math.min(end, state.playhead + (e.shiftKey ? 1 : 1 / 30)) });
+      }
+      if (e.ctrlKey && e.key === "c") {
+        if (editor.copySelectedClip()) pushToast("クリップをコピーしました", "info");
+      }
+      if (e.ctrlKey && e.key === "v") {
+        if (editor.pasteClipboard()) pushToast("クリップを貼り付けました", "success");
+        else pushToast("貼り付けるクリップがありません", "error");
+      }
+      if (e.ctrlKey && e.key === "d") {
+        e.preventDefault();
+        if (state.selectedClipId) editor.duplicateClip(state.selectedClipId);
+      }
       if (e.ctrlKey && e.key === "z") {
         e.preventDefault();
         editor.undo();
@@ -96,7 +143,7 @@ function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [state, editor, patch, prefs.helpOpen, patchUi]);
+  }, [state, editor, patch, prefs.helpOpen, patchUi, pushToast]);
 
   useEffect(() => {
     if (!state.selectedClipId) return;
@@ -130,8 +177,9 @@ function App() {
       );
       const base = (state.title || "export").replace(/\.(mp4|webm)$/i, "");
       downloadBlob(blob, `${base}.${extension}`);
+      pushToast(`${extension.toUpperCase()} の書き出しが完了しました`, "success");
     } catch (err) {
-      alert(err instanceof Error ? err.message : "書き出しに失敗しました");
+      pushToast(err instanceof Error ? err.message : "書き出しに失敗しました", "error");
     } finally {
       setExporting(false);
       setExportStatus(undefined);
@@ -167,8 +215,10 @@ function App() {
           dawRef={dawRef}
           projectRef={projectRef}
           editor={editor}
+          onToast={pushToast}
         />
         <HelpDialog open={prefs.helpOpen} onClose={() => patchUi({ helpOpen: false })} />
+        <ToastStack toasts={toasts} onDismiss={dismissToast} />
       </div>
     );
   }
@@ -192,7 +242,7 @@ function App() {
         onHelp={() => patchUi({ helpOpen: true })}
       />
 
-      <FileInputs fileRef={fileRef} dawRef={dawRef} projectRef={projectRef} editor={editor} />
+      <FileInputs fileRef={fileRef} dawRef={dawRef} projectRef={projectRef} editor={editor} onToast={pushToast} />
 
       <TransportBar
         state={state}
@@ -226,7 +276,11 @@ function App() {
           onTab={(t) => patchUi({ sidebarTab: t })}
           onImport={() => fileRef.current?.click()}
           onImportDaw={() => dawRef.current?.click()}
-          onAddToTimeline={(id) => editor.addClipFromAsset(id)}
+          onAddToTimeline={placeAsset}
+          onAddTelop={(id) => {
+            editor.addTelopFromPreset(id);
+            pushToast("テロップを追加しました", "success");
+          }}
         />
         <div className="workspace__center">
           <PreviewPanel
@@ -248,9 +302,14 @@ function App() {
         />
       </div>
 
-      <Timeline state={state} editor={editor} />
+      <Timeline
+        state={state}
+        editor={editor}
+        onPlacementFailed={(reason) => pushToast(reason, "error")}
+      />
       <StatusBar state={state} mode={prefs.mode} />
       <HelpDialog open={prefs.helpOpen} onClose={() => patchUi({ helpOpen: false })} />
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }
@@ -260,11 +319,13 @@ function FileInputs({
   dawRef,
   projectRef,
   editor,
+  onToast,
 }: {
   fileRef: React.RefObject<HTMLInputElement | null>;
   dawRef: React.RefObject<HTMLInputElement | null>;
   projectRef: React.RefObject<HTMLInputElement | null>;
   editor: ReturnType<typeof useEditor>;
+  onToast: (text: string, kind?: ToastMessage["kind"]) => void;
 }) {
   return (
     <>
@@ -274,8 +335,13 @@ function FileInputs({
         accept="video/*,audio/*,image/*"
         multiple
         hidden
-        onChange={(e) => {
-          if (e.target.files) void editor.importFiles(e.target.files);
+        onChange={async (e) => {
+          if (e.target.files) {
+            const { added, failed } = await editor.importFiles(e.target.files);
+            if (added) onToast(`${added} 件の素材を追加しました`, "success");
+            if (failed.length) onToast(`${failed.length} 件を読み込めませんでした`, "error");
+            if (!added && !failed.length) onToast("追加できるファイルがありませんでした", "error");
+          }
           e.target.value = "";
         }}
       />
@@ -284,9 +350,16 @@ function FileInputs({
         type="file"
         accept=".daw,application/json"
         hidden
-        onChange={(e) => {
+        onChange={async (e) => {
           const f = e.target.files?.[0];
-          if (f) void editor.importDaw(f);
+          if (f) {
+            try {
+              await editor.importDaw(f);
+              onToast("DAW ミックスを読み込みました", "success");
+            } catch {
+              onToast("DAW ファイルの読み込みに失敗しました", "error");
+            }
+          }
           e.target.value = "";
         }}
       />
@@ -300,8 +373,9 @@ function FileInputs({
           if (!f) return;
           try {
             editor.loadState(deserializeProject(JSON.parse(await f.text())));
+            onToast("プロジェクトを開きました", "success");
           } catch {
-            alert("プロジェクトの読み込みに失敗しました");
+            onToast("プロジェクトの読み込みに失敗しました", "error");
           }
           e.target.value = "";
         }}

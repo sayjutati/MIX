@@ -22,7 +22,7 @@ export const TimelineRuler = ({ duration, pxPerSec, playhead, onSeek }: Props) =
         const scroll = e.currentTarget.parentElement;
         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
         const x = e.clientX - rect.left + (scroll?.scrollLeft ?? 0);
-        onSeek(timeFromTimelineX(x + TRACK_HEADER_WIDTH, pxPerSec));
+        onSeek(timeFromTimelineX(x, pxPerSec));
       }}
     >
       {ticks.map((t) => (

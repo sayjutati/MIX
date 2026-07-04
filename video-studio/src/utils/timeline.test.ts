@@ -42,4 +42,10 @@ describe("transitionOverlap", () => {
     const b = clip("2", 4.5, 5);
     expect(transitionOverlap(a, b)).toBeGreaterThan(0);
   });
+
+  it("returns overlap for adjacent clips with crossfade", () => {
+    const a = { ...clip("1", 0, 5), transitionOut: { kind: "crossfade" as const, duration: 0.8 } };
+    const b = clip("2", 5, 4);
+    expect(transitionOverlap(a, b)).toBeCloseTo(0.8, 5);
+  });
 });

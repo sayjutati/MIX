@@ -1,5 +1,5 @@
 import { mixAudioOffline } from "../audio/mixOffline";
-import { renderFrame } from "../preview/compositor";
+import { renderFrameAsync } from "../preview/compositor";
 import type { EditorState } from "../types";
 import { projectDuration } from "../types";
 import type { ExportFormat } from "./exportCapabilities";
@@ -23,6 +23,8 @@ export interface ExportResult {
   extension: ExportFormat;
 }
 
+const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
+
 const recordTimeline = async (
   canvas: HTMLCanvasElement,
   state: EditorState,
@@ -33,6 +35,8 @@ const recordTimeline = async (
   const duration = projectDuration(state.clips, state.textClips);
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("canvas 2d unavailable");
+
+  await document.fonts.ready;
 
   const stream = canvas.captureStream(fps);
   const audioBuffer = await mixAudioOffline(state, duration);
@@ -54,23 +58,21 @@ const recordTimeline = async (
     recorder.onstop = () => resolve(new Blob(chunks, { type: mime.split(";")[0] }));
     recorder.onerror = () => reject(new Error("MediaRecorder failed"));
 
-    let frame = 0;
     const totalFrames = Math.ceil(duration * fps);
+    const frameMs = 1000 / fps;
 
-    const tick = () => {
-      const t = frame / fps;
-      renderFrame(ctx, state, t);
-      opts.onProgress?.(frame / totalFrames, "フレームを書き出し中…");
-      frame++;
-      if (frame <= totalFrames) {
-        requestAnimationFrame(tick);
-      } else {
-        recorder.stop();
+    const run = async () => {
+      recorder.start(100);
+      for (let frame = 0; frame <= totalFrames; frame++) {
+        const t = frame / fps;
+        await renderFrameAsync(ctx, state, t);
+        opts.onProgress?.(frame / totalFrames, "フレームを書き出し中…");
+        await sleep(frameMs);
       }
+      recorder.stop();
     };
 
-    recorder.start();
-    tick();
+    void run().catch(reject);
   });
 };
 

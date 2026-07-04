@@ -19,7 +19,9 @@ export const transitionOverlap = (
   if (!next || clip.transitionOut?.kind !== "crossfade") return 0;
   const d = clip.transitionOut.duration;
   const gap = next.start - clipTimelineEnd(clip);
-  if (gap >= 0) return 0;
+  // 隣接クリップ（gap≈0）でもクロスフェードを適用
+  if (Math.abs(gap) < 0.001) return Math.min(d, clip.duration, next.duration);
+  if (gap > 0) return 0;
   return Math.min(d, -gap, clip.duration, next.duration);
 };
 
