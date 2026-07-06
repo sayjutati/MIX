@@ -13,6 +13,8 @@
   --daw-dim: rgba(96, 165, 250, 0.14);
   --video: #c084fc;
   --video-dim: rgba(192, 132, 252, 0.12);
+  --photo: #e879f9;
+  --photo-dim: rgba(232, 121, 249, 0.12);
   --font-display: "Space Grotesk", "M PLUS 1", system-ui, sans-serif;
   --font-body: "M PLUS 1", "Hiragino Sans", "Segoe UI", sans-serif;
   --radius: 20px;
@@ -208,7 +210,7 @@ body {
 /* ── Studio cards ── */
 .studios {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 16px;
   margin-bottom: 48px;
 }
@@ -253,6 +255,10 @@ body {
   background: radial-gradient(ellipse 80% 60% at 50% 0%, var(--video-dim), transparent 70%);
 }
 
+.studio--photo .studio__glow {
+  background: radial-gradient(ellipse 80% 60% at 50% 0%, var(--photo-dim), transparent 70%);
+}
+
 .studio:hover {
   transform: translateY(-6px);
   border-color: var(--border-hover);
@@ -273,6 +279,10 @@ body {
 
 .studio--video:hover {
   border-color: rgba(192, 132, 252, 0.35);
+}
+
+.studio--photo:hover {
+  border-color: rgba(232, 121, 249, 0.35);
 }
 
 .studio--featured {
@@ -326,6 +336,11 @@ body {
   color: var(--video);
 }
 
+.studio__icon--photo {
+  background: var(--photo-dim);
+  color: var(--photo);
+}
+
 .studio__tag {
   font-size: 0.68rem;
   font-weight: 600;
@@ -369,6 +384,10 @@ body {
 
 .studio--video .studio__cta {
   color: var(--video);
+}
+
+.studio--photo .studio__cta {
+  color: var(--photo);
 }
 
 .studio:hover .studio__cta {
@@ -497,6 +516,12 @@ body {
 }
 
 /* ── Responsive ── */
+@media (max-width: 1100px) {
+  .studios {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 @media (max-width: 900px) {
   .studios {
     grid-template-columns: 1fr;

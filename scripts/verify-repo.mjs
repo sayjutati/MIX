@@ -15,6 +15,7 @@ const APPS = [
   { dir: "daw-studio", src: "src" },
   { dir: "dtm-studio", src: "src" },
   { dir: "video-studio", src: "src" },
+  { dir: "photo-studio", src: "src" },
 ];
 
 const TRACKED_DENY = [
@@ -22,10 +23,12 @@ const TRACKED_DENY = [
   /^daw-studio\/node_modules\//,
   /^dtm-studio\/node_modules\//,
   /^video-studio\/node_modules\//,
+  /^photo-studio\/node_modules\//,
   /^dist\//,
   /^daw-studio\/dist\//,
   /^dtm-studio\/dist\//,
   /^video-studio\/dist\//,
+  /^photo-studio\/dist\//,
 ];
 
 const IMPORT_RE =

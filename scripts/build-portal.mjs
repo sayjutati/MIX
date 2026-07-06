@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Vercel / CI と同じ手順で landing + daw + dtm + video を dist にまとめる
+// Vercel / CI と同じ手順で landing + daw + dtm + video + photo を dist にまとめる
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const out = path.join(root, "dist");
 
@@ -44,9 +44,11 @@ const buildApp = (name, dir, basePath, outSub) => {
 buildApp("DAW Studio", "daw-studio", "/daw/", "daw");
 buildApp("DTM Studio", "dtm-studio", "/dtm/", "dtm");
 buildApp("Video Studio", "video-studio", "/video/", "video");
+buildApp("Photo Studio", "photo-studio", "/photo/", "photo");
 
 console.log("\n✓ Output: dist/");
 console.log("  /       → TOP（スタジオ選択）");
 console.log("  /daw/   → MIX DAW");
 console.log("  /dtm/   → MIX DTM Studio");
 console.log("  /video/ → MIX Video Studio");
+console.log("  /photo/ → MIX Photo Studio");

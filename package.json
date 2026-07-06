@@ -1,15 +1,16 @@
 {
   "name": "mix-studio",
   "private": true,
-  "description": "MIX — DAW + DTM + Video Studio portal",
+  "description": "MIX — DAW + DTM + Video + Photo Studio portal",
   "scripts": {
     "verify": "node scripts/verify-repo.mjs",
-    "test": "npm run test --prefix dtm-studio && npm run test --prefix video-studio",
+    "test": "npm run test --prefix dtm-studio && npm run test --prefix video-studio && npm run test --prefix photo-studio",
     "build": "node scripts/build-portal.mjs",
     "dev": "node scripts/dev-portal.mjs",
     "dev:landing": "npx --yes serve landing -l 3000",
     "dev:daw": "npm run dev --prefix daw-studio",
     "dev:dtm": "npm run dev --prefix dtm-studio",
-    "dev:video": "npm run dev --prefix video-studio"
+    "dev:video": "npm run dev --prefix video-studio",
+    "dev:photo": "npm run dev --prefix photo-studio"
   }
 }

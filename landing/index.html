@@ -7,7 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="MIX — 歌ってみた向けブラウザ完結スタジオ。DTM で作曲、DAW で録音・ミックス、Video Studio で動画編集。"
+      content="MIX — 歌ってみた向けブラウザ完結スタジオ。DTM で作曲、DAW で録音・ミックス、Photo でサムネ作成、Video Studio で動画編集。"
     />
     <meta name="theme-color" content="#07070c" />
     <title>MIX — 歌ってみたスタジオ</title>
@@ -43,7 +43,7 @@
           <span class="hero__title-accent">ひとつのワークスペース</span>
         </h1>
         <p class="hero__lead">
-          DTM・DAW・動画編集をブラウザで。スタジオを選ぶと<strong>新しいタブ</strong>で開き、
+          DTM・DAW・画像編集・動画編集をブラウザで。スタジオを選ぶと<strong>新しいタブ</strong>で開き、
           作業を行き来しながらそのまま仕上げられます。
         </p>
       </header>
@@ -119,6 +119,30 @@
             </svg>
           </span>
         </a>
+
+        <a class="studio studio--photo" href="/photo/" target="_blank" rel="noopener noreferrer">
+          <div class="studio__glow"></div>
+          <div class="studio__top">
+            <div class="studio__icon studio__icon--photo">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+                <rect x="3" y="5" width="18" height="14" rx="2" />
+                <circle cx="8.5" cy="10.5" r="1.5" />
+                <path d="M21 15l-5-5L5 21" />
+              </svg>
+            </div>
+            <span class="studio__tag">Design</span>
+          </div>
+          <h2 class="studio__name">MIX Photo</h2>
+          <p class="studio__desc">
+            プロンプト生成・レイヤー編集・サムネ仕上げ。PNG / JPEG / WebP 書き出しで Video へ渡せます。
+          </p>
+          <span class="studio__cta">
+            開く
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M7 17L17 7M17 7H7M17 7V17" />
+            </svg>
+          </span>
+        </a>
       </section>
 
       <section class="pipeline">
@@ -143,13 +167,21 @@
           <li class="pipeline__step">
             <span class="pipeline__num">03</span>
             <div>
+              <strong>Photo</strong>
+              <span>サムネ・背景</span>
+            </div>
+          </li>
+          <li class="pipeline__arrow" aria-hidden="true"></li>
+          <li class="pipeline__step">
+            <span class="pipeline__num">04</span>
+            <div>
               <strong>Video</strong>
               <span>動画仕上げ</span>
             </div>
           </li>
           <li class="pipeline__arrow" aria-hidden="true"></li>
           <li class="pipeline__step pipeline__step--finish">
-            <span class="pipeline__num">04</span>
+            <span class="pipeline__num">05</span>
             <div>
               <strong>Publish</strong>
               <span>書き出して投稿</span>

@@ -24,8 +24,10 @@ console.log("  TOP   http://localhost:3000/");
 console.log("  DTM   http://localhost:3000/dtm/");
 console.log("  DAW   http://localhost:3000/daw/");
 console.log("  Video http://localhost:3000/video/");
+console.log("  Photo http://localhost:3000/photo/");
 console.log("");
 console.log("  ※ DTM をホットリロードで開発 → npm run dev:dtm （:1440）");
+console.log("  ※ Photo をホットリロードで開発 → npm run dev:photo （:1450）");
 console.log("  ※ TOP だけ編集 → npm run dev:landing");
 console.log("");
 
