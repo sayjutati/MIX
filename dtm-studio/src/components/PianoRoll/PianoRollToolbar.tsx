@@ -35,6 +35,7 @@ type Props = {
   onPaste: () => void;
   onTranspose: (semitones: number) => void;
   onSelectAll: () => void;
+  onScaleTiming: (factor: number) => void;
 };
 
 export function PianoRollToolbar({
@@ -68,6 +69,7 @@ export function PianoRollToolbar({
   onPaste,
   onTranspose,
   onSelectAll,
+  onScaleTiming,
 }: Props) {
   return (
     <div className="piano-roll__toolbar">
@@ -83,7 +85,7 @@ export function PianoRollToolbar({
         <button
           type="button"
           className={`piano-roll__tool-btn piano-roll__tool-btn--mode${toolMode === "draw" ? " is-active" : ""}`}
-          data-tooltip="描画ツール（2）— ドラッグでノート作成"
+          data-tooltip="描画ツール（2）— ドラッグで長さ指定。Ctrl+ドラッグで連続配置"
           onClick={() => onToolModeChange("draw")}
         >
           描画
@@ -147,6 +149,11 @@ export function PianoRollToolbar({
       </div>
       <div className="piano-roll__edit-bar">
         <button type="button" className="piano-roll__tool-btn" onClick={onSelectAll}>全選択</button>
+        <span className="piano-roll__zoom-caption">長さ</span>
+        <button type="button" className="piano-roll__tool-btn" disabled={selectedCount === 0} data-tooltip="選択メロディを半分の長さに" onClick={() => onScaleTiming(0.5)}>½</button>
+        <button type="button" className="piano-roll__tool-btn" disabled={selectedCount === 0} data-tooltip="少し縮める" onClick={() => onScaleTiming(0.75)}>¾</button>
+        <button type="button" className="piano-roll__tool-btn" disabled={selectedCount === 0} data-tooltip="少し伸ばす" onClick={() => onScaleTiming(1.25)}>+25%</button>
+        <button type="button" className="piano-roll__tool-btn" disabled={selectedCount === 0} data-tooltip="選択メロディを2倍の長さに" onClick={() => onScaleTiming(2)}>×2</button>
         <button type="button" className="piano-roll__tool-btn" disabled={selectedCount === 0} onClick={onCopy}>コピー</button>
         <button type="button" className="piano-roll__tool-btn" onClick={onPaste}>貼付</button>
         <button type="button" className="piano-roll__tool-btn" disabled={selectedCount === 0} onClick={onDuplicate}>複製</button>

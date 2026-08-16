@@ -160,7 +160,7 @@ export const TRACK_COLORS = [
 ];
 
 let clipSeq = 0;
-const nextClipId = () => Date.now() * 1000 + (clipSeq++ % 1000);
+export const nextClipId = () => Date.now() * 1000 + (clipSeq++ % 1000);
 
 export const makeClip = (opts: { id?: number; url: string; offset?: number; duration?: number }): Clip => ({
   id: opts.id ?? nextClipId(),

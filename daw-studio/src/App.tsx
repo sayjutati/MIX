@@ -56,6 +56,7 @@ import {
   clipPlayDuration,
   clipsOverlap,
   makeClip,
+  nextClipId,
   createTrack,
   TRACK_COLORS,
   type Clip,
@@ -860,12 +861,18 @@ function App() {
         const rawBlob = new Blob(audioChunksRef.current, { type: blobType });
         const targetId = recordTargetRef.current;
 
+        if (rawBlob.size < 200) {
+          alert("録音データが空です。もう少し長く録音してから停止してください。");
+          return;
+        }
+
         let url: string;
         let duration = 0;
         let offset = anchorSec;
+        let decoded: AudioBuffer | null = null;
         try {
           const { ctx } = audioEngine.getContext();
-          const decoded = await ctx.decodeAudioData(await rawBlob.arrayBuffer());
+          decoded = await ctx.decodeAudioData(await rawBlob.arrayBuffer());
           duration = decoded.duration;
 
           if (autoLatencyCompRef.current) {
@@ -888,6 +895,12 @@ function App() {
           }
         }
 
+        const clipId = nextClipId();
+        const newTrackId = targetId ?? Date.now();
+        if (decoded) {
+          audioEngine.primeClipBuffer(newTrackId, clipId, decoded);
+        }
+
         pushHistory();
         setTracks((prev) => {
           if (targetId != null && prev.some((t) => t.id === targetId)) {
@@ -897,14 +910,14 @@ function App() {
                     ...t,
                     clips: [
                       ...t.clips.map((c) => ({ ...c, muted: true })),
-                      makeClip({ url, offset, duration }),
+                      makeClip({ id: clipId, url, offset, duration }),
                     ],
                   }
                 : t
             );
           }
           const t = createTrack({
-            id: Date.now(),
+            id: newTrackId,
             url,
             name: `ボーカル ${prev.filter((x) => x.kind !== "bgm").length + 1}`,
             color: TRACK_COLORS[prev.length % TRACK_COLORS.length],
@@ -912,15 +925,19 @@ function App() {
             offset,
             duration,
           });
+          t.clips[0] = makeClip({ id: clipId, url, offset, duration });
           setSelectedTrackId(t.id);
           return [...prev, t];
         });
 
-        // 録音後は再生ヘッドを録音開始位置へ戻す（押せばすぐ録ったテイクが聴ける）
         setGlobalTime(offset);
         globalTimeRef.current = offset;
         audioEngine.seek(offset);
         autosaveSchedulerRef.current.flush();
+
+        window.setTimeout(() => {
+          setIsPlayingGlobal(true);
+        }, 80);
       };
 
       if (monitorOnRef.current) {
@@ -953,11 +970,10 @@ function App() {
 
   const stopRecording = () => {
     if (!mediaRecorderRef.current || !isRecording) return;
-    audioEngine.stopMonitor();
     mediaRecorderRef.current.requestData();
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      setIsPlayingGlobal(false);
+    mediaRecorderRef.current.stop();
+    setIsRecording(false);
+    setIsPlayingGlobal(false);
   };
 
   const deleteTrack = (id: number) => {
@@ -1370,7 +1386,7 @@ function App() {
           >
             <Headphones size={18} />
           </button>
-          {isRecording && <InputMeter />}
+          <InputMeter live={isRecording} />
 
           <div className="transport__divider" />
 

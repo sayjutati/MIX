@@ -59,6 +59,7 @@ import {
   duplicateNotesInPlace,
   nudgeNotePatch,
   pasteNotesAt,
+  scaleNotesTiming,
 } from "./utils/noteEdit";
 import { filterAudioFiles, importAudioFile, importRecordedBlob } from "./utils/audioImport";
 import { audioClipPlayer } from "./audio/audioClipPlayer";
@@ -808,6 +809,19 @@ export default function App() {
     selectNotes(track.notes.map((n) => n.id));
   }, [track, selectNotes]);
 
+  const handleScaleTiming = useCallback(
+    (factor: number) => {
+      if (!track || selectedNoteIds.size === 0) return;
+      const notes = track.notes.filter((n) => selectedNoteIds.has(n.id));
+      if (notes.length === 0) return;
+      const anchor = Math.min(...notes.map((n) => n.start));
+      pushHistory();
+      updateNotes(track.id, scaleNotesTiming(notes, anchor, factor));
+      touch();
+    },
+    [track, selectedNoteIds, pushHistory, updateNotes, touch]
+  );
+
   const handleNudge = useCallback(
     (dBeat: number, dPitch: number) => {
       if (!track || selectedNoteIds.size === 0) return;
@@ -863,6 +877,11 @@ export default function App() {
       if (mod && e.key === "a") {
         e.preventDefault();
         handleSelectAll();
+        return;
+      }
+      if (mod && e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+        e.preventDefault();
+        handleScaleTiming(e.key === "ArrowLeft" ? 0.9 : 1.1);
         return;
       }
 
@@ -974,6 +993,7 @@ export default function App() {
     handlePaste,
     handleDuplicateNotes,
     handleSelectAll,
+    handleScaleTiming,
     handleTranspose,
     handleNudge,
     selectedNoteIds.size,
@@ -1186,6 +1206,7 @@ export default function App() {
             onPaste={handlePaste}
             onTranspose={handleTranspose}
             onSelectAll={handleSelectAll}
+            onScaleTiming={handleScaleTiming}
           />
           <PianoRollView
             editTrack={track}

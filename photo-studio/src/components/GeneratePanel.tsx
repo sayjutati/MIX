@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
-import { GENERATION_PROVIDERS } from "../generate/generationService";
 import { usePhotoStore } from "../state/usePhotoStore";
 import type { GenerateParams } from "../types/document";
 import { hashPrompt } from "../canvas/pixelOps";
@@ -8,6 +7,13 @@ import { hashPrompt } from "../canvas/pixelOps";
 type Props = {
   onError?: (msg: string) => void;
 };
+
+const STYLES: { id: GenerateParams["style"]; label: string }[] = [
+  { id: "illustration", label: "イラスト" },
+  { id: "anime", label: "アニメ" },
+  { id: "photo", label: "フォト" },
+  { id: "abstract", label: "抽象" },
+];
 
 export const GeneratePanel = ({ onError }: Props) => {
   const project = usePhotoStore((s) => s.project);
@@ -18,8 +24,6 @@ export const GeneratePanel = ({ onError }: Props) => {
   const [style, setStyle] = useState<GenerateParams["style"]>("illustration");
   const [seed, setSeed] = useState(0);
   const [useSeed, setUseSeed] = useState(false);
-
-  const provider = GENERATION_PROVIDERS[0]!;
 
   const submit = async () => {
     try {
@@ -38,40 +42,39 @@ export const GeneratePanel = ({ onError }: Props) => {
   return (
     <div className="panel">
       <h2 className="panel__title">画像を生成</h2>
-      <p className="panel__hint">
-        プロンプトを入力して生成します。現在は <strong>{provider.name}</strong>（{provider.description}）
-      </p>
+      <p className="panel__hint">雰囲気の単語を入れると色と構図が変わります（夕焼け・海・夜・サムネ など）</p>
 
       <label className="field">
         プロンプト
         <textarea
-          rows={4}
+          rows={5}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder="例: 夕焼けの海辺、歌ってみたサムネ、幻想的な紫の空…"
+          placeholder="例: 夕焼けの海辺、歌ってみたサムネ"
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) void submit();
           }}
         />
       </label>
 
-      <label className="field">
-        スタイル
-        <select value={style} onChange={(e) => setStyle(e.target.value as GenerateParams["style"])}>
-          <option value="illustration">イラスト</option>
-          <option value="anime">アニメ</option>
-          <option value="photo">フォト風</option>
-          <option value="abstract">抽象</option>
-        </select>
-      </label>
+      <div className="style-chips">
+        {STYLES.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            className={`style-chips__btn ${style === s.id ? "is-on" : ""}`}
+            onClick={() => setStyle(s.id)}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
 
-      <p className="panel__meta">
-        出力サイズ: {project.width} × {project.height}
-      </p>
+      <p className="panel__meta">{project.width} × {project.height}</p>
 
       <label className="field field--check">
         <input type="checkbox" checked={useSeed} onChange={(e) => setUseSeed(e.target.checked)} />
-        シード値を固定
+        シード固定
       </label>
       {useSeed && (
         <label className="field">
@@ -89,7 +92,6 @@ export const GeneratePanel = ({ onError }: Props) => {
         {generating ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
         {generating ? "生成中…" : "生成する"}
       </button>
-      <p className="panel__hint">Ctrl+Enter で生成</p>
     </div>
   );
 };

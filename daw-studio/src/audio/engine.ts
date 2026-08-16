@@ -73,8 +73,13 @@ class AudioEngine {
   /** テイク試聴: 指定クリップだけ muted でも再生 */
   private audition: { trackId: number; clipId: number } | null = null;
 
-  private monitorSource: MediaStreamAudioSourceNode | null = null;
   private monitorGain: GainNode | null = null;
+  private inputSilentGain: GainNode | null = null;
+  /** トラック登録前にデコード済みバッファを渡す（録音直後の無音対策） */
+  private pendingClipBuffers = new Map<
+    string,
+    { buffer: AudioBuffer; original?: AudioBuffer | null; notes?: PitchNote[] }
+  >();
 
   setGlobalTimeProvider(fn: () => number) {
     this.getGlobalTime = fn;
@@ -167,6 +172,7 @@ class AudioEngine {
     const existing = this.runtimes.get(id);
     if (existing) {
       existing.state = state;
+      this.flushPendingBuffers(id);
       return;
     }
     this.runtimes.set(id, {
@@ -175,6 +181,39 @@ class AudioEngine {
       clips: new Map(),
       state,
     });
+    this.flushPendingBuffers(id);
+  }
+
+  private clipBufKey(trackId: number, clipId: number) {
+    return `${trackId}:${clipId}`;
+  }
+
+  private flushPendingBuffers(trackId: number) {
+    const prefix = `${trackId}:`;
+    for (const [key, pending] of [...this.pendingClipBuffers.entries()]) {
+      if (!key.startsWith(prefix)) continue;
+      const clipId = Number(key.slice(prefix.length));
+      this.pendingClipBuffers.delete(key);
+      this.setClipBuffer(trackId, clipId, pending.buffer, {
+        original: pending.original,
+        notes: pending.notes,
+      });
+    }
+  }
+
+  /** ランタイム未登録でもバッファを予約。register 時に適用される */
+  primeClipBuffer(
+    trackId: number,
+    clipId: number,
+    buffer: AudioBuffer,
+    opts?: { original?: AudioBuffer | null; notes?: PitchNote[] }
+  ) {
+    this.pendingClipBuffers.set(this.clipBufKey(trackId, clipId), {
+      buffer,
+      original: opts?.original,
+      notes: opts?.notes,
+    });
+    if (this.runtimes.has(trackId)) this.flushPendingBuffers(trackId);
   }
 
   unregister(id: number) {
@@ -475,37 +514,14 @@ class AudioEngine {
     return this.playing;
   }
 
-  /** 録音モニター開始：マイク入力を出力へ直結（自分の声を聞く） */
+  /** 録音モニター開始：マイク入力をヘッドホンへ（メーターと同一ソース） */
   async startMonitor(stream: MediaStream) {
-    await this.ensureRunning();
-    const { ctx } = this.getContext();
-    this.stopMonitor();
-    const source = ctx.createMediaStreamSource(stream);
-    const gain = ctx.createGain();
-    gain.gain.value = 1;
-    source.connect(gain);
-    gain.connect(ctx.destination);
-    this.monitorSource = source;
-    this.monitorGain = gain;
+    await this.ensureInputTap(stream);
+    if (this.monitorGain) this.monitorGain.gain.value = 1;
   }
 
   stopMonitor() {
-    if (this.monitorSource) {
-      try {
-        this.monitorSource.disconnect();
-      } catch {
-        /* noop */
-      }
-      this.monitorSource = null;
-    }
-    if (this.monitorGain) {
-      try {
-        this.monitorGain.disconnect();
-      } catch {
-        /* noop */
-      }
-      this.monitorGain = null;
-    }
+    if (this.monitorGain) this.monitorGain.gain.value = 0;
   }
 
   setMonitorVolume(value: number) {
@@ -516,28 +532,60 @@ class AudioEngine {
   private inputAnalyser: AnalyserNode | null = null;
   private inputBuf: Float32Array | null = null;
 
-  /** マイク入力のレベルメーター用にアナライザーを接続（音は出さない） */
-  async startInputMeter(stream: MediaStream) {
+  /**
+   * 1 本の MediaStreamSource から
+   * メーター（無音ゲイン経由で destination に接続＝Chrome で解析が動く）と
+   * モニター（ヘッドホン）を分岐する。同一 stream に source を二重作成しない。
+   */
+  private async ensureInputTap(stream: MediaStream) {
     await this.ensureRunning();
+    if (this.inputSource && this.inputAnalyser) return;
     const { ctx } = this.getContext();
     this.stopInputMeter();
+
     this.inputSource = ctx.createMediaStreamSource(stream);
     this.inputAnalyser = ctx.createAnalyser();
-    this.inputAnalyser.fftSize = 1024;
+    this.inputAnalyser.fftSize = 2048;
+    this.inputAnalyser.smoothingTimeConstant = 0.35;
     this.inputBuf = new Float32Array(this.inputAnalyser.fftSize);
+
+    this.inputSilentGain = ctx.createGain();
+    this.inputSilentGain.gain.value = 0;
+
+    this.monitorGain = ctx.createGain();
+    this.monitorGain.gain.value = 0;
+
     this.inputSource.connect(this.inputAnalyser);
+    this.inputAnalyser.connect(this.inputSilentGain);
+    this.inputSilentGain.connect(ctx.destination);
+    this.inputSource.connect(this.monitorGain);
+    this.monitorGain.connect(ctx.destination);
+  }
+
+  /** マイク入力のレベルメーター用にアナライザーを接続 */
+  async startInputMeter(stream: MediaStream) {
+    await this.ensureInputTap(stream);
   }
 
   stopInputMeter() {
-    if (this.inputSource) {
+    const nodes = [
+      this.inputSource,
+      this.inputAnalyser,
+      this.inputSilentGain,
+      this.monitorGain,
+    ];
+    for (const n of nodes) {
+      if (!n) continue;
       try {
-        this.inputSource.disconnect();
+        n.disconnect();
       } catch {
         /* noop */
       }
-      this.inputSource = null;
     }
+    this.inputSource = null;
     this.inputAnalyser = null;
+    this.inputSilentGain = null;
+    this.monitorGain = null;
     this.inputBuf = null;
   }
 
@@ -547,10 +595,19 @@ class AudioEngine {
     this.inputAnalyser.getFloatTimeDomainData(this.inputBuf);
     let peak = 0;
     for (let i = 0; i < this.inputBuf.length; i++) {
-      const v = Math.abs(this.inputBuf[i]);
+      const v = Math.abs(this.inputBuf[i] ?? 0);
       if (v > peak) peak = v;
     }
     return Math.min(1, peak);
+  }
+
+  /** 入力波形を dest にコピー（ライブ可視化） */
+  copyInputWaveform(dest: Float32Array): boolean {
+    if (!this.inputAnalyser || !this.inputBuf) return false;
+    this.inputAnalyser.getFloatTimeDomainData(this.inputBuf);
+    const n = Math.min(dest.length, this.inputBuf.length);
+    for (let i = 0; i < n; i++) dest[i] = this.inputBuf[i] ?? 0;
+    return true;
   }
 }
 

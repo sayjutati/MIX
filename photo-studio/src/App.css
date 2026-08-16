@@ -9,8 +9,9 @@
   --accent: #a78bfa;
   --accent-hover: #b89cfc;
   --accent-dim: rgba(167, 139, 250, 0.15);
-  --header-h: 52px;
-  --sidebar-w: 72px;
+  --header-h: 48px;
+  --sidebar-w: 56px;
+  --layers-w: 220px;
   --panel-w: 300px;
   --radius: 10px;
   --radius-sm: 6px;
@@ -286,22 +287,39 @@ body {
   color: var(--text);
 }
 
-/* Workspace */
+/* Workspace — Photopea/Figma: tools | layers | canvas | inspector */
 .workspace {
   flex: 1;
-  display: flex;
+  display: grid;
+  grid-template-columns: var(--sidebar-w) var(--layers-w) 1fr var(--panel-w);
   min-height: 0;
 }
 
+.workspace__layers {
+  min-width: 0;
+  border-right: 1px solid var(--border);
+  background: var(--surface-1);
+  overflow-y: auto;
+}
+
+.workspace__layers .panel {
+  padding: 10px;
+}
+
+.workspace__layers .panel__title {
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
 .workspace__main {
-  flex: 1;
   min-width: 0;
   display: flex;
 }
 
 .workspace__panel {
-  width: var(--panel-w);
-  flex-shrink: 0;
+  min-width: 0;
   border-left: 1px solid var(--border);
   background: var(--surface-1);
   overflow-y: auto;
@@ -517,6 +535,29 @@ body {
   gap: 8px;
 }
 
+.style-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.style-chips__btn {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.style-chips__btn.is-on {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
 .export-btns {
   display: flex;
   flex-direction: column;
@@ -592,6 +633,7 @@ body {
 .layer-list__actions {
   display: flex;
   gap: 2px;
+  flex-shrink: 0;
 }
 
 .layer-list__actions button {
@@ -631,12 +673,14 @@ body {
   }
 }
 
+@media (max-width: 900px) {
+  .workspace {
+    grid-template-columns: var(--sidebar-w) minmax(160px, 180px) 1fr minmax(240px, 280px);
+  }
+}
+
 @media (max-width: 768px) {
   .welcome__actions {
     grid-template-columns: 1fr;
-  }
-
-  .workspace__panel {
-    width: 260px;
   }
 }

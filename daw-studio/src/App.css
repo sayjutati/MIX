@@ -1609,11 +1609,21 @@ input[type="number"] {
   gap: 6px;
   padding: 0 6px;
 }
+.input-meter--live .input-meter__icon {
+  color: #22c55e;
+}
 .input-meter__icon {
   font-size: 9px;
   font-weight: 800;
   letter-spacing: 0.06em;
   color: var(--text-faint);
+}
+.input-meter__wave {
+  width: 96px;
+  height: 28px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.35);
+  display: block;
 }
 .input-meter__track {
   width: 70px;
@@ -1627,7 +1637,12 @@ input[type="number"] {
   width: 0%;
   background: var(--green);
   border-radius: 4px;
-  transition: width 0.05s linear;
+}
+.input-meter__db {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+  min-width: 36px;
 }
 
 /* ===== コンテキストメニュー 区切り ===== */

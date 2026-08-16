@@ -167,14 +167,16 @@ export default function App() {
         />
       ) : (
         <div className="workspace">
-          <ToolSidebar active={activeTab} onChange={(t) => patch({ activeTab: t })} />
+          <ToolSidebar active={activeTab === "layers" ? "adjust" : activeTab} onChange={(t) => patch({ activeTab: t })} />
+          <aside className="workspace__layers">
+            <LayerPanel />
+          </aside>
           <main className="workspace__main">
             <CanvasViewport onDropFiles={(files) => void handleImportFiles(files)} />
           </main>
           <aside className="workspace__panel">
             {activeTab === "generate" && <GeneratePanel onError={showToast} />}
-            {activeTab === "adjust" && <AdjustPanel />}
-            {activeTab === "layers" && <LayerPanel />}
+            {(activeTab === "adjust" || activeTab === "layers") && <AdjustPanel />}
             {activeTab === "export" && (
               <ExportPanel exporting={exporting} onExport={(f, o) => void handleExport(f, o)} />
             )}
