@@ -1,4 +1,5 @@
 import {
+  Captions,
   Download,
   FolderOpen,
   HelpCircle,
@@ -22,6 +23,9 @@ interface Props {
   onExportFormat: (f: ExportFormat) => void;
   onImport: () => void;
   onImportDaw: () => void;
+  onImportCaptions: () => void;
+  onSendFrame: () => void;
+  sendingFrame?: boolean;
   onOpen: () => void;
   onSave: () => void;
   onExport: () => void;
@@ -39,6 +43,9 @@ export const AppHeader = ({
   onExportFormat,
   onImport,
   onImportDaw,
+  onImportCaptions,
+  onSendFrame,
+  sendingFrame,
   onOpen,
   onSave,
   onExport,
@@ -57,6 +64,16 @@ export const AppHeader = ({
     <div className="app-header__tools">
       <IconBtn icon={Upload} label="素材を読み込む" onClick={onImport} size="sm" />
       <IconBtn icon={Sparkles} label="DAW (.daw)" onClick={onImportDaw} size="sm" className="btn--daw-wrap" />
+      <IconBtn icon={Captions} label="歌詞・字幕 (SRT/LRC)" onClick={onImportCaptions} size="sm" />
+      <button
+        type="button"
+        className="btn btn--ghost btn--sm"
+        onClick={onSendFrame}
+        disabled={sendingFrame}
+        title="再生ヘッド位置のフレームを Photo Studio へ送る"
+      >
+        {sendingFrame ? "送信中…" : "サムネへ"}
+      </button>
       <span className="app-header__sep" />
       <IconBtn icon={FolderOpen} label="プロジェクトを開く" onClick={onOpen} size="sm" variant="ghost" />
       <IconBtn icon={Save} label="保存 (.vproj)" onClick={onSave} size="sm" variant="ghost" />

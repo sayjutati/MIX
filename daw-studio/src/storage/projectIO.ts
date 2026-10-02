@@ -56,13 +56,18 @@ export const deserializeProject = async (parsed: ProjectFile): Promise<{
   globalTime: number;
   pitchLimit: number;
 }> => {
+  if (!parsed || !Array.isArray(parsed.tracks)) {
+    throw new Error("プロジェクトファイルの形式が正しくありません");
+  }
   const restored = await Promise.all(
     parsed.tracks.map(async (td) => {
       let clips: Clip[];
       if (Array.isArray(td.clips)) {
         clips = await Promise.all(
           td.clips.map(async (pc) => {
-            const blob = await (await fetch(pc.audioData!)).blob();
+            // audioData 欠落のまま fetch すると相対 URL "undefined" を取りに行き、HTML が音声として入ってしまう
+            if (!pc.audioData) throw new Error("音声データのないクリップが含まれています");
+            const blob = await (await fetch(pc.audioData)).blob();
             const clip = makeClip({
               id: pc.id,
               url: URL.createObjectURL(blob),
@@ -79,7 +84,8 @@ export const deserializeProject = async (parsed: ProjectFile): Promise<{
           })
         );
       } else {
-        const blob = await (await fetch(td.audioData!)).blob();
+        if (!td.audioData) throw new Error("音声データのないトラックが含まれています");
+        const blob = await (await fetch(td.audioData)).blob();
         clips = [
           makeClip({
             url: URL.createObjectURL(blob),

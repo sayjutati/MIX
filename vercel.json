@@ -6,6 +6,7 @@
   "rewrites": [
     { "source": "/dtm", "destination": "/dtm/index.html" },
     { "source": "/daw", "destination": "/daw/index.html" },
-    { "source": "/video", "destination": "/video/index.html" }
+    { "source": "/video", "destination": "/video/index.html" },
+    { "source": "/photo", "destination": "/photo/index.html" }
   ]
 }

@@ -23,6 +23,8 @@ type Props = {
   onRedo: () => void;
   onRename: (name: string) => void;
   onHelp: () => void;
+  onAddTitle: () => void;
+  onSendToVideo: () => void;
 };
 
 export const AppHeader = ({
@@ -38,6 +40,8 @@ export const AppHeader = ({
   onRedo,
   onRename,
   onHelp,
+  onAddTitle,
+  onSendToVideo,
 }: Props) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
@@ -95,6 +99,12 @@ export const AppHeader = ({
         <button type="button" className="btn btn--ghost" onClick={onSave} title="Ctrl+S">
           <Save size={16} />
           保存
+        </button>
+        <button type="button" className="btn btn--ghost" onClick={onAddTitle} title="タイトル文字をレイヤーとして追加">
+          文字
+        </button>
+        <button type="button" className="btn btn--ghost" onClick={onSendToVideo} disabled={exporting} title="合成結果を Video Studio のオーバーレイへ送る">
+          動画へ
         </button>
         <div className="header__export">
           <button type="button" className="btn btn--primary" disabled={exporting} onClick={() => onExport("png")}>

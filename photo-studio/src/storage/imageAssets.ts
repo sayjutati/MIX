@@ -48,8 +48,7 @@ export const saveImageAsset = async (
   height: number
 ): Promise<string> => {
   const id = makeAssetId();
-  const db = await openDb();
-  const rec: ImageAssetRecord = {
+  await putImageAsset({
     id,
     projectId,
     name,
@@ -58,15 +57,20 @@ export const saveImageAsset = async (
     width,
     height,
     createdAt: Date.now(),
-  };
+  });
+  return id;
+};
+
+export const putImageAsset = async (rec: ImageAssetRecord): Promise<void> => {
+  const db = await openDb();
   await new Promise<void>((res, rej) => {
     const tx = db.transaction("assets", "readwrite");
     tx.objectStore("assets").put(rec);
     tx.oncomplete = () => res();
     tx.onerror = () => rej(tx.error);
+    tx.onabort = () => rej(tx.error);
   });
-  revokeAssetUrl(id);
-  return id;
+  revokeAssetUrl(rec.id);
 };
 
 export const getImageAsset = async (id: string): Promise<ImageAssetRecord | undefined> => {

@@ -4,7 +4,7 @@
   "description": "MIX — DAW + DTM + Video + Photo Studio portal",
   "scripts": {
     "verify": "node scripts/verify-repo.mjs",
-    "test": "npm run test --prefix dtm-studio && npm run test --prefix video-studio && npm run test --prefix photo-studio",
+    "test": "npm run test --prefix daw-studio && npm run test --prefix dtm-studio && npm run test --prefix video-studio && npm run test --prefix photo-studio",
     "build": "node scripts/build-portal.mjs",
     "dev": "node scripts/dev-portal.mjs",
     "dev:landing": "npx --yes serve landing -l 3000",

@@ -15,6 +15,7 @@ export class AutosaveScheduler {
   private interval: ReturnType<typeof setInterval> | null = null;
   private enabled = false;
   private saving = false;
+  private dirty = false;
   private pending: AutosaveSnapshot | null = null;
   private getSnapshot: (() => AutosaveSnapshot) | null = null;
 
@@ -22,9 +23,10 @@ export class AutosaveScheduler {
     this.getSnapshot = getSnapshot;
     this.enabled = true;
     if (this.interval) clearInterval(this.interval);
-    this.interval = setInterval(() => this.flush(0), 20_000);
+    // 全クリップを base64 化する重い処理なので、変更がなければ定期保存しない
+    this.interval = setInterval(() => this.flushIfDirty(), 20_000);
     const onHide = () => {
-      if (document.visibilityState === "hidden") this.flush(0);
+      if (document.visibilityState === "hidden") this.flushIfDirty();
     };
     window.addEventListener("visibilitychange", onHide);
     window.addEventListener("pagehide", onHide);
@@ -40,8 +42,13 @@ export class AutosaveScheduler {
   /** 変更後 debounce ms で保存（既定 4 秒） */
   schedule(delayMs = 4000) {
     if (!this.enabled) return;
+    this.dirty = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => this.flush(0), delayMs);
+  }
+
+  private flushIfDirty() {
+    if (this.dirty) this.flush(0);
   }
 
   /** 録音直後など即時保存 */
@@ -52,6 +59,7 @@ export class AutosaveScheduler {
       this.timer = null;
     }
     const run = () => {
+      this.dirty = false;
       const snap = this.getSnapshot!();
       if (snap.tracks.length === 0) return;
       this.pending = snap;
@@ -76,7 +84,7 @@ export class AutosaveScheduler {
         snap.pitchLimit
       );
     } catch {
-      /* 次回リトライ */
+      this.dirty = true; // 次回の定期保存でリトライ
     } finally {
       this.saving = false;
       if (this.pending) void this.runSave();

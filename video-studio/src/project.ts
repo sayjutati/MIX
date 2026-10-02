@@ -9,6 +9,7 @@ import type {
 } from "./types";
 import { PROJECT_VERSION, defaultEffects, projectDuration } from "./types";
 import { textStyleFromLegacy } from "./text/textStyle";
+import { downloadBlob } from "./export/exportVideo";
 
 const blobToBase64 = (blob: Blob): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -167,10 +168,7 @@ export const deserializeProject = (file: ProjectFile): EditorState => {
 
 export const downloadProject = async (state: EditorState) => {
   const file = await serializeProject(state);
-  const blob = new Blob([JSON.stringify(file, null, 2)], { type: "application/json" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `${state.title || "project"}.vproj`;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  // 素材を base64 で抱えるので pretty print は巨大化するだけ
+  const blob = new Blob([JSON.stringify(file)], { type: "application/json" });
+  downloadBlob(blob, `${state.title || "project"}.vproj`);
 };

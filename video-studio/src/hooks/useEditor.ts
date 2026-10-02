@@ -3,14 +3,15 @@ import { getLinkedClip } from "../audio/clipAudio";
 import { createHistory, pushHistory, redo, undo, type HistoryStack } from "../history";
 import { parseDawProject } from "../daw/import";
 import { fileToAsset } from "../media/probe";
-import type { ClipEffects, EditorState, MediaAsset, TextClip, TimelineClip, TrackKind } from "../types";
+import { parseCaptions, distributeLyrics } from "../text/captions";
+import type { ClipEffects, ClipOrigin, EditorState, MediaAsset, TextClip, TimelineClip, TrackKind } from "../types";
 import { SNAP_GRID_SEC, clipTimelineEnd, initialEditorState, projectDuration } from "../types";
 import { createTextClip } from "../text/createTextClip";
 import { getTelopPreset } from "../text/telopPresets";
 import { mergeTextStyle, type TextStyle } from "../text/textStyle";
 import { makeClip, makeVideoWithLinkedAudio } from "../utils/clipFactory";
 import { snapTime } from "../utils/time";
-import { canPlaceClip } from "../utils/timeline";
+import { canPlaceClip, findFreeStart, splitOpacityKeyframes, trimDeltaLimits } from "../utils/timeline";
 
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
@@ -101,13 +102,97 @@ export const useEditor = () => {
   const importDaw = useCallback(async (file: File) => {
     const text = await file.text();
     const json = JSON.parse(text) as Parameters<typeof parseDawProject>[0];
+    if (!json || !Array.isArray(json.tracks)) throw new Error("DAW プロジェクトではありません");
     const { assets, clips } = parseDawProject(json);
-    commit((s) => ({
-      ...s,
-      assets: [...s.assets, ...assets],
-      clips: [...s.clips, ...clips],
-    }));
+    if (!clips.length) throw new Error("取り込める音声がありません（ミュート/空のトラックのみ）");
+    commit((s) => {
+      const target =
+        s.tracks.find((t) => t.id === "a2" && t.kind === "audio") ??
+        firstTrackOfKind(s, "audio");
+      if (!target) return s;
+      return {
+        ...s,
+        assets: [...s.assets, ...assets],
+        clips: [...s.clips, ...clips.map((c) => ({ ...c, trackId: target.id }))],
+      };
+    });
   }, [commit]);
+
+  /** WAV/音声を指定トラックへ置く（DAW からの受け渡し・ナレーション） */
+  const importAudioOntoTrack = useCallback(
+    async (file: File, trackId = "a2", origin: ClipOrigin = "daw") => {
+      const asset = await fileToAsset(file);
+      commit((s) => {
+        const track =
+          s.tracks.find((t) => t.id === trackId && t.kind === "audio") ?? firstTrackOfKind(s, "audio");
+        if (!track) return { ...s, assets: [...s.assets, asset] };
+        const duration = asset.duration || 1;
+        const start = findFreeStart(s.clips, [{ trackId: track.id, duration }], 0);
+        const clip = makeClip(asset, track.id, start, { origin });
+        return {
+          ...s,
+          assets: [...s.assets, asset],
+          clips: [...s.clips, clip],
+          selectedClipId: clip.id,
+          selectedTrackId: track.id,
+        };
+      });
+    },
+    [commit]
+  );
+
+  /** 画像をオーバーレイトラックへ（Photo からのサムネ／背景） */
+  const importImageOntoOverlay = useCallback(
+    async (file: File) => {
+      const asset = await fileToAsset(file);
+      commit((s) => {
+        const track = firstTrackOfKind(s, "overlay") ?? firstTrackOfKind(s, "video");
+        if (!track) return { ...s, assets: [...s.assets, asset] };
+        const duration = 5;
+        const start = findFreeStart(s.clips, [{ trackId: track.id, duration }], s.playhead);
+        const clip = makeClip(asset, track.id, start);
+        return {
+          ...s,
+          assets: [...s.assets, asset],
+          clips: [...s.clips, clip],
+          selectedClipId: clip.id,
+          selectedTrackId: track.id,
+        };
+      });
+    },
+    [commit]
+  );
+
+  /** SRT / VTT / LRC / 素の歌詞テキストをテロップにする（CapCut 字幕の簡易版） */
+  const importCaptions = useCallback(
+    (text: string) => {
+      const preset = getTelopPreset("lyric-bottom");
+      let cues = parseCaptions(text);
+      if (!cues.length) {
+        const span = Math.max(1, state.duration || 0);
+        cues = distributeLyrics(text, 0, span);
+      }
+      if (!cues.length) throw new Error("歌詞・字幕を読み取れませんでした");
+      commit((s) => {
+        const track = s.tracks.find((t) => t.kind === "text" && !t.locked);
+        if (!track) return s;
+        const clips = cues.map((c) =>
+          createTextClip({
+            trackId: track.id,
+            start: c.start,
+            duration: Math.max(0.4, c.end - c.start),
+            text: c.text,
+            x: preset?.x ?? 0.5,
+            y: preset?.y ?? 0.82,
+            style: preset ? { ...preset.style } : undefined,
+          })
+        );
+        return { ...s, textClips: [...s.textClips, ...clips], selectedClipId: clips[0]?.id ?? s.selectedClipId };
+      });
+      return cues.length;
+    },
+    [commit, state.duration]
+  );
 
   const addClipFromAsset = useCallback(
     (assetId: string, trackId?: string, at?: number): { ok: boolean; reason?: string } => {
@@ -210,7 +295,7 @@ export const useEditor = () => {
         const ids = withLinked(s, clipId);
         const primary = s.clips.find((c) => c.id === clipId);
         if (!primary) return s;
-        const delta = snapTime(newStart, SNAP_GRID_SEC, s.snapEnabled) - primary.start;
+        const delta = Math.max(0, snapTime(newStart, SNAP_GRID_SEC, s.snapEnabled)) - primary.start;
 
         return {
           ...s,
@@ -219,6 +304,7 @@ export const useEditor = () => {
             if (c.id === clipId && newTrackId) {
               const track = s.tracks.find((t) => t.id === newTrackId);
               if (!track || track.kind !== s.tracks.find((t) => t.id === c.trackId)?.kind) {
+                if (!canPlaceClip(s.clips, c.trackId, c.start + delta, c.duration, c.id)) return c;
                 return { ...c, start: c.start + delta };
               }
               if (!canPlaceClip(s.clips, newTrackId, c.start + delta, c.duration, c.id)) return c;
@@ -238,25 +324,34 @@ export const useEditor = () => {
     (clipId: string, edge: "start" | "end", deltaSec: number) => {
       commit((s) => {
         const ids = withLinked(s, clipId);
+        const isText = s.textClips.some((c) => c.id === clipId);
+        const maxSourceOf = (c: TimelineClip) =>
+          isText ? Infinity : s.assets.find((a) => a.id === c.assetId)?.duration ?? Infinity;
+
+        // リンクされた映像/音声は同じ量だけ動かす（片方だけ制限に掛かってもズレない）
+        let delta = deltaSec;
+        if (!isText) {
+          for (const c of s.clips) {
+            if (!ids.includes(c.id)) continue;
+            const { min, max } = trimDeltaLimits(s.clips, c, edge, maxSourceOf(c));
+            delta = Math.max(min, Math.min(max, delta));
+          }
+        }
+
         const patchOne = (c: TimelineClip): TimelineClip => {
           if (!ids.includes(c.id)) return c;
-          const asset = s.assets.find((a) => a.id === c.assetId);
-          const maxSource = asset?.duration ?? Infinity;
           if (edge === "start") {
-            const ds = Math.min(deltaSec, c.duration - 0.1);
-            const nextIn = c.inPoint + ds * c.speed;
-            if (nextIn >= maxSource - 0.05) return c;
+            const ds = isText ? Math.min(delta, c.duration - 0.1) : delta;
             return {
               ...c,
               start: c.start + ds,
-              inPoint: nextIn,
+              inPoint: Math.max(0, c.inPoint + ds * c.speed),
               duration: c.duration - ds,
             };
           }
-          const maxDur = Math.max(0.1, (maxSource - c.inPoint) / c.speed);
-          return { ...c, duration: Math.max(0.1, Math.min(c.duration + deltaSec, maxDur)) };
+          return { ...c, duration: Math.max(0.1, c.duration + delta) };
         };
-        if (s.textClips.some((c) => c.id === clipId)) {
+        if (isText) {
           return {
             ...s,
             textClips: s.textClips.map((c) =>
@@ -273,9 +368,10 @@ export const useEditor = () => {
   const splitAtPlayhead = useCallback(() => {
     commit((s) => {
       const t = s.playhead;
-      const target = [...s.clips, ...s.textClips].find(
-        (c) => t > c.start && t < clipTimelineEnd(c)
-      );
+      const under = (c: TimelineClip) => t > c.start + 0.05 && t < clipTimelineEnd(c) - 0.05;
+      const all = [...s.clips, ...s.textClips];
+      // 選択中のクリップがプレイヘッド上にあればそれを優先（複数トラックで別のクリップを切らない）
+      const target = all.find((c) => c.id === s.selectedClipId && under(c)) ?? all.find(under);
       if (!target) return s;
       const local = t - target.start;
       const rightId = uid();
@@ -283,7 +379,9 @@ export const useEditor = () => {
       const rightLinkedId = linked ? uid() : undefined;
 
       const splitOne = (c: TimelineClip, newRightId: string, linkTo?: string): [TimelineClip, TimelineClip] => {
-        const left = { ...c, duration: local, linkedClipId: linkTo ? c.linkedClipId : c.linkedClipId };
+        // 前半は分割点でクロスフェード等の終端トランジションを持たない
+        const { transitionOut: _tail, ...head } = c;
+        const left: TimelineClip = { ...head, duration: local };
         const right: TimelineClip = {
           ...c,
           id: newRightId,
@@ -291,8 +389,8 @@ export const useEditor = () => {
           duration: c.duration - local,
           inPoint: c.inPoint + local * c.speed,
           linkedClipId: linkTo,
+          opacityKeyframes: splitOpacityKeyframes(c, local, uid),
         };
-        if (left.linkedClipId && linkTo) left.linkedClipId = linkTo;
         return [left, right];
       };
 
@@ -365,13 +463,22 @@ export const useEditor = () => {
         }
         const src = c as TimelineClip;
         const copyId = uid();
+        const linked = getLinkedClip(s, clipId);
+        // 直後に別クリップがあっても重ならない最初の空きに置く
+        const start = findFreeStart(
+          s.clips,
+          [
+            { trackId: src.trackId, duration: src.duration },
+            ...(linked ? [{ trackId: linked.trackId, duration: linked.duration }] : []),
+          ],
+          clipTimelineEnd(src)
+        );
         const copy: TimelineClip = {
           ...src,
           id: copyId,
-          start: clipTimelineEnd(src),
+          start,
           linkedClipId: undefined,
         };
-        const linked = getLinkedClip(s, clipId);
         if (linked) {
           const copy2: TimelineClip = {
             ...linked,
@@ -658,15 +765,31 @@ export const useEditor = () => {
       }
       const idMap = new Map<string, string>();
       for (const c of buf.clips) idMap.set(c.id, uid());
+      const base = buf.clips[0]!.start;
+      // 重なる場合は、全クリップが空く位置まで一括で後ろにずらす
+      let shift = at;
+      for (let guard = 0; guard < 200; guard++) {
+        let nextShift: number | null = null;
+        for (const c of buf.clips) {
+          const rel = c.start - base;
+          const start = shift + rel;
+          const hit = s.clips.find(
+            (o) => o.trackId === c.trackId && start < clipTimelineEnd(o) && start + c.duration > o.start
+          );
+          if (hit) {
+            nextShift = clipTimelineEnd(hit) - rel;
+            break;
+          }
+        }
+        if (nextShift == null) break;
+        shift = nextShift;
+      }
       const pasted = buf.clips.map((c) => ({
         ...structuredClone(c),
         id: idMap.get(c.id)!,
-        start: at + (c.start - buf.clips[0]!.start),
+        start: shift + (c.start - base),
         linkedClipId: c.linkedClipId ? idMap.get(c.linkedClipId) : undefined,
       }));
-      for (const c of pasted) {
-        if (!canPlaceClip(s.clips, c.trackId, c.start, c.duration)) return s;
-      }
       return {
         ...s,
         clips: [...s.clips, ...pasted],
@@ -686,6 +809,9 @@ export const useEditor = () => {
     redo: redoAction,
     importFiles,
     importDaw,
+    importAudioOntoTrack,
+    importImageOntoOverlay,
+    importCaptions,
     addClipFromAsset,
     moveClip,
     trimClip,

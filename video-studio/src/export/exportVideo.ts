@@ -25,6 +25,13 @@ export interface ExportResult {
 
 const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
 
+/**
+ * MediaRecorder は実時間で録画されるため、映像フレームの描画時刻も実時間に同期させる。
+ * （1 フレームごとに固定 sleep すると、描画時間ぶん映像だけ伸びて音声とズレる）
+ */
+export const frameTimeAt = (elapsedSec: number, duration: number) =>
+  Math.min(Math.max(0, elapsedSec), Math.max(0, duration - 1e-3));
+
 const recordTimeline = async (
   canvas: HTMLCanvasElement,
   state: EditorState,
@@ -38,12 +45,11 @@ const recordTimeline = async (
 
   await document.fonts.ready;
 
-  const stream = canvas.captureStream(fps);
   const audioBuffer = await mixAudioOffline(state, duration);
-  if (audioBuffer) {
-    const track = await bufferToStreamTrack(audioBuffer);
-    if (track) stream.addTrack(track);
-  }
+  const audioFeed = audioBuffer ? createAudioFeed(audioBuffer) : null;
+
+  const stream = canvas.captureStream(fps);
+  if (audioFeed) stream.addTrack(audioFeed.track);
 
   const recorder = new MediaRecorder(stream, {
     mimeType: mime,
@@ -51,41 +57,78 @@ const recordTimeline = async (
   });
   const chunks: Blob[] = [];
 
-  return new Promise((resolve, reject) => {
-    recorder.ondataavailable = (e) => {
-      if (e.data.size) chunks.push(e.data);
-    };
-    recorder.onstop = () => resolve(new Blob(chunks, { type: mime.split(";")[0] }));
-    recorder.onerror = () => reject(new Error("MediaRecorder failed"));
+  try {
+    return await new Promise<Blob>((resolve, reject) => {
+      recorder.ondataavailable = (e) => {
+        if (e.data.size) chunks.push(e.data);
+      };
+      recorder.onstop = () => resolve(new Blob(chunks, { type: mime.split(";")[0] }));
+      recorder.onerror = () => reject(new Error("MediaRecorder failed"));
 
-    const totalFrames = Math.ceil(duration * fps);
-    const frameMs = 1000 / fps;
+      const run = async () => {
+        await renderFrameAsync(ctx, state, 0);
+        recorder.start(100);
+        audioFeed?.start();
+        const t0 = performance.now();
 
-    const run = async () => {
-      recorder.start(100);
-      for (let frame = 0; frame <= totalFrames; frame++) {
-        const t = frame / fps;
-        await renderFrameAsync(ctx, state, t);
-        opts.onProgress?.(frame / totalFrames, "フレームを書き出し中…");
-        await sleep(frameMs);
-      }
-      recorder.stop();
-    };
+        for (;;) {
+          const elapsed = (performance.now() - t0) / 1000;
+          if (elapsed >= duration) break;
+          await renderFrameAsync(ctx, state, frameTimeAt(elapsed, duration));
+          opts.onProgress?.(Math.min(1, elapsed / duration), "フレームを書き出し中…");
+          const nextFrameAt = t0 + ((Math.floor(elapsed * fps) + 1) / fps) * 1000;
+          await sleep(Math.max(0, nextFrameAt - performance.now()));
+        }
+        await renderFrameAsync(ctx, state, frameTimeAt(duration, duration));
+        opts.onProgress?.(1, "フレームを書き出し中…");
+        recorder.stop();
+      };
 
-    void run().catch(reject);
-  });
+      void run().catch((err) => {
+        if (recorder.state !== "inactive") recorder.stop();
+        reject(err);
+      });
+    });
+  } finally {
+    audioFeed?.dispose();
+    stream.getTracks().forEach((t) => t.stop());
+  }
 };
 
-const bufferToStreamTrack = async (buffer: AudioBuffer): Promise<MediaStreamTrack | null> => {
+interface AudioFeed {
+  track: MediaStreamTrack;
+  start: () => void;
+  dispose: () => void;
+}
+
+/** ミックス済み音声を MediaStream トラックとして流す。start() の瞬間から再生される */
+const createAudioFeed = (buffer: AudioBuffer): AudioFeed | null => {
   try {
     const ctx = new AudioContext();
     const dest = ctx.createMediaStreamDestination();
     const src = ctx.createBufferSource();
     src.buffer = buffer;
     src.connect(dest);
-    src.start();
-    src.onended = () => void ctx.close();
-    return dest.stream.getAudioTracks()[0] ?? null;
+    const track = dest.stream.getAudioTracks()[0];
+    if (!track) {
+      void ctx.close();
+      return null;
+    }
+    return {
+      track,
+      start: () => {
+        void ctx.resume();
+        src.start();
+      },
+      dispose: () => {
+        try {
+          src.stop();
+        } catch {
+          /* 未開始 */
+        }
+        void ctx.close();
+      },
+    };
   } catch {
     return null;
   }
@@ -133,9 +176,12 @@ export const exportToWebM = (
 ) => exportVideo(canvas, state, "webm", opts).then((r) => r.blob);
 
 export const downloadBlob = (blob: Blob, filename: string) => {
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
+  a.href = url;
   a.download = filename;
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(a.href);
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 };

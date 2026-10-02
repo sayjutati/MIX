@@ -3,16 +3,89 @@ import {
   defaultTransform,
   type PhotoProject,
 } from "../types/document";
-import { getImageAsset, saveImageAsset } from "./imageAssets";
+import { downloadBlob } from "./download";
+import { getImageAsset, putImageAsset, saveImageAsset } from "./imageAssets";
 
-/** .pphoto ファイル形式（メタデータのみ、アセットは IndexedDB） */
+export type EmbeddedAsset = {
+  name: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  /** base64（data URL ではなく本体のみ） */
+  data: string;
+};
+
+/**
+ * .pphoto ファイル形式。
+ * version 2 以降は画像本体を `assets` に埋め込む（他の端末・ブラウザでも開ける）。
+ * version 1 はメタデータのみで、画像は同一ブラウザの IndexedDB に依存する。
+ */
 export type ProjectFile = {
   version: number;
   project: PhotoProject;
+  assets?: Record<string, EmbeddedAsset>;
 };
 
-export const serializeProject = (project: PhotoProject): string =>
-  JSON.stringify({ version: 1, project }, null, 2);
+const FILE_VERSION = 2;
+
+const blobToBase64 = async (blob: Blob): Promise<string> => {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let bin = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+};
+const base64ToBlob = (b64: string, type: string): Blob => {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type });
+};
+
+export const serializeProject = async (project: PhotoProject): Promise<string> => {
+  const assets: Record<string, EmbeddedAsset> = {};
+  for (const layer of project.layers) {
+    if (assets[layer.assetId]) continue;
+    const rec = await getImageAsset(layer.assetId);
+    if (!rec) continue;
+    assets[layer.assetId] = {
+      name: rec.name,
+      mimeType: rec.mimeType,
+      width: rec.width,
+      height: rec.height,
+      data: await blobToBase64(rec.blob),
+    };
+  }
+  const file: ProjectFile = { version: FILE_VERSION, project, assets };
+  return JSON.stringify(file);
+};
+
+export const parseProjectFile = (text: string): ProjectFile => {
+  const json = JSON.parse(text) as Partial<ProjectFile> | null;
+  if (!json || typeof json !== "object" || !json.project || !Array.isArray(json.project.layers)) {
+    throw new Error("プロジェクトファイルの形式が正しくありません");
+  }
+  return json as ProjectFile;
+};
+
+/** 埋め込み画像を IndexedDB に復元する（同じ ID で上書き） */
+export const restoreEmbeddedAssets = async (file: ProjectFile): Promise<void> => {
+  if (!file.assets) return;
+  for (const [id, a] of Object.entries(file.assets)) {
+    await putImageAsset({
+      id,
+      projectId: file.project.id,
+      name: a.name,
+      mimeType: a.mimeType,
+      blob: base64ToBlob(a.data, a.mimeType),
+      width: a.width,
+      height: a.height,
+      createdAt: Date.now(),
+    });
+  }
+};
 
 export const deserializeProject = (json: ProjectFile): PhotoProject => ({
   ...json.project,
@@ -23,15 +96,10 @@ export const deserializeProject = (json: ProjectFile): PhotoProject => ({
   })),
 });
 
-export const downloadProject = (project: PhotoProject) => {
-  const blob = new Blob([serializeProject(project)], { type: "application/json" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `${project.name || "project"}.pphoto`;
-  a.click();
-  URL.revokeObjectURL(a.href);
+export const downloadProject = async (project: PhotoProject) => {
+  const blob = new Blob([await serializeProject(project)], { type: "application/json" });
+  downloadBlob(blob, `${project.name || "project"}.pphoto`);
 };
-
 /** ファイルから画像を読み込みアセット化してレイヤー用 ID を返す */
 export const importImageFile = async (
   projectId: string,

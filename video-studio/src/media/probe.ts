@@ -1,17 +1,33 @@
 import type { MediaAsset, MediaKind } from "../types";
 
+/** これ以上の動画は音声有無の判定でファイル全体をデコードしない（メモリ保護） */
+const MAX_DECODE_PROBE_BYTES = 150 * 1024 * 1024;
+
+const releaseMedia = (el: HTMLMediaElement) => {
+  el.removeAttribute("src");
+  el.load();
+};
+
+const finiteDuration = (d: number) => (Number.isFinite(d) && d > 0 ? d : 0);
+
 export const probeVideo = (url: string): Promise<{ duration: number; width: number; height: number }> =>
   new Promise((resolve, reject) => {
     const v = document.createElement("video");
     v.preload = "metadata";
-    v.src = url;
-    v.onloadedmetadata = () =>
-      resolve({
-        duration: v.duration || 0,
+    v.onloadedmetadata = () => {
+      const meta = {
+        duration: finiteDuration(v.duration),
         width: v.videoWidth,
         height: v.videoHeight,
-      });
-    v.onerror = () => reject(new Error("video metadata failed"));
+      };
+      releaseMedia(v);
+      resolve(meta);
+    };
+    v.onerror = () => {
+      releaseMedia(v);
+      reject(new Error("video metadata failed"));
+    };
+    v.src = url;
   });
 
 export const probeImage = (url: string): Promise<{ width: number; height: number }> =>
@@ -27,64 +43,91 @@ export const fileToAsset = async (file: File): Promise<MediaAsset> => {
   const id = `asset-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const mime = file.type;
 
-  if (mime.startsWith("video/")) {
-    const meta = await probeVideo(url);
-    const hasAudio = await probeVideoHasAudio(url);
+  try {
+    if (mime.startsWith("video/")) {
+      const meta = await probeVideo(url);
+      const hasAudio = await probeVideoHasAudio(url, file.size);
+      return {
+        id,
+        name: file.name,
+        kind: "video",
+        url,
+        duration: meta.duration,
+        width: meta.width,
+        height: meta.height,
+        hasAudio,
+      };
+    }
+    if (mime.startsWith("audio/")) {
+      const duration = await probeAudio(url);
+      return { id, name: file.name, kind: "audio", url, duration };
+    }
+    const img = await probeImage(url);
     return {
       id,
       name: file.name,
-      kind: "video",
+      kind: "image",
       url,
-      duration: meta.duration,
-      width: meta.width,
-      height: meta.height,
-      hasAudio,
+      duration: 5,
+      width: img.width,
+      height: img.height,
     };
+  } catch (err) {
+    URL.revokeObjectURL(url);
+    throw err;
   }
-  if (mime.startsWith("audio/")) {
-    const duration = await probeAudio(url);
-    return { id, name: file.name, kind: "audio", url, duration };
-  }
-  const img = await probeImage(url);
-  return {
-    id,
-    name: file.name,
-    kind: "image",
-    url,
-    duration: 5,
-    width: img.width,
-    height: img.height,
-  };
 };
 
-/** 動画に音声ストリームがあるか（decode フォールバック） */
-export const probeVideoHasAudio = async (url: string): Promise<boolean> => {
+/** 動画に音声ストリームがあるか（audioTracks → decode の順で判定） */
+export const probeVideoHasAudio = async (url: string, size = 0): Promise<boolean> => {
   const v = document.createElement("video");
   v.preload = "metadata";
-  v.src = url;
-  await new Promise<void>((res, rej) => {
+  await new Promise<void>((res) => {
     v.onloadedmetadata = () => res();
-    v.onerror = () => rej();
-  }).catch(() => {});
+    v.onerror = () => res();
+    v.src = url;
+  });
   const tracks = (v as HTMLVideoElement & { audioTracks?: { length: number } }).audioTracks;
-  if (tracks && tracks.length > 0) return true;
+  const trackCount = tracks?.length;
+  releaseMedia(v);
+  if (trackCount !== undefined && trackCount > 0) return true;
+  if (size > MAX_DECODE_PROBE_BYTES) return true;
+
+  let ctx: AudioContext | null = null;
   try {
     const r = await fetch(url);
-    const ctx = new AudioContext();
+    ctx = new AudioContext();
     const buf = await ctx.decodeAudioData(await r.arrayBuffer());
-    await ctx.close();
     return buf.duration > 0.01 && buf.numberOfChannels > 0;
   } catch {
+    // decode 不能は「音声なし」と「判定不能」を区別できないため、音声ありとして扱う
     return true;
+  } finally {
+    void ctx?.close();
   }
 };
 
 const probeAudio = (url: string): Promise<number> =>
   new Promise((resolve) => {
     const a = new Audio();
+    a.addEventListener(
+      "loadedmetadata",
+      () => {
+        const d = finiteDuration(a.duration);
+        releaseMedia(a);
+        resolve(d);
+      },
+      { once: true }
+    );
+    a.addEventListener(
+      "error",
+      () => {
+        releaseMedia(a);
+        resolve(0);
+      },
+      { once: true }
+    );
     a.src = url;
-    a.addEventListener("loadedmetadata", () => resolve(a.duration || 0), { once: true });
-    a.addEventListener("error", () => resolve(0), { once: true });
   });
 
 export const kindFromFile = (file: File): MediaKind | null => {

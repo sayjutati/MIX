@@ -89,11 +89,15 @@ export const audioBufferToWav = (buffer: AudioBuffer): Blob => {
 };
 
 export const downloadBlob = (blob: Blob, filename: string) => {
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
+  a.href = url;
   a.download = filename;
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(a.href);
+  a.remove();
+  // 直後の revoke はブラウザによってダウンロードを中断させる
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 };
 
 export const safeFilename = (name: string) =>

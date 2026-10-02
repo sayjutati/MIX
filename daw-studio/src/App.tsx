@@ -31,6 +31,11 @@ import { audioBufferToWav, renderMixdown, renderTrackStem } from "./audio/mixdow
 import { deserializeProject, serializeProject } from "./storage/projectIO";
 import { clearAutosave, loadAutosave } from "./storage/autosave";
 import { AutosaveScheduler } from "./storage/autosaveScheduler";
+import { downloadBlob } from "./audio/download";
+import { detectBpm, mixToMono } from "./audio/bpmDetect";
+import { putHandoff, takeHandoff } from "./audio/handoff";
+import { studioHref } from "./studioNav";
+import { bufferLoudness } from "./audio/loudness";
 import { bufferToBytes, downloadZip } from "./audio/zipExport";
 import { EmptyWorkspace } from "./components/EmptyWorkspace";
 import { FxPanel, type FxMode } from "./components/FxPanel";
@@ -73,7 +78,7 @@ function App() {
   const [selectedTrackId, setSelectedTrackId] = useState<number | null>(null);
   const [exportFormat, setExportFormat] = useState<ExportFormat>("wav");
   const [mp3Bitrate, setMp3Bitrate] = useState(192);
-  const [normalizeExport, setNormalizeExport] = useState(true);
+  const [normalizeMode, setNormalizeMode] = useState<"off" | "peak" | "lufs14" | "lufs16">("peak");
   const [exportStems, setExportStems] = useState(false);
   const [fxPanelHeight, setFxPanelHeight] = useState(280);
   const [autosaveReady, setAutosaveReady] = useState(false);
@@ -81,6 +86,8 @@ function App() {
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordStreamRef = useRef<MediaStream | null>(null);
+  const recordingBusyRef = useRef(false);
+  const recordSessionRef = useRef(0);
   const recordOffsetRef = useRef(0);
   const recordTargetRef = useRef<number | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -440,7 +447,15 @@ function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
-      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      if (
+        el &&
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.tagName === "SELECT" ||
+          el.isContentEditable)
+      ) {
+        return;
+      }
       const a = actionsRef.current;
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === "z") {
@@ -449,21 +464,24 @@ function App() {
       } else if (mod && e.key.toLowerCase() === "y") {
         e.preventDefault();
         a.redo();
+      } else if (mod || e.altKey) {
+        // Ctrl+= などのブラウザ標準ショートカットは奪わない
+        return;
       } else if (e.code === "Space") {
         e.preventDefault();
-        a.isPlaying ? a.stop() : void a.play();
-      } else if ((e.key === "r" || e.key === "R") && !mod) {
+        if (!e.repeat) a.isPlaying ? a.stop() : void a.play();
+      } else if ((e.key === "r" || e.key === "R") && !e.repeat) {
         a.isRecording ? a.stopRecording() : void a.startRecording();
       } else if (e.key === "Home") {
         a.seek(0);
-      } else if (e.key === "Delete" && a.selectedTrackId != null) {
+      } else if (e.key === "Delete" && a.selectedTrackId != null && !e.repeat) {
         e.preventDefault();
         a.deleteTrack(a.selectedTrackId);
       } else if (e.key === "+" || e.key === "=") {
         a.zoomBy(1.25);
       } else if (e.key === "-" || e.key === "_") {
         a.zoomBy(0.8);
-      } else if ((e.key === "l" || e.key === "L") && !mod) {
+      } else if ((e.key === "l" || e.key === "L") && !e.repeat) {
         a.toggleLoop();
       }
     };
@@ -577,7 +595,7 @@ function App() {
   };
 
   // 録音前カウントイン（4拍）
-  const playCountIn = async () => {
+  const playCountIn = async (isCancelled: () => boolean = () => false) => {
     await audioEngine.ensureRunning();
     const { ctx } = audioEngine.getContext();
     const beat = 60 / bpm;
@@ -595,6 +613,7 @@ function App() {
       osc.stop(t0 + 0.1);
     }
     await new Promise((r) => setTimeout(r, beats * beat * 1000));
+    if (isCancelled()) return;
     // カウントイン分だけタイムラインを進める（録音開始位置を正しくする）
     const dt = beats * beat;
     const newTime = globalTimeRef.current + dt;
@@ -640,18 +659,50 @@ function App() {
   };
 
   const stopAll = () => {
+    if (isRecording) {
+      stopRecording();
+      return;
+    }
+    // カウントイン中などの録音準備中なら中断してマイクを解放する
+    if (recordingBusyRef.current) abortRecordingStart();
     setIsPlayingGlobal(false);
     setIsRecording(false);
+  };
+
+  const [bpmDetecting, setBpmDetecting] = useState(false);
+  /** BGM（なければ最初のレーン）の先頭 90 秒から BPM を推定 */
+  const estimateBpm = async () => {
+    const src = tracks.find((t) => t.kind === "bgm" && t.clips.length) ?? tracks.find((t) => t.clips.length);
+    const clip = src?.clips.find((c) => !c.muted) ?? src?.clips[0];
+    if (!clip) return alert("BPM を調べる音源がありません。BGM を追加してください。");
+    setBpmDetecting(true);
+    try {
+      const { ctx } = audioEngine.getContext();
+      const buf = await ctx.decodeAudioData(await (await fetch(clip.url)).arrayBuffer());
+      const n = Math.min(buf.length, Math.floor(buf.sampleRate * 90));
+      const chans = Array.from({ length: buf.numberOfChannels }, (_, c) => buf.getChannelData(c).subarray(0, n));
+      const r = detectBpm(mixToMono(chans), buf.sampleRate);
+      if (!r || r.confidence < 0.05) {
+        alert("拍を検出できませんでした。ドラムやリズムがはっきりした音源で試してください。");
+        return;
+      }
+      const rounded = Math.max(40, Math.min(240, Math.round(r.bpm)));
+      if (window.confirm(`推定 BPM: ${r.bpm}\nBPM を ${rounded} に設定しますか？\n（倍・半分のテンポと取り違えることがあります）`)) {
+        setBpm(rounded);
+      }
+    } catch (err) {
+      console.error("BPM 推定に失敗:", err);
+      alert("BPM の推定に失敗しました。");
+    } finally {
+      setBpmDetecting(false);
+    }
   };
 
   const saveProject = async () => {
     if (tracks.length === 0) return alert("保存するトラックがありません！");
     try {
       const data = await serializeProject(tracks, bpm, masterVolume, globalTime, pitchLimit);
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: "application/json" }));
-      a.download = "my_project.daw"; 
-      a.click();
+      downloadBlob(new Blob([JSON.stringify(data)], { type: "application/json" }), "my_project.daw");
       void clearAutosave();
     } catch {
       alert("保存に失敗しました。");
@@ -664,25 +715,55 @@ function App() {
     try {
       const parsed = JSON.parse(await file.text()) as ProjectFile;
       const restored = await deserializeProject(parsed);
+      // 読み込みで現在の作業が消えるので、Undo で戻せるようにする
+      pushHistory();
       setTracks(restored.tracks);
       setBpm(restored.bpm);
       setMasterVolume(restored.masterVolume);
       setPitchLimit(restored.pitchLimit);
       seekToTime(restored.globalTime);
       void clearAutosave();
-    } catch {
-      alert("プロジェクトの読み込みに失敗しました。");
+    } catch (err) {
+      console.error("プロジェクトの読み込みに失敗:", err);
+      alert(
+        err instanceof SyntaxError
+          ? "プロジェクトファイルが壊れています。"
+          : `プロジェクトの読み込みに失敗しました。\n${err instanceof Error ? err.message : ""}`
+      );
     }
     e.target.value = "";
   };
 
   const downloadBuffer = (buffer: AudioBuffer, filename: string) => {
     const { blob, extension } = encodeMixdown(buffer, exportFormat, mp3Bitrate);
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${filename}.${extension}`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    downloadBlob(blob, `${filename}.${extension}`);
+  };
+
+  const [sendingToVideo, setSendingToVideo] = useState(false);
+  /** ミックスを WAV にして Video Studio へ渡し、新しいタブで開く（同一オリジンの IndexedDB 経由） */
+  const sendToVideo = async () => {
+    if (tracks.length === 0) return alert("送るトラックがありません！");
+    if (sendingToVideo) return;
+    // await の後だとポップアップブロックされるため、先にタブを開いておく
+    const win = window.open("about:blank", "_blank");
+    setSendingToVideo(true);
+    try {
+      const buffer = await renderMixdown(tracks, hasSolo, masterVolume, {
+        normalize: normalizeMode === "peak",
+        targetLufs: normalizeMode === "lufs14" ? -14 : normalizeMode === "lufs16" ? -16 : undefined,
+        pitchLimit,
+      });
+      await putHandoff("daw-mix", "DAWミックス.wav", audioBufferToWav(buffer));
+      const url = studioHref("video");
+      if (win) win.location.href = url;
+      else window.location.href = url;
+    } catch (err) {
+      win?.close();
+      console.error("Video への送信に失敗:", err);
+      alert("Video Studio への送信に失敗しました。");
+    } finally {
+      setSendingToVideo(false);
+    }
   };
 
   const exportMixdown = async () => {
@@ -699,9 +780,15 @@ function App() {
       return;
     }
     try {
-      const mixOpts = { normalize: normalizeExport, pitchLimit };
+      const mixOpts = {
+        normalize: normalizeMode === "peak",
+        targetLufs: normalizeMode === "lufs14" ? -14 : normalizeMode === "lufs16" ? -16 : undefined,
+        pitchLimit,
+      };
       const buffer = await renderMixdown(tracks, hasSolo, masterVolume, mixOpts);
       const ext = exportFormat === "mp3" ? "mp3" : "wav";
+      const lufs = bufferLoudness(buffer);
+      const loudnessNote = Number.isFinite(lufs) ? `\nラウドネス: ${lufs.toFixed(1)} LUFS` : "";
 
       if (exportStems) {
         const entries = [
@@ -712,7 +799,13 @@ function App() {
         ];
       for (const track of tracks) {
           if (track.isMuted || track.clips.every((c) => c.muted)) continue;
-          const stem = await renderTrackStem(track, masterVolume, mixOpts);
+          // ステムはミックスと同じ長さに揃え、個別ノーマライズはしない（相対バランスを保つ）
+          const stem = await renderTrackStem(track, masterVolume, {
+            ...mixOpts,
+            normalize: false,
+            targetLufs: undefined,
+            minDuration: buffer.duration,
+          });
           if (!stem) continue;
           const safe =
             track.name.replace(/[^\w\u3040-\u30ff\u4e00-\u9faf-]+/g, "_") || "track";
@@ -722,10 +815,10 @@ function App() {
           });
         }
         downloadZip(entries, `My_Mix_Export.zip`);
-        alert(`ZIP（ミックス＋${entries.length - 1}ステム）の書き出しが完了しました！`);
+        alert(`ZIP（ミックス＋${entries.length - 1}ステム）の書き出しが完了しました！${loudnessNote}`);
       } else {
         downloadBuffer(buffer, "My_Mixdown");
-        alert(`${formatLabel} の書き出しが完了しました！`);
+        alert(`${formatLabel} の書き出しが完了しました！${loudnessNote}`);
       }
     } catch (err) {
       console.error(err);
@@ -821,13 +914,52 @@ function App() {
     e.target.value = ""; 
   };
 
+  const dtmHandoffTried = useRef(false);
+  useEffect(() => {
+    if (dtmHandoffTried.current) return;
+    dtmHandoffTried.current = true;
+    void takeHandoff("dtm-mix").then((rec) => {
+      if (!rec) return;
+      const file = new File([rec.blob], rec.name || "DTM伴奏.wav", { type: rec.blob.type || "audio/wav" });
+      addTracksFromFiles([file], "bgm");
+    }).catch((err) => {
+      console.error("DTM 伴奏の取り込みに失敗:", err);
+    });
+    // 起動時一度だけ
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const releaseRecordingResources = () => {
+    recordStreamRef.current?.getTracks().forEach((t) => t.stop());
+    recordStreamRef.current = null;
+    mediaRecorderRef.current = null;
+    audioEngine.stopInputMeter();
+    audioEngine.stopMonitor();
+  };
+
+  const abortRecordingStart = () => {
+    recordSessionRef.current++;
+    recordingBusyRef.current = false;
+    releaseRecordingResources();
+  };
+
   const startRecording = async () => {
+    // 許可ダイアログ待ち・カウントイン中の再入を防ぐ（マイクストリームの二重取得）
+    if (recordingBusyRef.current) return;
+    recordingBusyRef.current = true;
+    const session = ++recordSessionRef.current;
+    const cancelled = () => session !== recordSessionRef.current;
     try {
       const stream = await createMicStream(micDeviceId || undefined);
+      if (cancelled()) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
       recordStreamRef.current = stream;
       // 初回許可後にデバイス名が取れるので一覧を更新
       void listMicDevices().then(setMicDevices);
       await audioEngine.startInputMeter(stream);
+      if (cancelled()) return;
       const recorder = createMediaRecorder(stream);
       mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
@@ -841,7 +973,15 @@ function App() {
         if (ev.data.size > 0) audioChunksRef.current.push(ev.data);
       };
 
+      recorder.onerror = () => {
+        abortRecordingStart();
+        setIsRecording(false);
+        setIsPlayingGlobal(false);
+        alert("録音中にエラーが発生しました。");
+      };
+
       recorder.onstop = async () => {
+        recordingBusyRef.current = false;
         const anchorSec = recordOffsetRef.current;
         let latencyFallbackSec = 0;
         if (autoLatencyCompRef.current) {
@@ -942,6 +1082,7 @@ function App() {
 
       if (monitorOnRef.current) {
         await audioEngine.startMonitor(stream);
+        if (cancelled()) return;
       }
 
       // BGM を先に再生してからカウントイン（曲に合わせて歌い始められる）
@@ -949,29 +1090,42 @@ function App() {
       if (hasPlayable) {
         await audioEngine.ensureRunning();
         await audioEngine.play(globalTimeRef.current);
-      setIsPlayingGlobal(true);
+        if (cancelled()) return;
+        setIsPlayingGlobal(true);
         nextClickRef.current = Math.ceil(globalTimeRef.current / (60 / bpm)) * (60 / bpm);
       }
 
       if (countInOn) {
-        await playCountIn();
-        if (mediaRecorderRef.current !== recorder) return; // 停止された
+        await playCountIn(cancelled);
       }
+      if (cancelled()) return;
 
       recordOffsetRef.current = globalTimeRef.current;
       recorder.start(250);
 
       setIsRecording(true);
       if (!hasPlayable) setIsPlayingGlobal(true);
-    } catch {
-      alert("マイクの使用が許可されていません。");
+    } catch (err) {
+      if (cancelled()) return;
+      abortRecordingStart();
+      setIsPlayingGlobal(false);
+      const name = err instanceof DOMException ? err.name : "";
+      if (name === "NotAllowedError" || name === "SecurityError") {
+        alert("マイクの使用が許可されていません。");
+      } else if (name === "NotFoundError" || name === "OverconstrainedError") {
+        alert("マイクが見つかりません。接続と入力デバイスの設定を確認してください。");
+      } else {
+        console.error("録音の開始に失敗:", err);
+        alert("録音を開始できませんでした。");
+      }
     }
   };
 
   const stopRecording = () => {
-    if (!mediaRecorderRef.current || !isRecording) return;
-    mediaRecorderRef.current.requestData();
-    mediaRecorderRef.current.stop();
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || !isRecording || recorder.state === "inactive") return;
+    recorder.requestData();
+    recorder.stop();
     setIsRecording(false);
     setIsPlayingGlobal(false);
   };
@@ -1006,7 +1160,7 @@ function App() {
     const clip = track?.clips[0];
     if (!track || !clip || !window.confirm(`先頭テイクを ${times} 倍にループしますか？`)) return;
     try {
-      const ctx = new AudioContext();
+      const { ctx } = audioEngine.getContext();
       const buf = await ctx.decodeAudioData(await (await fetch(clip.url)).arrayBuffer());
       const newBuf = ctx.createBuffer(
         buf.numberOfChannels,
@@ -1275,16 +1429,28 @@ function App() {
             />
             ステム
           </label>
-          <label className="toolbar__check tooltip" data-tooltip="書き出し時に音量を自動最適化（−1dBまで持ち上げ）">
-            <input
-              type="checkbox"
-              checked={normalizeExport}
-              onChange={(e) => setNormalizeExport(e.target.checked)}
-            />
-            音量最適化
-          </label>
+          <select
+            className="toolbar__format tooltip"
+            data-tooltip="書き出し音量。YouTube は −14 LUFS 基準で自動的に音量が調整されます"
+            value={normalizeMode}
+            onChange={(e) => setNormalizeMode(e.target.value as typeof normalizeMode)}
+          >
+            <option value="off">音量そのまま</option>
+            <option value="peak">ピーク最適化</option>
+            <option value="lufs14">−14 LUFS（YouTube）</option>
+            <option value="lufs16">−16 LUFS（配信向け）</option>
+          </select>
           <button type="button" className="btn btn--export tooltip" data-tooltip="全トラックをミックスして書き出し" onClick={exportMixdown}>
             <Download size={16} /> 書き出し
+          </button>
+          <button
+            type="button"
+            className="btn btn--ghost tooltip"
+            data-tooltip="ミックスを動画編集（Video Studio）へ送って開く"
+            disabled={sendingToVideo}
+            onClick={() => void sendToVideo()}
+          >
+            {sendingToVideo ? "送信中…" : "動画へ送る"}
           </button>
           <input
             type="file"
@@ -1518,6 +1684,15 @@ function App() {
             BPM
             <input type="number" min={40} max={240} value={bpm} onChange={(e) => setBpm(Number(e.target.value))} />
           </label>
+          <button
+            type="button"
+            className="btn btn--ghost tooltip"
+            data-tooltip="BGM から BPM を自動推定"
+            disabled={bpmDetecting}
+            onClick={() => void estimateBpm()}
+          >
+            {bpmDetecting ? "解析中…" : "BPM推定"}
+          </button>
           <button
             type="button"
             className={`toolbar__icon tooltip ${showBarsBeats ? "toolbar__icon--on" : ""}`}

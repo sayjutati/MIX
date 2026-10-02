@@ -25,6 +25,7 @@ const TRACKED_DENY = [
   /^video-studio\/node_modules\//,
   /^photo-studio\/node_modules\//,
   /^dist\//,
+  /^dist-preview\//,
   /^daw-studio\/dist\//,
   /^dtm-studio\/dist\//,
   /^video-studio\/dist\//,

@@ -4,6 +4,7 @@ import {
   applyTrackEffectParams,
   computeFadeGain,
   createTrackEffectChain,
+  disposeTrackEffectChain,
   type TrackEffectNodes,
 } from "./chain";
 import {
@@ -67,6 +68,7 @@ class AudioEngine {
   private master: GainNode | null = null;
   private readonly runtimes = new Map<number, Runtime>();
   private playing = false;
+  private playToken = 0;
   private anchorGlobalTime = 0;
   private anchorCtxTime = 0;
   private getGlobalTime: (() => number) | null = null;
@@ -220,13 +222,7 @@ class AudioEngine {
     const rt = this.runtimes.get(id);
     if (!rt) return;
     for (const clipRt of rt.clips.values()) this.stopClipSource(clipRt);
-    if (rt.nodes) {
-      try {
-        rt.nodes.input.disconnect();
-      } catch {
-        /* noop */
-      }
-    }
+    if (rt.nodes) disposeTrackEffectChain(rt.nodes);
     this.runtimes.delete(id);
   }
 
@@ -466,7 +462,10 @@ class AudioEngine {
   }
 
   async play(fromGlobalTime: number, keepAudition = false) {
+    // ensureRunning 待ちの間に stop() / 別の play() が来たら、この呼び出しは破棄する
+    const token = ++this.playToken;
     await this.ensureRunning();
+    if (token !== this.playToken) return;
     const { ctx } = this.getContext();
 
     if (!keepAudition) this.audition = null;
@@ -486,6 +485,7 @@ class AudioEngine {
   }
 
   stop() {
+    this.playToken++;
     this.playing = false;
     this.audition = null;
     this.stopAllSources();

@@ -1,9 +1,11 @@
 // MIX DAW Service Worker — オフライン起動用の簡易キャッシュ
-const CACHE = "mixdaw-v1";
+// ネットワーク優先: デプロイ直後に古い HTML/JS を返さない。オフライン時のみキャッシュを使う。
+const CACHE = "mixdaw-v2";
+const SCOPE = self.registration.scope;
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(["/", "/index.html"]).catch(() => {}))
+    caches.open(CACHE).then((cache) => cache.addAll([SCOPE]).catch(() => {}))
   );
   self.skipWaiting();
 });
@@ -17,27 +19,31 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
-// 同一オリジンのGETはキャッシュ優先＋バックグラウンド更新（stale-while-revalidate）
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
-  // blob: などはスキップ
   if (!url.protocol.startsWith("http")) return;
+  if (!req.url.startsWith(SCOPE)) return;
 
   event.respondWith(
-    caches.open(CACHE).then(async (cache) => {
-      const cached = await cache.match(req);
-      const network = fetch(req)
-        .then((res) => {
-          if (res && res.status === 200 && res.type === "basic") {
-            cache.put(req, res.clone());
-          }
-          return res;
-        })
-        .catch(() => cached);
-      return cached || network;
-    })
+    fetch(req)
+      .then((res) => {
+        if (res && res.status === 200 && res.type === "basic") {
+          const copy = res.clone();
+          void caches.open(CACHE).then((cache) => cache.put(req, copy));
+        }
+        return res;
+      })
+      .catch(async () => {
+        const cached = await caches.match(req);
+        if (cached) return cached;
+        if (req.mode === "navigate") {
+          const shell = await caches.match(SCOPE);
+          if (shell) return shell;
+        }
+        return Response.error();
+      })
   );
 });

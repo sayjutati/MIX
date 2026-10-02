@@ -11,6 +11,7 @@ interface Props {
   onTab: (t: SidebarTab) => void;
   onImport: () => void;
   onImportDaw: () => void;
+  onImportCaptions: () => void;
   onAddToTimeline: (id: string, at?: number) => void;
   onAddTelop: (presetId: string) => void;
 }
@@ -22,6 +23,7 @@ export const Sidebar = ({
   onTab,
   onImport,
   onImportDaw,
+  onImportCaptions,
   onAddToTimeline,
   onAddTelop,
 }: Props) => (
@@ -65,6 +67,7 @@ export const Sidebar = ({
           state={state}
           onImport={onImport}
           onImportDaw={onImportDaw}
+          onImportCaptions={onImportCaptions}
           onAddToTimeline={onAddToTimeline}
           onAddTelop={onAddTelop}
         />

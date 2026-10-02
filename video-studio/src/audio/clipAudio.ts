@@ -96,8 +96,10 @@ export const allMixClips = (state: EditorState): AudibleClip[] => {
       if (!asset) continue;
       const origin = getClipOrigin(clip);
       if (origin === "video-linked") {
-        if (seenLinkedAsset.has(clip.assetId)) continue;
-        seenLinkedAsset.add(clip.assetId);
+        // 分割した区間は同じ素材でも別クリップ。同一位置・同一素材位置の二重のみ除く
+        const key = `${clip.assetId}|${clip.start}|${clip.inPoint}`;
+        if (seenLinkedAsset.has(key)) continue;
+        seenLinkedAsset.add(key);
       }
       const trackVol = track.volume ?? 1;
       result.push({

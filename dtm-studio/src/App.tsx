@@ -3,6 +3,8 @@ import { bindSchedulerProject, bindSchedulerTransport, scheduler } from "./audio
 import { initAudioGraph } from "./audio/engine";
 import { playMetronomeClick } from "./audio/metronome";
 import { downloadBlob, encodeExport, safeFilename, type ExportFormat } from "./audio/export";
+import { putHandoff } from "./storage/handoff";
+import { studioHref } from "./studioNav";
 import { normalizeBuffer, projectEndBeat, renderProjectOffline } from "./audio/offlineRender";
 import { ArrangementView } from "./components/Arrangement/ArrangementView";
 import { ChordTrack } from "./components/ChordTrack/ChordTrack";
@@ -172,6 +174,7 @@ export default function App() {
     [overlayTrackIds, toggleOverlayTrack, removeTrack]
   );
   const [exporting, setExporting] = useState(false);
+  const [sendingToDaw, setSendingToDaw] = useState(false);
   const [exportFormat, setExportFormat] = useState<ExportFormat>("wav");
   const [helpOn, setHelpOn] = useState(() => {
     try {
@@ -214,6 +217,7 @@ export default function App() {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevTempo = useRef(project.tempo);
   const restored = useRef(false);
+  const initialLoadDone = useRef(false);
   const lastMetBeat = useRef(-1);
 
   const chords = project.chordProgression ?? [];
@@ -355,12 +359,32 @@ export default function App() {
   useEffect(() => {
     if (restored.current) return;
     restored.current = true;
-    void loadLatestProject().then((p) => {
-      clearHistory();
-      if (p) setProject(p);
-      else if (project.tracks[0]) selectTrack(project.tracks[0].id);
-    });
+    void loadLatestProject()
+      .then((p) => {
+        clearHistory();
+        if (p) setProject(p);
+        else if (project.tracks[0]) selectTrack(project.tracks[0].id);
+      })
+      .finally(() => {
+        initialLoadDone.current = true;
+      });
   }, [setProject, selectTrack, project.tracks, clearHistory]);
+
+  // タブを閉じる/隠す直前に、3 秒デバウンス待ちの編集を失わないよう保存する
+  useEffect(() => {
+    const onVisibility = () => {
+      if (initialLoadDone.current && document.visibilityState === "hidden") void flushSave();
+    };
+    const onPageHide = () => {
+      if (initialLoadDone.current) void flushSave();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onPageHide);
+    };
+  }, [flushSave]);
 
   useEffect(() => {
     setSaveStatus("saving");
@@ -444,6 +468,28 @@ export default function App() {
       setExporting(false);
     }
   }, [exportFormat]);
+
+  const handleSendToDaw = useCallback(async () => {
+    if (sendingToDaw || exporting) return;
+    const win = window.open("about:blank", "_blank");
+    setSendingToDaw(true);
+    try {
+      const p = useProjectStore.getState().project;
+      const buf = await renderProjectOffline(p);
+      normalizeBuffer(buf);
+      const { blob } = encodeExport(buf, "wav");
+      await putHandoff("dtm-mix", `${safeFilename(p.name)}.wav`, blob);
+      const url = studioHref("daw");
+      if (win) win.location.href = url;
+      else window.location.href = url;
+    } catch (e) {
+      win?.close();
+      console.error("DAW への送信に失敗:", e);
+      alert("DAW への送信に失敗しました。");
+    } finally {
+      setSendingToDaw(false);
+    }
+  }, [sendingToDaw, exporting]);
 
   const handleExportMidi = useCallback(() => {
     const p = useProjectStore.getState().project;
@@ -845,36 +891,45 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLSelectElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target instanceof HTMLElement && e.target.isContentEditable)
+      ) {
+        return;
+      }
 
       const mod = e.ctrlKey || e.metaKey;
+      // Shift 押下時は e.key が大文字になる（Ctrl+Shift+Z など）
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
 
-      if (mod && e.key === "z" && !e.shiftKey) {
+      if (mod && key === "z" && !e.shiftKey) {
         e.preventDefault();
         undo();
         return;
       }
-      if (mod && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+      if (mod && (key === "y" || (key === "z" && e.shiftKey))) {
         e.preventDefault();
         redo();
         return;
       }
-      if (mod && e.key === "c") {
+      if (mod && key === "c") {
         e.preventDefault();
         handleCopy();
         return;
       }
-      if (mod && e.key === "v") {
+      if (mod && key === "v") {
         e.preventDefault();
         handlePaste();
         return;
       }
-      if (mod && e.key === "d") {
+      if (mod && key === "d") {
         e.preventDefault();
         handleDuplicateNotes();
         return;
       }
-      if (mod && e.key === "a") {
+      if (mod && key === "a") {
         e.preventDefault();
         handleSelectAll();
         return;
@@ -884,6 +939,9 @@ export default function App() {
         handleScaleTiming(e.key === "ArrowLeft" ? 0.9 : 1.1);
         return;
       }
+
+      // Ctrl/Cmd/Alt 付きのブラウザ標準操作（Ctrl+R 再読込・Ctrl+L・Ctrl+1 など）を奪わない
+      if (mod || e.altKey) return;
 
       if (e.repeat) return;
 
@@ -1055,6 +1113,8 @@ export default function App() {
         onStop={() => void handleStop()}
         onSeekBeat={(b) => void seekToBeat(b)}
         onExport={() => void handleExport()}
+        onSendToDaw={() => void handleSendToDaw()}
+        sendingToDaw={sendingToDaw}
         onExportFormatChange={setExportFormat}
         onImportMidi={(f) => void handleImportMidi(f)}
         onExportMidi={handleExportMidi}

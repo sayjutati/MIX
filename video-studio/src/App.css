@@ -904,6 +904,14 @@ body {
   border-color: rgba(239, 68, 68, 0.4);
 }
 
+.transport__btn--rec {
+  color: #fff;
+  background: #dc2626;
+  border-color: #dc2626;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
 .transport__time {
   font-variant-numeric: tabular-nums;
   font-size: 0.85rem;

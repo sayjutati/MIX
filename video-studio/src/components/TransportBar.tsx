@@ -11,6 +11,8 @@ interface Props {
   onClearLoop: () => void;
   onMasterVolume: (v: number) => void;
   onToggleAudio: () => void;
+  onVoiceover: () => void;
+  voiceoverActive?: boolean;
 }
 
 export const TransportBar = ({
@@ -22,6 +24,8 @@ export const TransportBar = ({
   onClearLoop,
   onMasterVolume,
   onToggleAudio,
+  onVoiceover,
+  voiceoverActive,
 }: Props) => (
   <div className="transport">
     <div className="transport__main">
@@ -98,6 +102,14 @@ export const TransportBar = ({
         aria-label="マスター音量"
       />
       <span className="transport__vol-val">{Math.round(state.masterVolume * 100)}%</span>
+      <button
+        type="button"
+        className={`transport__btn ${voiceoverActive ? "transport__btn--rec" : ""}`}
+        onClick={onVoiceover}
+        title="ナレーション録音（iMovie のボイスオーバー相当）"
+      >
+        {voiceoverActive ? "REC" : "VO"}
+      </button>
     </div>
   </div>
 );

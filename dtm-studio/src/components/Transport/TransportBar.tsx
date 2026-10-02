@@ -26,6 +26,8 @@ type Props = {
   onStop: () => void;
   onSeekBeat: (beat: number) => void;
   onExport: () => void;
+  onSendToDaw: () => void;
+  sendingToDaw: boolean;
   onExportFormatChange: (format: ExportFormat) => void;
   onImportMidi: (file: File) => void;
   onExportMidi: () => void;
@@ -62,6 +64,8 @@ export function TransportBar({
   onStop,
   onSeekBeat,
   onExport,
+  onSendToDaw,
+  sendingToDaw,
   onExportFormatChange,
   onImportMidi,
   onExportMidi,
@@ -126,6 +130,15 @@ export function TransportBar({
           disabled={exporting}
         >
           {exporting ? "書き出し中…" : "書き出し"}
+        </button>
+        <button
+          type="button"
+          className="btn btn--ghost tooltip"
+          data-tooltip="ミックスを WAV にして DAW で開き、ボーカルを重ねる（GarageBand→録音相当）"
+          onClick={onSendToDaw}
+          disabled={exporting || sendingToDaw}
+        >
+          {sendingToDaw ? "送信中…" : "DAWへ"}
         </button>
         <button
           type="button"

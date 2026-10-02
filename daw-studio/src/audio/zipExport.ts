@@ -1,4 +1,5 @@
 import { zipSync } from "fflate";
+import { downloadBlob } from "./download";
 import type { ExportFormat } from "./export";
 import { encodeMixdown } from "./export";
 
@@ -18,9 +19,5 @@ export const downloadZip = (entries: ZipEntry[], filename: string) => {
   for (const e of entries) files[e.name] = e.data;
   const zipped = zipSync(files, { level: 0 });
   const blob = new Blob([zipped.buffer as ArrayBuffer], { type: "application/zip" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = filename.endsWith(".zip") ? filename : `${filename}.zip`;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  downloadBlob(blob, filename.endsWith(".zip") ? filename : `${filename}.zip`);
 };

@@ -8,8 +8,15 @@ import { LayerPanel } from "./components/LayerPanel";
 import { ToolSidebar } from "./components/ToolSidebar";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { downloadBlob } from "./canvas/layerRenderer";
-import { deserializeProject, downloadProject } from "./storage/projectStorage";
+import {
+  deserializeProject,
+  downloadProject,
+  parseProjectFile,
+  restoreEmbeddedAssets,
+} from "./storage/projectStorage";
 import { usePhotoStore } from "./state/usePhotoStore";
+import { putHandoff, takeHandoff } from "./storage/handoff";
+import { studioHref } from "./studioNav";
 import type { ExportFormat, ExportOptions } from "./types/document";
 import "./App.css";
 
@@ -23,6 +30,7 @@ export default function App() {
   const newProject = usePhotoStore((s) => s.newProject);
   const loadProject = usePhotoStore((s) => s.loadProject);
   const importFile = usePhotoStore((s) => s.importFile);
+  const addTitleLayer = usePhotoStore((s) => s.addTitleLayer);
   const undo = usePhotoStore((s) => s.undo);
   const redo = usePhotoStore((s) => s.redo);
   const exportImage = usePhotoStore((s) => s.exportImage);
@@ -36,14 +44,54 @@ export default function App() {
 
   const showWelcome = project.layers.length === 0 && !workspaceOpen;
 
+  const toastTimer = useRef<number | undefined>(undefined);
   const showToast = useCallback((msg: string) => {
     setToast(msg);
-    window.setTimeout(() => setToast(null), 3500);
+    window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), 3500);
   }, []);
+  useEffect(() => () => window.clearTimeout(toastTimer.current), []);
+
+  const handoffTried = useRef(false);
+  useEffect(() => {
+    if (handoffTried.current) return;
+    handoffTried.current = true;
+    void takeHandoff("video-frame")
+      .then(async (rec) => {
+        if (!rec) return;
+        const file = new File([rec.blob], rec.name || "frame.png", {
+          type: rec.blob.type || "image/png",
+        });
+        await importFile(file);
+        setWorkspaceOpen(true);
+        showToast("Video のフレームを取り込みました");
+      })
+      .catch(() => showToast("フレームの取り込みに失敗しました"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const saveProject = useCallback(
+    async (p: typeof project) => {
+      try {
+        await downloadProject(p);
+        showToast("プロジェクトを保存しました");
+      } catch {
+        showToast("プロジェクトの保存に失敗しました");
+      }
+    },
+    [showToast]
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      const t = e.target;
+      if (
+        t instanceof HTMLInputElement ||
+        t instanceof HTMLTextAreaElement ||
+        t instanceof HTMLSelectElement
+      ) {
+        return;
+      }
       if (modKey(e) && e.key === "z" && !e.shiftKey) {
         e.preventDefault();
         undo();
@@ -58,13 +106,12 @@ export default function App() {
       }
       if (modKey(e) && e.key === "s") {
         e.preventDefault();
-        downloadProject(project);
-        showToast("プロジェクトを保存しました");
+        void saveProject(project);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [undo, redo, project, showToast]);
+  }, [undo, redo, project, saveProject]);
 
   const handleExport = async (format: ExportFormat, options?: ExportOptions) => {
     if (project.layers.length === 0) {
@@ -81,6 +128,39 @@ export default function App() {
       showToast("書き出しに失敗しました");
     } finally {
       setExporting(false);
+    }
+  };
+
+  const sendToVideo = async () => {
+    if (project.layers.length === 0) {
+      showToast("送るレイヤーがありません");
+      return;
+    }
+    const win = window.open("about:blank", "_blank");
+    setExporting(true);
+    try {
+      const blob = await exportImage("png", { transparent: true });
+      await putHandoff("photo-overlay", `${project.name || "thumb"}.png`, blob);
+      const url = studioHref("video");
+      if (win) win.location.href = url;
+      else window.location.href = url;
+    } catch {
+      win?.close();
+      showToast("Video への送信に失敗しました");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleAddTitle = async () => {
+    const text = window.prompt("サムネに載せる文字（改行可）", project.name || "歌ってみた");
+    if (!text?.trim()) return;
+    try {
+      await addTitleLayer(text);
+      setWorkspaceOpen(true);
+      showToast("タイトルレイヤーを追加しました");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "タイトルの追加に失敗しました");
     }
   };
 
@@ -109,10 +189,7 @@ export default function App() {
         canRedo={hist.redo.length > 0}
         exporting={exporting}
         onImport={() => fileRef.current?.click()}
-        onSave={() => {
-          downloadProject(project);
-          showToast("プロジェクトを保存しました");
-        }}
+        onSave={() => void saveProject(project)}
         onOpen={() => projectRef.current?.click()}
         onExport={(f) => void handleExport(f)}
         onUndo={undo}
@@ -121,6 +198,8 @@ export default function App() {
         onHelp={() =>
           showToast("Space+ドラッグ: パン · Ctrl+ホイール: ズーム · クリック: レイヤー選択")
         }
+        onAddTitle={() => void handleAddTitle()}
+        onSendToVideo={() => void sendToVideo()}
       />
 
       <input
@@ -144,7 +223,8 @@ export default function App() {
           const f = e.target.files?.[0];
           if (!f) return;
           try {
-            const parsed = JSON.parse(await f.text()) as Parameters<typeof deserializeProject>[0];
+            const parsed = parseProjectFile(await f.text());
+            await restoreEmbeddedAssets(parsed);
             const missing = await loadProject(deserializeProject(parsed));
             setWorkspaceOpen(true);
             if (missing.length) {

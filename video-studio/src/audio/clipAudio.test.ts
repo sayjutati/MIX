@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collectAudibleClips, isTrackAudible } from "./clipAudio";
+import { allMixClips, collectAudibleClips, isTrackAudible } from "./clipAudio";
 import type { EditorState, MediaAsset, TimelineClip, Track } from "../types";
 import { createDefaultTracks, defaultEffects, initialEditorState } from "../types";
 
@@ -58,5 +58,20 @@ describe("collectAudibleClips", () => {
     expect(at0).toHaveLength(2);
     expect(at0.map((x) => x.clip.origin)).toContain("daw");
     expect(at0.map((x) => x.clip.origin)).toContain("video-linked");
+  });
+});
+
+describe("allMixClips", () => {
+  it("keeps every split segment of the same linked video audio", () => {
+    const state: EditorState = {
+      ...initialEditorState(),
+      assets: [asset("v1", "video")],
+      clips: [
+        audioClip("c1", "a1", 0, { origin: "video-linked", assetId: "v1", duration: 3 }),
+        audioClip("c2", "a1", 3, { origin: "video-linked", assetId: "v1", duration: 2, inPoint: 3 }),
+        audioClip("c3", "a1", 3, { origin: "video-linked", assetId: "v1", duration: 2, inPoint: 3 }),
+      ],
+    };
+    expect(allMixClips(state).map((x) => x.clip.id)).toEqual(["c1", "c2"]);
   });
 });

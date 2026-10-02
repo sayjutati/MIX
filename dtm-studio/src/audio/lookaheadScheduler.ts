@@ -44,6 +44,8 @@ export class LookaheadScheduler {
   private unsubClock: (() => void) | null = null;
   private ctxRef: AudioContext | null = null;
   private ended = false;
+  /** start/stop のたびに進める。await 後に古い呼び出しを破棄するため */
+  private session = 0;
 
   private getProject() {
     return projectGetter();
@@ -65,9 +67,14 @@ export class LookaheadScheduler {
   }
 
   async start(fromBeat: number) {
+    const sid = ++this.session;
+    if (this.intervalId) clearInterval(this.intervalId);
+    this.intervalId = null;
     const { ctx, clock, synth } = await initAudioGraph();
+    if (sid !== this.session) return;
     this.ctxRef = ctx;
     await audioClipPlayer.ensureGraph(ctx.destination);
+    if (sid !== this.session) return;
     this.ended = false;
     const project = this.getProject();
     this.startBeat = fromBeat;
@@ -172,10 +179,12 @@ export class LookaheadScheduler {
 
   private async tick() {
     if (!this.anchor) return;
+    const sid = this.session;
     const now = this.resolveNow();
     if (!now) return;
 
     const { synth } = await initAudioGraph();
+    if (sid !== this.session || !this.anchor) return;
     const project = this.getProject();
     const tempo = project.tempo;
     const { loopStart, loopEnd } = project;
@@ -214,8 +223,10 @@ export class LookaheadScheduler {
     ).filter((c) => !this.scheduled.has(c.scheduleId));
 
     if (clips.length > 0) {
-      await audioClipPlayer.schedule(project, clips);
+      // デコード待ち中に次の tick が同じクリップを再スケジュールしないよう先に予約する
       for (const c of clips) this.scheduled.add(c.scheduleId);
+      await audioClipPlayer.schedule(project, clips);
+      if (sid !== this.session) return;
     }
 
     if (looping && winEnd > loopEnd && loopEnd - loopStart > 0.05) {
@@ -236,6 +247,7 @@ export class LookaheadScheduler {
   }
 
   async stop() {
+    const sid = ++this.session;
     if (this.intervalId) clearInterval(this.intervalId);
     this.intervalId = null;
     this.unsubClock?.();
@@ -248,6 +260,8 @@ export class LookaheadScheduler {
     this.scheduled.clear();
     audioClipPlayer.clearScheduled();
     const { clock, synth } = await initAudioGraph();
+    // 待機中に start() が再開していたら、新しい再生を止めない
+    if (sid !== this.session) return;
     stopTransport(clock, synth);
   }
 

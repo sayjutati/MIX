@@ -21,12 +21,20 @@ jobs:
             daw-studio/package-lock.json
             dtm-studio/package-lock.json
             video-studio/package-lock.json
+            photo-studio/package-lock.json
 
       - name: Repo checks (deps, no node_modules in git)
         run: npm run verify
 
-      - name: DTM Studio tests
-        run: npm run test --prefix dtm-studio
+      - name: Install app dependencies (for tests)
+        run: |
+          npm ci --prefix daw-studio
+          npm ci --prefix dtm-studio
+          npm ci --prefix video-studio
+          npm ci --prefix photo-studio
+
+      - name: Unit tests (DAW / DTM / Video / Photo)
+        run: npm test
 
       - name: Production build (same as Vercel)
         run: npm run build

@@ -1,25 +1,10 @@
 import type { Layer, PhotoProject } from "../types/document";
 import { applyAdjustments } from "./pixelOps";
 
-const imageCache = new Map<string, HTMLImageElement>();
+import { loadImage } from "./imageCache";
 
-export const loadImage = (url: string): Promise<HTMLImageElement> => {
-  const hit = imageCache.get(url);
-  if (hit?.complete) return Promise.resolve(hit);
-  return new Promise((resolve, reject) => {
-    const img = hit ?? new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      imageCache.set(url, img);
-      resolve(img);
-    };
-    img.onerror = () => reject(new Error("画像の読み込みに失敗しました"));
-    img.src = url;
-    imageCache.set(url, img);
-  });
-};
-
-export const invalidateImage = (url: string) => imageCache.delete(url);
+export { downloadBlob } from "../storage/download";
+export { invalidateImage, loadImage } from "./imageCache";
 
 const cssBlend: Record<string, GlobalCompositeOperation> = {
   normal: "source-over",
@@ -124,11 +109,3 @@ export const canvasToBlob = (
       quality
     );
   });
-
-export const downloadBlob = (blob: Blob, filename: string) => {
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(a.href);
-};

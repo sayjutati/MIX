@@ -63,7 +63,26 @@ export function buildClipSchedules(
   return out;
 }
 
+const MIN_LEAD_SEC = 0.005;
+
+/**
+ * 開始予定時刻 ctxTime が過去の場合（途中シーク・デコード待ち）は、
+ * 経過した分だけ素材を頭出しして再生位置を保つ。残りが無ければ null。
+ */
+export function resolveClipTiming(
+  now: number,
+  s: Pick<ClipSchedule, "ctxTime" | "offsetSec" | "durationSec">
+): { when: number; offsetSec: number; durationSec: number } | null {
+  const when = Math.max(now + MIN_LEAD_SEC, s.ctxTime);
+  const lateSec = Math.max(0, when - s.ctxTime);
+  const durationSec = s.durationSec - lateSec;
+  if (durationSec <= 0.001) return null;
+  return { when, offsetSec: s.offsetSec + lateSec, durationSec };
+}
+
 export class AudioClipPlayer {
+  /** clearScheduled のたびに進め、await 後に古い schedule() を破棄する */
+  private epoch = 0;
   private scheduled = new Set<string>();
   private activeSources = new Map<string, ScheduledSource>();
   private trackRuntimes = new Map<string, TrackRuntime>();
@@ -115,31 +134,37 @@ export class AudioClipPlayer {
   }
 
   async schedule(project: Project, schedules: ClipSchedule[]) {
+    const epoch = this.epoch;
     const ctx = await getAudioContext();
-    const now = ctx.currentTime;
+    if (epoch !== this.epoch) return;
 
     for (const s of schedules) {
       if (this.scheduled.has(s.scheduleId)) continue;
       const track = project.tracks.find((t) => t.id === s.trackId);
       const clip = track?.clips?.find((c) => c.id === s.clipId);
       if (!track || !clip) continue;
+      // デコード待ちの間に同じクリップが二重に鳴らないよう先に予約する
+      this.scheduled.add(s.scheduleId);
 
       const rt = await this.getTrackRuntime(track);
-      if (!rt) continue;
+      const buffer = rt ? await this.getClipBuffer(clip, rt) : null;
+      if (epoch !== this.epoch) return;
+      if (!rt || !buffer) {
+        this.scheduled.delete(s.scheduleId);
+        continue;
+      }
 
-      const buffer = await this.getClipBuffer(clip, rt);
-      if (!buffer) continue;
-
-      const when = Math.max(now + 0.005, s.ctxTime);
+      // デコード待ちで開始時刻を過ぎていても、経過分だけ頭出しして位置を保つ
+      const timing = resolveClipTiming(ctx.currentTime, s);
+      if (!timing) continue;
       const source = ctx.createBufferSource();
       source.buffer = buffer;
       const gain = ctx.createGain();
       gain.gain.value = s.volume;
       source.connect(gain);
       gain.connect(rt.chain.input);
-      source.start(when, s.offsetSec, s.durationSec);
+      source.start(timing.when, timing.offsetSec, timing.durationSec);
 
-      this.scheduled.add(s.scheduleId);
       this.activeSources.set(s.scheduleId, { source, gain });
       source.onended = () => {
         this.activeSources.delete(s.scheduleId);
@@ -148,6 +173,7 @@ export class AudioClipPlayer {
   }
 
   clearScheduled() {
+    this.epoch++;
     this.scheduled.clear();
     for (const { source } of this.activeSources.values()) {
       try {

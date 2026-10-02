@@ -7,6 +7,7 @@ interface Props {
   state: EditorState;
   onImport: () => void;
   onImportDaw: () => void;
+  onImportCaptions: () => void;
   onAddToTimeline: (assetId: string, at?: number) => void;
   onAddTelop: (presetId: string) => void;
 }
@@ -23,6 +24,7 @@ export const MediaLibrary = ({
   state,
   onImport,
   onImportDaw,
+  onImportCaptions,
   onAddToTimeline,
   onAddTelop,
 }: Props) => (
@@ -34,6 +36,9 @@ export const MediaLibrary = ({
       </button>
       <button type="button" className="btn btn--block btn--daw" onClick={onImportDaw}>
         DAW ミックス (.daw)
+      </button>
+      <button type="button" className="btn btn--block" onClick={onImportCaptions}>
+        歌詞・字幕（SRT / LRC / テキスト）
       </button>
     </div>
 

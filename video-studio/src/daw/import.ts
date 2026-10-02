@@ -1,18 +1,27 @@
 import type { MediaAsset, TimelineClip } from "../types";
+import { defaultEffects } from "../types";
 
-/** DAW .daw JSON の最小互換（version 5 想定） */
+/** DAW .daw JSON の最小互換（version 5〜6） */
 interface DawClip {
   id: number;
   offset: number;
   duration: number;
+  /** DAW は data URL（data:audio/wav;base64,...）で保存する */
   audioData?: string;
+  /** テイク比較で除外されたクリップ */
+  muted?: boolean;
 }
 
 interface DawTrack {
   id: number;
   name: string;
   kind: string;
-  clips: DawClip[];
+  volume?: number;
+  speed?: number;
+  nudgeMs?: number;
+  isMuted?: boolean;
+  isSolo?: boolean;
+  clips?: DawClip[];
 }
 
 interface DawProject {
@@ -22,17 +31,29 @@ interface DawProject {
   bpm?: number;
 }
 
-export const parseDawProject = (json: DawProject): { assets: MediaAsset[]; clips: TimelineClip[] } => {
+let importSeq = 0;
+
+export const parseDawProject = (
+  json: DawProject,
+  trackId = "a2"
+): { assets: MediaAsset[]; clips: TimelineClip[] } => {
   const assets: MediaAsset[] = [];
   const clips: TimelineClip[] = [];
+  const batch = `${Date.now().toString(36)}${(importSeq++).toString(36)}`;
   let assetCounter = 0;
 
-  for (const track of json.tracks ?? []) {
-    for (const dc of track.clips) {
-      if (!dc.audioData) continue;
-      const id = `daw-${assetCounter++}`;
-      const blob = base64ToWavBlob(dc.audioData);
-      const url = URL.createObjectURL(blob);
+  const tracks = json.tracks ?? [];
+  const hasSolo = tracks.some((t) => t.isSolo);
+
+  for (const track of tracks) {
+    if (track.isMuted || (hasSolo && !track.isSolo)) continue;
+    const speed = track.speed && track.speed > 0 ? track.speed : 1;
+    const startShift = (track.nudgeMs ?? 0) / 1000;
+
+    for (const dc of track.clips ?? []) {
+      if (!dc.audioData || dc.muted) continue;
+      const id = `daw-${batch}-${assetCounter++}`;
+      const url = URL.createObjectURL(decodeAudioData(dc.audioData));
       assets.push({
         id,
         name: `${track.name} #${dc.id}`,
@@ -43,22 +64,15 @@ export const parseDawProject = (json: DawProject): { assets: MediaAsset[]; clips
       clips.push({
         id: `clip-${id}`,
         assetId: id,
-        trackId: "a2",
-        start: dc.offset,
-        duration: dc.duration,
+        trackId,
+        start: Math.max(0, dc.offset + startShift),
+        duration: dc.duration / speed,
         inPoint: 0,
-        speed: 1,
-        volume: 1,
+        speed,
+        volume: track.volume ?? 1,
         opacity: 1,
         audioMuted: false,
-        effects: {
-          brightness: 100,
-          contrast: 100,
-          saturation: 100,
-          blur: 0,
-          grayscale: 0,
-          sepia: 0,
-        },
+        effects: defaultEffects(),
         opacityKeyframes: [],
         origin: "daw",
       });
@@ -68,55 +82,18 @@ export const parseDawProject = (json: DawProject): { assets: MediaAsset[]; clips
   return { assets, clips };
 };
 
-const base64ToWavBlob = (data: string) => {
-  const bin = atob(data);
+/** data URL / 生 base64 のどちらでも Blob にする */
+export const decodeAudioData = (data: string): Blob => {
+  let mime = "audio/wav";
+  let b64 = data;
+  if (data.startsWith("data:")) {
+    const comma = data.indexOf(",");
+    const header = data.slice(5, comma);
+    mime = header.split(";")[0] || mime;
+    b64 = data.slice(comma + 1);
+  }
+  const bin = atob(b64);
   const arr = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-  return new Blob([arr], { type: "audio/wav" });
+  return new Blob([arr], { type: mime });
 };
-
-export const importAudioFile = async (
-  file: File,
-  trackId: string
-): Promise<{ asset: MediaAsset; clip: TimelineClip }> => {
-  const url = URL.createObjectURL(file);
-  const duration = await probeAudioDuration(url);
-  const id = `asset-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const asset: MediaAsset = {
-    id,
-    name: file.name,
-    kind: "audio",
-    url,
-    duration,
-  };
-  const clip: TimelineClip = {
-    id: `clip-${id}`,
-    assetId: id,
-    trackId,
-    start: 0,
-    duration,
-    inPoint: 0,
-    speed: 1,
-    volume: 1,
-    opacity: 1,
-    audioMuted: false,
-    effects: {
-      brightness: 100,
-      contrast: 100,
-      saturation: 100,
-      blur: 0,
-      grayscale: 0,
-      sepia: 0,
-    },
-    opacityKeyframes: [],
-  };
-  return { asset, clip };
-};
-
-const probeAudioDuration = (url: string): Promise<number> =>
-  new Promise((resolve) => {
-    const a = new Audio();
-    a.src = url;
-    a.addEventListener("loadedmetadata", () => resolve(a.duration || 0), { once: true });
-    a.addEventListener("error", () => resolve(0), { once: true });
-  });

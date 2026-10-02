@@ -26,6 +26,26 @@ export type TrackEffectNodes = {
   /** エフェクトオフ時のバイパス */
   dryGain: GainNode;
   wetBus: GainNode;
+  /** 破棄時に止める LFO（止めないとトラック削除後も鳴り続けて残る） */
+  oscillators: OscillatorNode[];
+};
+
+export const disposeTrackEffectChain = (nodes: TrackEffectNodes) => {
+  for (const osc of nodes.oscillators) {
+    try {
+      osc.stop();
+    } catch {
+      /* 既に停止 */
+    }
+  }
+  // 入出力を切ればチェーン全体が到達不能になり GC 対象になる
+  for (const n of [nodes.input, nodes.outGain]) {
+    try {
+      n.disconnect();
+    } catch {
+      /* noop */
+    }
+  }
 };
 
 /** コンプ量(0〜1)に対するメイクアップゲイン（倍率） */
@@ -272,6 +292,7 @@ export const createTrackEffectChain = (
     reverbGain,
     dryGain,
     wetBus,
+    oscillators: [tremoloOsc, chorusLfo],
   };
 
   applyTrackEffectParams(ctx, nodes, track);

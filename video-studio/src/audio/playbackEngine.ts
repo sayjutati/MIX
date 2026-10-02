@@ -73,11 +73,7 @@ export class PlaybackEngine {
       activeKeys.add(key);
       let node = this.nodes.get(key);
       if (!node || node.assetId !== asset.id) {
-        if (node) {
-          node.source.disconnect();
-          node.gain.disconnect();
-          node.element.pause();
-        }
+        this.release(key);
         const element = this.getElement(asset);
         element.muted = false;
         const source = ctx.createMediaElementSource(element);
@@ -99,11 +95,24 @@ export class PlaybackEngine {
       if (el.paused) void el.play().catch(() => {});
     }
 
+    const liveClipIds = new Set(state.clips.map((c) => c.id));
     for (const [key, node] of this.nodes) {
-      if (!activeKeys.has(key)) {
-        node.element.pause();
-      }
+      if (activeKeys.has(key)) continue;
+      node.element.pause();
+      // 削除済みクリップの <audio>/<video> と AudioNode を解放する
+      if (!key.startsWith("scrub-") && !liveClipIds.has(key)) this.release(key);
     }
+  }
+
+  private release(key: string) {
+    const node = this.nodes.get(key);
+    if (!node) return;
+    node.source.disconnect();
+    node.gain.disconnect();
+    node.element.pause();
+    node.element.removeAttribute("src");
+    node.element.load();
+    this.nodes.delete(key);
   }
 
   /** スクラブ時に一瞬だけ聴く */
@@ -127,8 +136,12 @@ export class PlaybackEngine {
       node.element.currentTime = clip.inPoint + local * clip.speed;
       node.gain.gain.value = effectiveVolume;
       void node.element.play().catch(() => {});
-      setTimeout(() => node.element.pause(), 120);
+      const scrubNode = node;
+      setTimeout(() => scrubNode.element.pause(), 120);
     }
+    // スクラブ用ノードは直近のクリップ分だけ残す
+    const scrubKeys = [...this.nodes.keys()].filter((k) => k.startsWith("scrub-"));
+    for (const k of scrubKeys.slice(0, Math.max(0, scrubKeys.length - 4))) this.release(k);
   }
 
   stopAll() {

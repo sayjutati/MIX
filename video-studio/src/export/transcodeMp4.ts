@@ -26,6 +26,10 @@ const loadFfmpeg = async (onStatus?: (msg: string) => void): Promise<FFmpeg> => 
     ffmpeg = instance;
     return instance;
   })();
+  // 失敗（オフライン等）を永続化させず、次回の書き出しで再試行できるようにする
+  loadPromise.catch(() => {
+    loadPromise = null;
+  });
 
   return loadPromise;
 };
@@ -39,7 +43,22 @@ export const transcodeWebmToMp4 = async (
   onProgress?.(0.78, "MP4 に変換中…");
 
   await ff.writeFile("input.webm", await fetchFile(webm));
-  await ff.exec([
+  const cleanup = async () => {
+    await ff.deleteFile("input.webm").catch(() => {});
+    await ff.deleteFile("output.mp4").catch(() => {});
+  };
+  try {
+    return await run(ff, onProgress);
+  } finally {
+    await cleanup();
+  }
+};
+
+const run = async (
+  ff: FFmpeg,
+  onProgress?: (p: number, status?: string) => void
+): Promise<Blob> => {
+  const code = await ff.exec([
     "-i",
     "input.webm",
     "-c:v",
@@ -59,9 +78,8 @@ export const transcodeWebmToMp4 = async (
     "output.mp4",
   ]);
 
+  if (code !== 0) throw new Error("MP4 変換に失敗しました");
   const data = await ff.readFile("output.mp4");
-  await ff.deleteFile("input.webm");
-  await ff.deleteFile("output.mp4");
 
   onProgress?.(1, "完了");
   const bytes = data instanceof Uint8Array ? data : new TextEncoder().encode(String(data));

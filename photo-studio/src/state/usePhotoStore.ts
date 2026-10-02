@@ -7,6 +7,8 @@ import {
   type HistoryStack,
 } from "../history/history";
 import { localCanvasProvider } from "../generate/generationService";
+import { invalidateImage } from "../canvas/imageCache";
+import { renderTitlePng } from "../canvas/titleLayer";
 import { getAssetUrl, revokeAssetUrl, saveImageAsset } from "../storage/imageAssets";
 import { assetExists, importImageFile } from "../storage/projectStorage";
 import {
@@ -56,6 +58,7 @@ type PhotoState = {
   resetView: () => void;
 
   importFile: (file: File) => Promise<void>;
+  addTitleLayer: (text: string) => Promise<void>;
   generateImage: (params: GenerateParams) => Promise<void>;
   addLayerFromAsset: (assetId: string, width: number, height: number, name: string) => void;
 
@@ -75,6 +78,13 @@ type PhotoState = {
 };
 
 const touch = (p: PhotoProject): PhotoProject => ({ ...p, updatedAt: Date.now() });
+
+const releaseAssetUrls = (urls: Record<string, string>) => {
+  for (const [id, url] of Object.entries(urls)) {
+    invalidateImage(url);
+    revokeAssetUrl(id);
+  }
+};
 
 const patchProject = (
   project: PhotoProject,
@@ -129,7 +139,8 @@ export const usePhotoStore = create<PhotoState>((set, get) => ({
     if (r) set({ hist: r.hist, project: r.state });
   },
 
-  newProject: (w, h) =>
+  newProject: (w, h) => {
+    releaseAssetUrls(get().assetUrls);
     set({
       project: makeProject({ width: w ?? 1920, height: h ?? 1080, layers: [] }),
       selectedLayerId: null,
@@ -139,7 +150,8 @@ export const usePhotoStore = create<PhotoState>((set, get) => ({
       panX: 0,
       panY: 0,
       renderError: null,
-    }),
+    });
+  },
 
   hydrateAssets: async () => {
     const { project } = get();
@@ -161,6 +173,7 @@ export const usePhotoStore = create<PhotoState>((set, get) => ({
   },
 
   loadProject: async (p) => {
+    releaseAssetUrls(get().assetUrls);
     set({
       project: p,
       hist: createHistory(),
@@ -199,6 +212,24 @@ export const usePhotoStore = create<PhotoState>((set, get) => ({
       ...p,
       layers: [...p.layers, layer],
     }));
+    set((s) => ({
+      selectedLayerId: layer.id,
+      activeTab: "adjust",
+      assetUrls: url ? { ...s.assetUrls, [assetId]: url } : s.assetUrls,
+      renderError: null,
+    }));
+  },
+
+  addTitleLayer: async (text) => {
+    const { project } = get();
+    const blob = await renderTitlePng(text, project.width, project.height);
+    const { assetId, width, height, name } = await importImageFile(
+      project.id,
+      new File([blob], "title.png", { type: "image/png" })
+    );
+    const url = await getAssetUrl(assetId);
+    const layer = makeLayer({ assetId, width, height, name: name || "タイトル" });
+    get().commit((p) => ({ ...p, layers: [...p.layers, layer] }));
     set((s) => ({
       selectedLayerId: layer.id,
       activeTab: "adjust",
