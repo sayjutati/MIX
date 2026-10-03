@@ -771,6 +771,24 @@ input[type="number"] {
   align-items: center;
   gap: 7px;
 }
+.track-row__voice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.track-row__voice select {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 11px;
+}
 .track-btn {
   width: 26px;
   height: 26px;
@@ -1650,4 +1668,159 @@ input[type="number"] {
   height: 1px;
   margin: 6px 0;
   background: var(--border);
+}
+
+/* ===== 鼻歌 → メロディ ===== */
+.hum-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 6, 10, 0.62);
+  padding: 24px;
+}
+.hum-modal__card {
+  width: min(520px, 100%);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-2);
+  padding: 20px 22px 22px;
+}
+.hum-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.hum-modal__head h2 {
+  margin: 0;
+  font-size: 17px;
+}
+.hum-modal__x {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 22px;
+  cursor: pointer;
+}
+.hum-modal__x:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+.hum-modal__lead,
+.hum-modal__hint {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.hum-modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.hum-modal__rec {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--red);
+  font-weight: 600;
+}
+.hum-modal__ready {
+  margin-top: 14px;
+}
+.hum-modal__ready p {
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+.hum-modal__roll {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.hum-modal__chip {
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.hum-modal__field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.hum-modal__field select {
+  height: 30px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+}
+.hum-modal__check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.hum-modal__err {
+  margin: 12px 0 0;
+  color: #fca5a5;
+  font-size: 13px;
+}
+.voice-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.voice-picks__btn {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.voice-picks__btn:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+.voice-picks__btn.is-on {
+  background: rgba(79, 140, 247, 0.2);
+  border-color: var(--accent);
+  color: #cfe0ff;
+}
+.voice-picks__btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+.fx-panel__voices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fx-panel__voices > span {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.fx-panel__voices .voice-picks {
+  margin-top: 0;
 }

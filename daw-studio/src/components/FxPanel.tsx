@@ -1,5 +1,5 @@
 import { Sliders, Music2 } from "lucide-react";
-import type { PitchNote, Track } from "../types";
+import { MELODY_VOICES, type MelodyVoiceId, type PitchNote, type Track } from "../types";
 import { trackTimelineEnd } from "../types";
 import { FX_TOOLTIPS } from "../data/fxTooltips";
 import { formatTime } from "../utils/time";
@@ -41,6 +41,8 @@ type Props = {
   onSelectTake: (trackId: number, clipId: number) => void;
   onAuditionTake: (trackId: number, clipId: number) => void;
   onToggleTakeMuted: (trackId: number, clipId: number) => void;
+  onChangeVoice?: (trackId: number, voice: MelodyVoiceId) => void;
+  voiceBusy?: boolean;
 };
 
 export function FxPanel({
@@ -65,6 +67,8 @@ export function FxPanel({
   onSelectTake,
   onAuditionTake,
   onToggleTakeMuted,
+  onChangeVoice,
+  voiceBusy,
 }: Props) {
   const pct = (v: number) => `${Math.round(v * 100)}%`;
   const pitchAllowed = !!selectedTrack && selectedTrack.kind !== "bgm";
@@ -162,6 +166,24 @@ export function FxPanel({
                 helpTitle={FX_TOOLTIPS.nudgeMs.title}
                 helpDescription={FX_TOOLTIPS.nudgeMs.description}
               />
+              {selectedTrack.synthVoice && onChangeVoice && (
+                <div className="fx-panel__voices">
+                  <span>音色</span>
+                  <div className="voice-picks">
+                    {MELODY_VOICES.map((v) => (
+                      <button
+                        key={v.id}
+                        type="button"
+                        className={`voice-picks__btn${selectedTrack.synthVoice === v.id ? " is-on" : ""}`}
+                        disabled={voiceBusy}
+                        onClick={() => onChangeVoice(selectedTrack.id, v.id)}
+                      >
+                        {v.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <p className="fx-panel__nudge-hint">
                 録音時に自動補正済み。まだズレるときだけ手動で微調整（遅れ→マイナス / 早い→プラス）
               </p>

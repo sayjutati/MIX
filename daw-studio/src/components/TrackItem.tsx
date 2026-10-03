@@ -3,7 +3,7 @@ import WaveSurfer from "wavesurfer.js";
 import { ChevronDown, ChevronUp, Copy, Trash2, Volume2, X } from "lucide-react";
 import { decodeAudioUrl } from "../audio/decode";
 import { audioEngine } from "../audio/engine";
-import { clipEffectiveOffset, type Clip, type Track } from "../types";
+import { clipEffectiveOffset, MELODY_VOICES, type Clip, type MelodyVoiceId, type Track } from "../types";
 
 type ClipViewProps = {
   track: Track;
@@ -222,6 +222,8 @@ type Props = {
   onDeleteClip: (trackId: number, clipId: number) => void;
   onClipDragStart: () => void;
   onContextMenu: (e: React.MouseEvent, trackId: number, clipId?: number) => void;
+  onChangeVoice?: (trackId: number, voice: MelodyVoiceId) => void;
+  voiceBusy?: boolean;
 };
 
 export function TrackItem({
@@ -242,6 +244,8 @@ export function TrackItem({
   onDeleteClip,
   onClipDragStart,
   onContextMenu,
+  onChangeVoice,
+  voiceBusy,
 }: Props) {
   const trackRef = useRef(track);
   const hasSoloRef = useRef(hasSolo);
@@ -401,6 +405,22 @@ export function TrackItem({
             className="track-row__volume"
           />
         </div>
+        {track.synthVoice && onChangeVoice && (
+          <label className="track-row__voice" onClick={(e) => e.stopPropagation()}>
+            音色
+            <select
+              value={track.synthVoice}
+              disabled={voiceBusy}
+              onChange={(e) => onChangeVoice(track.id, e.target.value as MelodyVoiceId)}
+            >
+              {MELODY_VOICES.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
 
       <div

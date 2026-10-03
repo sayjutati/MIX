@@ -8,6 +8,7 @@ import {
   FolderOpen,
   Download,
   Music,
+  AudioLines,
   Bell,
   BellOff,
   Volume2,
@@ -38,6 +39,8 @@ import { studioHref } from "./studioNav";
 import { bufferLoudness } from "./audio/loudness";
 import { bufferToBytes, downloadZip } from "./audio/zipExport";
 import { EmptyWorkspace } from "./components/EmptyWorkspace";
+import { HumMelodyModal, type HumMelodyResult } from "./components/HumMelodyModal";
+import { renderMelodySynth } from "./audio/humToMelody";
 import { FxPanel, type FxMode } from "./components/FxPanel";
 import { bufferToMono, renderPitchCorrected, renderWholeShift } from "./audio/pitch";
 import { alignVocalToBgm } from "./audio/autoAlign";
@@ -65,6 +68,7 @@ import {
   createTrack,
   TRACK_COLORS,
   type Clip,
+  type MelodyVoiceId,
   type PitchNote,
   type Track,
   type ProjectFile,
@@ -76,6 +80,8 @@ function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [selectedTrackId, setSelectedTrackId] = useState<number | null>(null);
+  const [humMelodyOpen, setHumMelodyOpen] = useState(false);
+  const [voiceBusyId, setVoiceBusyId] = useState<number | null>(null);
   const [exportFormat, setExportFormat] = useState<ExportFormat>("wav");
   const [mp3Bitrate, setMp3Bitrate] = useState(192);
   const [normalizeMode, setNormalizeMode] = useState<"off" | "peak" | "lufs14" | "lufs16">("peak");
@@ -914,6 +920,73 @@ function App() {
     e.target.value = ""; 
   };
 
+  const addHumMelodyTrack = (result: HumMelodyResult) => {
+    const url = URL.createObjectURL(result.wav);
+    pushHistory();
+    setTracks((prev) => {
+      const nt = createTrack({
+        id: Date.now(),
+        url,
+        name: `メロディ ${result.keyName}`,
+        color: TRACK_COLORS[prev.length % TRACK_COLORS.length],
+        kind: "bgm",
+        duration: result.duration,
+      });
+      nt.clips[0] = { ...nt.clips[0]!, notes: result.notes };
+      nt.synthVoice = result.voice;
+      nt.volume = 0.7;
+      setSelectedTrackId(nt.id);
+      return [...prev, nt];
+    });
+    setHumMelodyOpen(false);
+  };
+
+  const changeMelodyVoice = async (trackId: number, voice: MelodyVoiceId) => {
+    const tr = tracksRef.current.find((t) => t.id === trackId);
+    if (!tr?.synthVoice || tr.synthVoice === voice || voiceBusyId === trackId) return;
+    const targets = tr.clips.filter((c) => c.notes?.length);
+    if (!targets.length) {
+      updateTrack(trackId, "synthVoice", voice);
+      return;
+    }
+    setVoiceBusyId(trackId);
+    try {
+      const rendered = await Promise.all(
+        targets.map(async (c) => {
+          const buf = await renderMelodySynth(c.notes!, 44100, voice);
+          audioEngine.primeClipBuffer(trackId, c.id, buf);
+          return { id: c.id, url: URL.createObjectURL(audioBufferToWav(buf)), duration: buf.duration, prev: c.url };
+        })
+      );
+      pushHistory();
+      setTracks((prev) =>
+        prev.map((t) => {
+          if (t.id !== trackId) return t;
+          const byId = new Map(rendered.map((r) => [r.id, r]));
+          return {
+            ...t,
+            synthVoice: voice,
+            clips: t.clips.map((c) => {
+              const r = byId.get(c.id);
+              return r ? { ...c, url: r.url, duration: r.duration } : c;
+            }),
+          };
+        })
+      );
+      for (const r of rendered) {
+        if (r.prev.startsWith("blob:")) {
+          window.setTimeout(() => URL.revokeObjectURL(r.prev), 5000);
+        }
+      }
+      audioEngine.restartIfPlaying(trackId);
+    } catch (e) {
+      console.error(e);
+      alert("音色の切り替えに失敗しました。");
+    } finally {
+      setVoiceBusyId(null);
+    }
+  };
+
   const dtmHandoffTried = useRef(false);
   useEffect(() => {
     if (dtmHandoffTried.current) return;
@@ -1468,6 +1541,14 @@ function App() {
           >
             <Music size={16} /> BGM / 音源追加
           </button>
+          <button
+            type="button"
+            className="btn btn--ghost tooltip"
+            data-tooltip="鼻歌やハミングをノート化して、ピアノ音のメロディトラックにする"
+            onClick={() => setHumMelodyOpen(true)}
+          >
+            <AudioLines size={16} /> 鼻歌→メロディ
+          </button>
           </div>
 
         <div className="transport">
@@ -1774,6 +1855,7 @@ function App() {
               hasBgm={hasBgm}
               onImport={() => document.getElementById("import-audio")?.click()}
               onRecord={() => void startRecording()}
+              onHumMelody={() => setHumMelodyOpen(true)}
             />
           ) : (
             tracks.map((track, idx) => (
@@ -1795,6 +1877,8 @@ function App() {
                 onUpdateClip={updateClip}
                 onDeleteClip={deleteClip}
                 onClipDragStart={pushHistory}
+                onChangeVoice={(id, voice) => void changeMelodyVoice(id, voice)}
+                voiceBusy={voiceBusyId === track.id}
                 onContextMenu={(e, id, clipId) => {
                   e.preventDefault();
                   setContextMenu({ x: e.pageX, y: e.pageY, trackId: id, clipId });
@@ -1837,6 +1921,16 @@ function App() {
         onSelectTake={selectTake}
         onAuditionTake={auditionTake}
         onToggleTakeMuted={toggleTakeMuted}
+        onChangeVoice={(id, voice) => void changeMelodyVoice(id, voice)}
+        voiceBusy={voiceBusyId === selectedTrack?.id}
+      />
+
+      <HumMelodyModal
+        open={humMelodyOpen}
+        bpm={bpm}
+        clipUrl={selectedTrack?.clips[0]?.url ?? null}
+        onClose={() => setHumMelodyOpen(false)}
+        onCreate={addHumMelodyTrack}
       />
 
       {contextMenu && (

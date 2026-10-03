@@ -18,6 +18,17 @@ export const timeFromTimelineX = (x: number, pps: number = PIXELS_PER_SECOND) =>
 
 export type TrackKind = "bgm" | "vocal";
 
+/** 鼻歌メロディの再合成音色（5種） */
+export const MELODY_VOICES = [
+  { id: "piano", label: "ピアノ" },
+  { id: "organ", label: "オルガン" },
+  { id: "strings", label: "ストリングス" },
+  { id: "bass", label: "ベース" },
+  { id: "bell", label: "ベル" },
+] as const;
+export type MelodyVoiceId = (typeof MELODY_VOICES)[number]["id"];
+export const DEFAULT_MELODY_VOICE: MelodyVoiceId = "piano";
+
 /** ピッチ編集の1ノート（クリップ内ローカル秒・MIDIノート番号） */
 export interface PitchNote {
   id: number;
@@ -73,6 +84,8 @@ export interface Track {
   tremolo: number;
   /** ディエッサー量（0〜1）。歯擦音（サ行のシャリ）を動的に抑制 */
   deEss: number;
+  /** ノートから再合成するレーンの音色。未設定なら通常の音声トラック */
+  synthVoice?: MelodyVoiceId;
   clips: Clip[];
 }
 

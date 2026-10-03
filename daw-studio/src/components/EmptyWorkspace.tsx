@@ -1,12 +1,13 @@
-import { Mic, Music } from "lucide-react";
+import { AudioLines, Mic, Music } from "lucide-react";
 
 type Props = {
   onImport: () => void;
   onRecord: () => void;
+  onHumMelody?: () => void;
   hasBgm: boolean;
 };
 
-export function EmptyWorkspace({ onImport, onRecord, hasBgm }: Props) {
+export function EmptyWorkspace({ onImport, onRecord, onHumMelody, hasBgm }: Props) {
   return (
     <div className="workspace-empty">
       <h2 className="workspace-empty__title">ブラウザ完結 DAW — 歌ってみた制作</h2>
@@ -51,6 +52,11 @@ export function EmptyWorkspace({ onImport, onRecord, hasBgm }: Props) {
         >
           <Mic size={18} /> {hasBgm ? "オーバーダビ録音" : "録音（単独）"}
         </button>
+        {onHumMelody && (
+          <button type="button" className="btn btn--ghost" onClick={onHumMelody}>
+            <AudioLines size={18} /> 鼻歌→メロディ
+          </button>
+        )}
       </div>
       {!hasBgm && (
         <p className="workspace-empty__hint">ヒント: インスト音源を追加してから録音すると、オケに合わせた重ね録りができます。</p>
