@@ -3,17 +3,20 @@ import type { Instrument } from "../types/project";
 import { instrumentEngine } from "../audio/instrumentVoice";
 import { previewNote } from "../audio/previewNote";
 import { INSTRUMENT_GROUPS, instrumentDisplayName } from "../data/uiLabels";
+import type { LaneRole } from "../types/project";
+import { kindsForRole, LANE_ROLES } from "../utils/laneRole";
 
 type Props = {
   open: boolean;
   instruments: Instrument[];
+  role?: LaneRole | null;
   onPick: (instrumentId: string) => void;
   onClose: () => void;
 };
 
 const previewTrack = { pan: 0, volume: 0.9 };
 
-export function InstrumentPicker({ open, instruments, onPick, onClose }: Props) {
+export function InstrumentPicker({ open, instruments, role, onPick, onClose }: Props) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -81,17 +84,27 @@ export function InstrumentPicker({ open, instruments, onPick, onClose }: Props) 
         aria-labelledby="inst-picker-title"
       >
         <header className="inst-picker__head">
-          <h2 id="inst-picker-title">楽器を選択</h2>
+          <h2 id="inst-picker-title">
+            {role ? `${LANE_ROLES.find((r) => r.id === role)?.label ?? ""}に楽器を追加` : "楽器を選択"}
+          </h2>
           <button type="button" className="inst-picker__close" onClick={onClose} aria-label="閉じる">
             ×
           </button>
         </header>
-        <p className="inst-picker__hint">楽器を選ぶと新しいトラックが作成されます。♪ で試聴できます。</p>
+        <p className="inst-picker__hint">
+          {role
+            ? "同じ枠に追加され、既存の楽器と重なって鳴ります。♪ で試聴できます。"
+            : "楽器を選ぶと新しいトラックが作成されます。♪ で試聴できます。"}
+        </p>
         <div className="inst-picker__body">
           {INSTRUMENT_GROUPS.map((group) =>
             renderGroup(
               group.label,
-              instruments.filter((i) => group.kinds.includes(i.kind))
+              instruments.filter((i) => {
+                if (!group.kinds.includes(i.kind)) return false;
+                if (role) return kindsForRole(role).includes(i.kind);
+                return true;
+              })
             )
           )}
         </div>

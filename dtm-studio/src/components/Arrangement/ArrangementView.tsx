@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useRef } from "react";
-import type { Project, Track } from "../../types/project";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import type { Instrument, Project, Track } from "../../types/project";
 import { isAudioTrack, secToBeat } from "../../types/project";
+import { audioTracks, LANE_ROLES, tracksInRole } from "../../utils/laneRole";
 
 type Props = {
   project: Project;
+  instruments: Instrument[];
   selectedTrackId: string | null;
   playheadBeat: number;
   playing: boolean;
@@ -13,11 +15,14 @@ type Props = {
   onSeekBeat: (beat: number) => void;
 };
 
-const LANE_H = 26;
+const LANE_H = 36;
 const LABEL_W = 88;
+
+type Lane = { id: string; label: string; color: string; tracks: Track[]; pickId: string };
 
 export function ArrangementView({
   project,
+  instruments,
   selectedTrackId,
   playheadBeat,
   playing,
@@ -29,6 +34,29 @@ export function ArrangementView({
   const scrollRef = useRef<HTMLDivElement>(null);
   const width = beatsVisible * beatWidth;
 
+  const lanes = useMemo<Lane[]>(() => {
+    const roleLanes = LANE_ROLES.map((r) => {
+      const members = tracksInRole(project.tracks, instruments, r.id);
+      const pick =
+        members.find((t) => t.id === selectedTrackId)?.id ?? members[0]?.id ?? "";
+      return {
+        id: r.id,
+        label: r.label,
+        color: r.accent,
+        tracks: members,
+        pickId: pick,
+      };
+    });
+    const extras = audioTracks(project.tracks).map((t) => ({
+      id: t.id,
+      label: t.name,
+      color: t.color,
+      tracks: [t],
+      pickId: t.id,
+    }));
+    return [...roleLanes, ...extras];
+  }, [project.tracks, instruments, selectedTrackId]);
+
   useEffect(() => {
     if (!playing || !scrollRef.current) return;
     const phx = playheadBeat * beatWidth;
@@ -38,24 +66,25 @@ export function ArrangementView({
   }, [playing, playheadBeat, beatWidth]);
 
   const drawLane = useCallback(
-    (ctx: CanvasRenderingContext2D, track: Track, y: number, w: number) => {
+    (ctx: CanvasRenderingContext2D, lane: Lane, y: number, w: number) => {
       ctx.fillStyle = "#14141c";
       ctx.fillRect(0, y, w, LANE_H - 1);
-
-      if (isAudioTrack(track)) {
-        for (const clip of track.clips ?? []) {
-          const x = clip.startBeat * beatWidth;
-          const cw = Math.max(4, secToBeat(clip.durationSec, project.tempo) * beatWidth);
-          ctx.fillStyle = hexAlpha(track.color, 0.55);
-          ctx.fillRect(x + 1, y + 4, cw - 2, LANE_H - 9);
-        }
-      } else {
-        for (const note of track.notes) {
-          const x = note.start * beatWidth;
-          const cw = Math.max(3, note.duration * beatWidth - 1);
-          const vel = note.velocity / 127;
-          ctx.fillStyle = hexAlpha(track.color, 0.35 + vel * 0.45);
-          ctx.fillRect(x + 0.5, y + 6, cw, LANE_H - 12);
+      for (const track of lane.tracks) {
+        if (isAudioTrack(track)) {
+          for (const clip of track.clips ?? []) {
+            const x = clip.startBeat * beatWidth;
+            const cw = Math.max(4, secToBeat(clip.durationSec, project.tempo) * beatWidth);
+            ctx.fillStyle = hexAlpha(track.color, 0.55);
+            ctx.fillRect(x + 1, y + 5, cw - 2, LANE_H - 11);
+          }
+        } else {
+          for (const note of track.notes) {
+            const x = note.start * beatWidth;
+            const cw = Math.max(3, note.duration * beatWidth - 1);
+            const vel = note.velocity / 127;
+            ctx.fillStyle = hexAlpha(track.color, 0.4 + vel * 0.45);
+            ctx.fillRect(x + 0.5, y + 6, cw, LANE_H - 13);
+          }
         }
       }
     },
@@ -66,7 +95,7 @@ export function ArrangementView({
     const canvas = document.getElementById("arrangement-canvas") as HTMLCanvasElement | null;
     if (!canvas) return;
     const dpr = window.devicePixelRatio || 1;
-    const h = project.tracks.length * LANE_H;
+    const h = Math.max(LANE_H, lanes.length * LANE_H);
     canvas.width = width * dpr;
     canvas.height = h * dpr;
     canvas.style.width = `${width}px`;
@@ -75,9 +104,7 @@ export function ArrangementView({
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    for (let i = 0; i < project.tracks.length; i++) {
-      drawLane(ctx, project.tracks[i]!, i * LANE_H, width);
-    }
+    lanes.forEach((lane, i) => drawLane(ctx, lane, i * LANE_H, width));
 
     const ls = project.loopStart * beatWidth;
     const le = (project.loopEnd - project.loopStart) * beatWidth;
@@ -92,14 +119,13 @@ export function ArrangementView({
       ctx.lineTo(x + 0.5, h);
       ctx.stroke();
     }
-  }, [project, width, beatsVisible, beatWidth, drawLane]);
+  }, [lanes, width, beatsVisible, beatWidth, drawLane, project.loopStart, project.loopEnd]);
 
   const onTimelinePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     e.preventDefault();
     const timeline = e.currentTarget;
     const seekAt = (clientX: number) => {
-      // 内側要素の rect はスクロールと一緒に動くので scrollLeft を足さない
       const x = clientX - timeline.getBoundingClientRect().left;
       onSeekBeat(Math.max(0, x / beatWidth));
     };
@@ -116,18 +142,20 @@ export function ArrangementView({
   return (
     <div className="arrangement">
       <div className="arrangement__labels" style={{ width: LABEL_W }}>
-        {project.tracks.map((t, i) => (
-          <button
-            key={t.id}
-            type="button"
-            className={`arrangement__label${t.id === selectedTrackId ? " is-selected" : ""}`}
-            style={{ height: LANE_H, borderLeftColor: t.color }}
-            onClick={() => onSelectTrack(t.id)}
-          >
-            <span className="arrangement__label-num">{i + 1}</span>
-            <span className="arrangement__label-name">{t.name}</span>
-          </button>
-        ))}
+        {lanes.map((lane) => {
+          const selected = lane.tracks.some((t) => t.id === selectedTrackId);
+          return (
+            <button
+              key={lane.id}
+              type="button"
+              className={`arrangement__label${selected ? " is-selected" : ""}`}
+              style={{ height: LANE_H, borderLeftColor: lane.color }}
+              onClick={() => lane.pickId && onSelectTrack(lane.pickId)}
+            >
+              <span className="arrangement__label-name">{lane.label}</span>
+            </button>
+          );
+        })}
       </div>
       <div className="arrangement__scroll" ref={scrollRef}>
         <div

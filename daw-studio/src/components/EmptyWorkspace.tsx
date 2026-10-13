@@ -59,7 +59,9 @@ export function EmptyWorkspace({ onImport, onRecord, onHumMelody, hasBgm }: Prop
         )}
       </div>
       {!hasBgm && (
-        <p className="workspace-empty__hint">ヒント: インスト音源を追加してから録音すると、オケに合わせた重ね録りができます。</p>
+        <p className="workspace-empty__hint">
+          ヒント: オケを入れてから録音。自分の声の跳ね返りはモニターOFFのままが安全です。録音時にソフト側でノイズを落とします。
+        </p>
       )}
     </div>
   );

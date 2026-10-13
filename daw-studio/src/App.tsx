@@ -44,6 +44,7 @@ import { renderMelodySynth } from "./audio/humToMelody";
 import { FxPanel, type FxMode } from "./components/FxPanel";
 import { bufferToMono, renderPitchCorrected, renderWholeShift } from "./audio/pitch";
 import { alignVocalToBgm } from "./audio/autoAlign";
+import { cleanRecordedVocal } from "./audio/recordCleanup";
 import { detectNotesAsync } from "./audio/pitchDetectClient";
 import { TrackItem } from "./components/TrackItem";
 import { MasterMeter } from "./components/MasterMeter";
@@ -97,7 +98,7 @@ function App() {
   const recordOffsetRef = useRef(0);
   const recordTargetRef = useRef<number | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const [monitorOn, setMonitorOn] = useState(true);
+  const [monitorOn, setMonitorOn] = useState(false);
   const monitorOnRef = useRef(monitorOn);
   monitorOnRef.current = monitorOn;
   const [autoLatencyComp, setAutoLatencyComp] = useState(true);
@@ -1086,6 +1087,11 @@ function App() {
         try {
           const { ctx } = audioEngine.getContext();
           decoded = await ctx.decodeAudioData(await rawBlob.arrayBuffer());
+          try {
+            decoded = await cleanRecordedVocal(decoded);
+          } catch (e) {
+            console.warn("録音ノイズ除去をスキップ:", e);
+          }
           duration = decoded.duration;
 
           if (autoLatencyCompRef.current) {
@@ -1617,8 +1623,8 @@ function App() {
             className={`transport__btn-monitor tooltip ${monitorOn ? "transport__btn-monitor--on" : ""}`}
             data-tooltip={
               monitorOn
-                ? "録音モニターON（自分の声が聞こえる・ヘッドホン推奨）"
-                : "録音モニターOFF"
+                ? "録音モニターON（遅延して跳ね返ります。通常はOFF）"
+                : "録音モニターOFF（推奨・跳ね返りなし）"
             }
             onClick={() => {
               setMonitorOn((v) => {

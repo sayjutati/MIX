@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { bindSchedulerProject, bindSchedulerTransport, scheduler } from "./audio/lookaheadScheduler";
 import { initAudioGraph } from "./audio/engine";
 import { playMetronomeClick } from "./audio/metronome";
@@ -24,6 +24,7 @@ import { AudioPanel } from "./components/AudioTrack/AudioPanel";
 import { AudioTrackView } from "./components/AudioTrack/AudioTrackView";
 import { FxPanel } from "./components/FxPanel/FxPanel";
 import { TrackList } from "./components/TrackList/TrackList";
+import { DrumGrid } from "./components/DrumGrid/DrumGrid";
 import { TransportBar } from "./components/Transport/TransportBar";
 import { useEditorStore } from "./state/useEditorStore";
 import { useHistoryStore } from "./state/useHistoryStore";
@@ -43,7 +44,8 @@ import {
 import { instrumentEngine } from "./audio/instrumentVoice";
 import { fixedDrumVoice } from "./audio/drumMap";
 import { previewNote } from "./audio/previewNote";
-import type { ChordEvent, ChordQuality, Project, Track } from "./types/project";
+import type { ChordEvent, ChordQuality, LaneRole, Project, Track } from "./types/project";
+import { resolveTrackRole, tracksInRole } from "./utils/laneRole";
 import { isAudioTrack, makeChordEvent, secToBeat } from "./types/project";
 import {
   chordPreviewPitches,
@@ -130,6 +132,7 @@ export default function App() {
   const setNoteClipboard = useEditorStore((s) => s.setNoteClipboard);
   const overlayTrackIds = useEditorStore((s) => s.overlayTrackIds);
   const toggleOverlayTrack = useEditorStore((s) => s.toggleOverlayTrack);
+  const setOverlayTracks = useEditorStore((s) => s.setOverlayTracks);
   const clearOverlayTracks = useEditorStore((s) => s.clearOverlayTracks);
 
   const pushHistory = useHistoryStore((s) => s.pushHistory);
@@ -191,6 +194,8 @@ export default function App() {
   const [dragOver, setDragOver] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [instPickerOpen, setInstPickerOpen] = useState(false);
+  const [pickerRole, setPickerRole] = useState<LaneRole | null>(null);
+  const [percView, setPercView] = useState<"grid" | "roll">("grid");
   const [voiceCaptureOpen, setVoiceCaptureOpen] = useState(false);
   const [chordCollapsed, setChordCollapsed] = useState(() => {
     try {
@@ -207,7 +212,7 @@ export default function App() {
     }
   });
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
-  const [trackListW, setTrackListW] = useState(240);
+  const [trackListW, setTrackListW] = useState(268);
   const [sidePanelW, setSidePanelW] = useState(220);
   const [micDeviceId, setMicDeviceId] = useState("");
   const micStreamRef = useRef<MediaStream | null>(null);
@@ -228,6 +233,12 @@ export default function App() {
   );
   const beatWidth = BEAT_W * beatZoom;
   const trackIsAudio = track != null && isAudioTrack(track);
+  const selectedRole =
+    track && !trackIsAudio ? resolveTrackRole(track, project.instruments) : null;
+  const roleMates = selectedRole
+    ? tracksInRole(project.tracks, project.instruments, selectedRole)
+    : [];
+  const showDrumGrid = selectedRole === "perc" && percView === "grid";
 
   const ensureAudioTargetTrack = useCallback(() => {
     const p = useProjectStore.getState().project;
@@ -353,8 +364,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    clearOverlayTracks();
-  }, [project.id, clearOverlayTracks]);
+    if (!track || isAudioTrack(track)) {
+      clearOverlayTracks();
+      return;
+    }
+    const role = resolveTrackRole(track, project.instruments);
+    setOverlayTracks(
+      tracksInRole(project.tracks, project.instruments, role)
+        .filter((t) => t.id !== track.id)
+        .map((t) => t.id)
+    );
+  }, [track, project.tracks, project.instruments, setOverlayTracks, clearOverlayTracks]);
 
   useEffect(() => {
     if (restored.current) return;
@@ -592,11 +612,24 @@ export default function App() {
   const handlePickInstrument = useCallback(
     (instrumentId: string) => {
       pushHistory();
-      addTrack(instrumentId);
+      addTrack(instrumentId, pickerRole ?? undefined);
       touch();
       setInstPickerOpen(false);
+      setPickerRole(null);
     },
-    [pushHistory, addTrack, touch]
+    [pushHistory, addTrack, touch, pickerRole]
+  );
+
+  const handleToggleDrumStep = useCallback(
+    (trackId: string, beat: number) => {
+      const tr = useProjectStore.getState().project.tracks.find((t) => t.id === trackId);
+      if (!tr) return;
+      const hits = tr.notes.filter((n) => Math.abs(n.start - beat) < 0.12);
+      pushHistory();
+      if (hits.length) removeNotes(trackId, hits.map((n) => n.id));
+      else addNote(trackId, { pitch: 60, start: beat, duration: 0.22, velocity: 110 });
+    },
+    [pushHistory, removeNotes, addNote]
   );
 
   const handleVoiceCreate = useCallback(
@@ -1082,8 +1115,12 @@ export default function App() {
       <InstrumentPicker
         open={instPickerOpen}
         instruments={project.instruments}
+        role={pickerRole}
         onPick={handlePickInstrument}
-        onClose={() => setInstPickerOpen(false)}
+        onClose={() => {
+          setInstPickerOpen(false);
+          setPickerRole(null);
+        }}
       />
       <VoiceCaptureModal
         open={voiceCaptureOpen}
@@ -1156,10 +1193,11 @@ export default function App() {
           tracks={project.tracks}
           instruments={project.instruments}
           selectedId={selectedTrackId}
-          overlayTrackIds={overlayTrackIds}
           onSelect={selectTrack}
-          onToggleOverlay={handleToggleOverlay}
-          onAddTrack={() => setInstPickerOpen(true)}
+          onAddToRole={(role) => {
+            setPickerRole(role);
+            setInstPickerOpen(true);
+          }}
           onAddAudioTrack={addAudioTrack}
           onAddVoiceTrack={() => setVoiceCaptureOpen(true)}
           onRemoveTrack={handleRemoveTrack}
@@ -1172,6 +1210,7 @@ export default function App() {
         <div className="editor-stack">
           <ArrangementView
             project={project}
+            instruments={project.instruments}
             selectedTrackId={selectedTrackId}
             playheadBeat={playheadBeat}
             playing={playing}
@@ -1235,6 +1274,62 @@ export default function App() {
             </>
           ) : (
             <>
+          {selectedRole && (
+            <div className="role-bar">
+              <span className="role-bar__label">
+                {selectedRole === "perc" ? "パーカス" : selectedRole === "bass" ? "ベース" : "メロディ"}
+              </span>
+              <div className="role-bar__chips">
+                {roleMates.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className={`role-bar__chip${t.id === selectedTrackId ? " is-on" : ""}`}
+                    style={{ "--chip": t.color } as CSSProperties}
+                    onClick={() => selectTrack(t.id)}
+                  >
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+              {selectedRole === "perc" && (
+                <div className="role-bar__views">
+                  <button
+                    type="button"
+                    className={percView === "grid" ? "is-on" : ""}
+                    onClick={() => setPercView("grid")}
+                  >
+                    グリッド
+                  </button>
+                  <button
+                    type="button"
+                    className={percView === "roll" ? "is-on" : ""}
+                    onClick={() => setPercView("roll")}
+                  >
+                    ピアノロール
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {showDrumGrid ? (
+            <DrumGrid
+              tracks={roleMates}
+              selectedTrackId={selectedTrackId}
+              loopStart={project.loopStart}
+              loopEnd={project.loopEnd}
+              playheadBeat={playheadBeat}
+              playing={playing}
+              onSelectTrack={selectTrack}
+              onToggleStep={handleToggleDrumStep}
+              onPreview={(id) => {
+                const tr = project.tracks.find((t) => t.id === id);
+                const inst = project.instruments.find((i) => i.id === tr?.instrumentId);
+                if (tr && inst) void previewNote(60, 110, inst, tr);
+              }}
+            />
+          ) : (
+            <>
           <PianoRollToolbar
             tracks={project.tracks}
             editTrackId={selectedTrackId}
@@ -1295,6 +1390,8 @@ export default function App() {
             onPianoKeyDown={playAndMaybeRecord}
             onPianoKeyUp={releasePitch}
           />
+            </>
+          )}
             </>
           )}
         </main>

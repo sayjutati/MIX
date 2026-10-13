@@ -20,14 +20,25 @@ import {
 } from "../types/project";
 import { snapBeat } from "../utils/quantize";
 import { transposeNotePatch } from "../utils/noteEdit";
+import { colorForKind, resolveTrackRole, roleOfKind } from "../utils/laneRole";
+import type { LaneRole } from "../types/project";
 
 const mergeDefaultInstruments = (p: Project): Project => {
   const ids = new Set(p.instruments.map((i) => i.id));
   const missing = DEFAULT_INSTRUMENTS.filter((i) => !ids.has(i.id));
+  const instruments = p.instruments.length ? p.instruments : DEFAULT_INSTRUMENTS;
   const withMaster = {
     ...p,
     masterVolume: p.masterVolume ?? 0.9,
-    tracks: p.tracks.map(normalizeTrack),
+    tracks: p.tracks.map((t) => {
+      const n = normalizeTrack(t);
+      if (n.kind === "audio") return n;
+      const inst = instruments.find((i) => i.id === n.instrumentId);
+      return {
+        ...n,
+        role: n.role ?? roleOfKind(inst?.kind),
+      };
+    }),
     chordProgression: p.chordProgression ?? [],
   };
   if (missing.length === 0) return withMaster;
@@ -64,7 +75,7 @@ type ProjectState = {
   setProjectName: (name: string) => void;
   newProject: () => void;
   updateInstrumentForTrack: (trackId: string, patch: Partial<SynthParams>) => void;
-  addTrack: (instrumentId?: string) => void;
+  addTrack: (instrumentId?: string, role?: LaneRole) => void;
   addAudioTrack: () => void;
   addAudioClip: (trackId: string, clip: AudioClip) => void;
   removeAudioClip: (trackId: string, clipId: string) => void;
@@ -306,7 +317,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       };
     }),
 
-  addTrack: (instrumentId) =>
+  addTrack: (instrumentId, role) =>
     set((s) => {
       const n = s.project.tracks.length + 1;
       const inst =
@@ -315,11 +326,23 @@ export const useProjectStore = create<ProjectState>((set) => ({
           : undefined) ??
         s.project.instruments[(n - 1) % s.project.instruments.length] ??
         s.project.instruments[0];
+      const resolvedRole = role ?? roleOfKind(inst?.kind);
       const defaultName = inst ? inst.name : `トラック ${n}`;
+      const used = new Set(
+        s.project.tracks
+          .filter((t) => resolveTrackRole(t, s.project.instruments) === resolvedRole)
+          .map((t) => t.color)
+      );
+      const preferred = colorForKind(inst?.kind, TRACK_COLORS[(n - 1) % TRACK_COLORS.length]!);
+      const color =
+        used.has(preferred) && inst
+          ? TRACK_COLORS.find((c) => !used.has(c)) ?? preferred
+          : preferred;
       const track = makeTrack({
         name: defaultName,
-        color: TRACK_COLORS[(n - 1) % TRACK_COLORS.length],
+        color,
         instrumentId: inst?.id ?? "inst-basic",
+        role: resolvedRole,
       });
       return {
         project: touchProject({ ...s.project, tracks: [...s.project.tracks, track] }),
@@ -444,6 +467,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
         name: `${src.name} コピー`,
         color: src.color,
         kind: src.kind,
+        role: src.role,
         instrumentId: src.instrumentId,
         volume: src.volume,
         pan: src.pan,
@@ -528,16 +552,15 @@ export const useProjectStore = create<ProjectState>((set) => ({
     const track = makeTrack({
       name,
       instrumentId: inst ? inst.id : "inst-piano",
+      role: "melody",
+      color: "#f9a8d4",
       notes: notes.map((n) => makeNote(n)),
     });
     set((s) => ({
       project: touchProject({
         ...s.project,
         instruments: inst ? [...s.project.instruments, inst] : s.project.instruments,
-        tracks: [
-          ...s.project.tracks,
-          { ...track, color: TRACK_COLORS[s.project.tracks.length % TRACK_COLORS.length]! },
-        ],
+        tracks: [...s.project.tracks, track],
       }),
       selectedTrackId: track.id,
       selectedNoteIds: new Set<string>(),

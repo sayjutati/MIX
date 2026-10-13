@@ -3,6 +3,9 @@ export const PROJECT_VERSION = 2;
 
 export type TrackKind = "midi" | "audio";
 
+/** 同じ枠で複数楽器を重ねるレーン種別 */
+export type LaneRole = "perc" | "bass" | "melody";
+
 export type Waveform = "sine" | "saw" | "square" | "triangle" | "noise";
 
 export type SynthParams = {
@@ -158,6 +161,8 @@ export type Track = {
   color: string;
   /** 省略時 midi（旧プロジェクト互換） */
   kind?: TrackKind;
+  /** パーカス / ベース / メロディ枠。省略時は楽器種別から推定 */
+  role?: LaneRole;
   instrumentId: string;
   volume: number;
   pan: number;
@@ -458,7 +463,38 @@ export const makeProject = (partial?: Partial<Project>): Project => {
     loopEnd: 16,
     masterVolume: 0.9,
     instruments: DEFAULT_INSTRUMENTS.map((i) => ({ ...i, params: { ...i.params } })),
-    tracks: [makeTrack()],
+    tracks: [
+      makeTrack({
+        name: "キック",
+        instrumentId: "inst-kick",
+        role: "perc",
+        color: "#ef4444",
+      }),
+      makeTrack({
+        name: "スネア",
+        instrumentId: "inst-snare",
+        role: "perc",
+        color: "#f59e0b",
+      }),
+      makeTrack({
+        name: "ハイハット",
+        instrumentId: "inst-hihat",
+        role: "perc",
+        color: "#fde047",
+      }),
+      makeTrack({
+        name: "ベース",
+        instrumentId: "inst-bass",
+        role: "bass",
+        color: "#22c55e",
+      }),
+      makeTrack({
+        name: "ピアノ",
+        instrumentId: "inst-piano",
+        role: "melody",
+        color: "#60a5fa",
+      }),
+    ],
     chordProgression: [],
     ...partial,
   };
