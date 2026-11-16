@@ -1,15 +1,12 @@
-import { AudioLines, Mic, Music } from "lucide-react";
+import { Mic, Music } from "lucide-react";
 
-type Props = {
-  onImport: () => void;
-  onRecord: () => void;
-  onHumMelody?: () => void;
-  hasBgm: boolean;
-};
-
-export function EmptyWorkspace({ onImport, onRecord, onHumMelody, hasBgm }: Props) {
+export function EmptyWorkspace() {
   return (
-    <div className="workspace-empty">
+    <div
+      className="workspace-empty"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
       <h2 className="workspace-empty__title">ブラウザ完結 DAW — 歌ってみた制作</h2>
       <p className="workspace-empty__lead">
         端末の音源を読み込み、再生しながらマイクで重ね録り。ミックスして WAV で書き出しまで、この画面だけで完結します。
@@ -40,29 +37,9 @@ export function EmptyWorkspace({ onImport, onRecord, onHumMelody, hasBgm }: Prop
           </span>
         </li>
       </ol>
-      <div className="workspace-empty__actions">
-        <button type="button" className="btn btn--primary" onClick={onImport}>
-          <Music size={18} /> BGM / 音源を追加
-        </button>
-        <button
-          type="button"
-          className="btn btn--record"
-          onClick={onRecord}
-          title={hasBgm ? "BGMに合わせて録音" : "先にBGMを追加するとオケに合わせて録音できます"}
-        >
-          <Mic size={18} /> {hasBgm ? "オーバーダビ録音" : "録音（単独）"}
-        </button>
-        {onHumMelody && (
-          <button type="button" className="btn btn--ghost" onClick={onHumMelody}>
-            <AudioLines size={18} /> 鼻歌→メロディ
-          </button>
-        )}
-      </div>
-      {!hasBgm && (
-        <p className="workspace-empty__hint">
-          ヒント: オケを入れてから録音。自分の声の跳ね返りはモニターOFFのままが安全です。録音時にソフト側でノイズを落とします。
-        </p>
-      )}
+      <p className="workspace-empty__hint">
+        ヒント: オケを入れてから録音。自分の声の跳ね返りはモニターOFFのままが安全です。録音時にソフト側でノイズを落とします。
+      </p>
     </div>
   );
 }

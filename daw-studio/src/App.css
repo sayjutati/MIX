@@ -122,9 +122,11 @@ input[type="number"] {
 
 /* ===== App shell ===== */
 .app {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto minmax(240px, 1fr) minmax(120px, var(--fx-h, 220px));
   height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   background: var(--bg);
 }
 
@@ -509,7 +511,7 @@ input[type="number"] {
 
 /* ===== Workspace ===== */
 .workspace {
-  flex: 1;
+  min-height: 0;
   overflow: auto;
   position: relative;
   background: #0f0f15;
@@ -518,7 +520,8 @@ input[type="number"] {
 }
 .workspace__inner {
   position: relative;
-  padding-bottom: 120px;
+  min-height: 100%;
+  padding-bottom: 48px;
 }
 
 .timeline-ruler {
@@ -528,7 +531,7 @@ input[type="number"] {
   z-index: 20;
   background: var(--surface-1);
   border-bottom: 1px solid var(--border);
-  height: 32px;
+  height: 44px;
 }
 .timeline-ruler__label {
   width: 250px;
@@ -564,9 +567,9 @@ input[type="number"] {
 }
 .timeline-tick--major {
   top: 0;
-  height: 32px;
+  height: 44px;
   border-left-color: #43434f;
-  color: #8a8a98;
+  color: #c4c4d0;
   font-weight: 600;
 }
 
@@ -576,9 +579,19 @@ input[type="number"] {
   bottom: 0;
   width: 20px;
   margin-left: -10px;
-  z-index: 50;
-  cursor: ew-resize;
+  z-index: 5;
+  pointer-events: none;
   background: transparent;
+}
+.playhead__cap {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 18px;
+  height: 14px;
+  margin-left: -9px;
+  pointer-events: auto;
+  cursor: ew-resize;
 }
 .playhead__line {
   position: absolute;
@@ -605,7 +618,7 @@ input[type="number"] {
 /* ===== Timeline grid / loop region ===== */
 .timeline-grid {
   position: absolute;
-  top: 32px;
+  top: 44px;
   bottom: 0;
   left: 0;
   right: 0;
@@ -624,7 +637,7 @@ input[type="number"] {
 }
 .loop-region {
   position: absolute;
-  top: 32px;
+  top: 44px;
   bottom: 0;
   z-index: 4;
   background: rgba(52, 211, 153, 0.09);
@@ -883,6 +896,8 @@ input[type="number"] {
 
 /* ===== Empty workspace ===== */
 .workspace-empty {
+  position: relative;
+  z-index: 60;
   padding: 56px 32px 80px 282px;
   max-width: 760px;
 }
@@ -926,11 +941,6 @@ input[type="number"] {
   font-weight: 700;
   color: var(--accent);
   flex-shrink: 0;
-}
-.workspace-empty__actions {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
 }
 .workspace-empty__hint {
   margin-top: 18px;
@@ -983,10 +993,9 @@ input[type="number"] {
 
 /* ===== FX panel ===== */
 .fx-panel {
-  --fx-knob-w: 114px;
-  --fx-knob-dial: 78px;
-  --fx-knob-gap: 12px;
-  flex-shrink: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
   background: linear-gradient(180deg, #191921 0%, #131319 100%);
   display: flex;
   flex-direction: column;
@@ -1038,25 +1047,23 @@ input[type="number"] {
 }
 .fx-panel__content {
   display: flex;
-  height: 100%;
-  min-height: 0;
+  align-items: stretch;
+  min-height: 100%;
+  min-width: max-content;
 }
 .fx-panel__track-info {
-  width: calc(var(--fx-knob-w) * 2 + var(--fx-knob-gap) + 32px);
+  width: 196px;
   flex-shrink: 0;
-  padding: 16px;
+  padding: 12px 14px;
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  overflow: visible;
-}
-.fx-panel__knob-row {
-  display: flex;
-  gap: var(--fx-knob-gap);
-  width: calc(var(--fx-knob-w) * 2 + var(--fx-knob-gap));
+  gap: 10px;
 }
 .fx-panel__track-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: 800;
   font-size: 15px;
   color: var(--text);
@@ -1066,111 +1073,125 @@ input[type="number"] {
   color: var(--text-faint);
   letter-spacing: 0.03em;
 }
-.fx-panel__nudge-hint {
-  margin: -4px 0 6px;
-  font-size: 10px;
-  color: var(--text-faint);
-  line-height: 1.5;
-}
-.fx-panel__knob-strip {
+.fx-panel__groups {
   flex: 1;
-  min-width: 0;
   display: flex;
-  flex-wrap: nowrap;
-  align-items: flex-start;
-  gap: var(--fx-knob-gap);
-  padding: 16px;
-  overflow-x: auto;
-  overflow-y: visible;
-}
-.fx-panel__knob-divider {
-  width: 1px;
-  flex-shrink: 0;
-  align-self: stretch;
-  min-height: 150px;
-  background: var(--border);
-  margin: 0 7px;
+  align-items: stretch;
 }
 
-/* ===== FX knob ===== */
-.fx-knob {
+/* ===== FX group（横一列に並ぶ列） ===== */
+.fx-group {
+  flex: 1 0 184px;
+  min-width: 184px;
+  max-width: 280px;
+  padding: 10px 14px 12px;
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 8px;
-  width: var(--fx-knob-w);
-  flex-shrink: 0;
 }
-.fx-knob__dial-wrap {
-  position: relative;
-  width: var(--fx-knob-dial);
-  height: var(--fx-knob-dial);
+.fx-group:last-child {
+  border-right: none;
 }
-.fx-knob__dial {
+.fx-group__title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+}
+.fx-group__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ===== FX slider（バー） ===== */
+.fx-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  background: conic-gradient(
-    from 225deg,
-    var(--accent) 0deg,
-    var(--accent-2) calc(var(--fill, 0) * 270deg),
-    #2a2a35 calc(var(--fill, 0) * 270deg),
-    #2a2a35 270deg
-  );
-  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.4);
-  position: relative;
 }
-.fx-knob__dial::after {
-  content: "";
-  position: absolute;
-  inset: 8px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 50% 35%, #2b2b36, #14141b);
+.fx-slider__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
 }
-.fx-knob__indicator {
-  position: absolute;
-  top: 10px;
-  left: 50%;
-  width: 4px;
-  height: 14px;
-  margin-left: -2px;
-  background: #bcd3fb;
-  border-radius: 2px;
-  transform-origin: 50% 27px;
-  transform: rotate(var(--angle, -135deg));
-  z-index: 2;
-}
-.fx-knob__range {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
-  width: 100%;
-  height: 100%;
-}
-.fx-knob__label {
+.fx-slider__label {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
-  text-align: center;
-  line-height: 1.3;
+  white-space: nowrap;
 }
-.fx-knob__value {
-  font-size: 14px;
+.fx-slider__value {
+  font-size: 12px;
   font-weight: 700;
-  color: #7fa9f7;
+  color: var(--text-faint);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-.fx-knob__nudge {
+.fx-slider__value.is-changed {
+  color: #7fa9f7;
+}
+.fx-slider__row {
   display: flex;
-  gap: 5px;
-  width: 100%;
+  align-items: center;
+  gap: 4px;
 }
-.fx-knob__nudge button {
+.fx-slider__range {
+  -webkit-appearance: none;
+  appearance: none;
   flex: 1;
-  height: 27px;
-  font-size: 13px;
+  min-width: 0;
+  height: 6px;
+  margin: 0 4px;
+  border-radius: 3px;
+  cursor: pointer;
+  background: linear-gradient(
+    90deg,
+    #2a2a35 0,
+    #2a2a35 calc(var(--lo, 0) * 100%),
+    var(--accent) calc(var(--lo, 0) * 100%),
+    var(--accent-2) calc(var(--hi, 0) * 100%),
+    #2a2a35 calc(var(--hi, 0) * 100%),
+    #2a2a35 100%
+  );
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+.fx-slider__range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #e5edff;
+  border: 2px solid var(--accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  transition: transform 0.1s;
+}
+.fx-slider__range::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #e5edff;
+  border: 2px solid var(--accent);
+}
+.fx-slider__range:hover::-webkit-slider-thumb,
+.fx-slider__range:focus-visible::-webkit-slider-thumb {
+  transform: scale(1.2);
+}
+.fx-slider__range:focus {
+  outline: none;
+}
+.fx-slider__btn {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  font-size: 12px;
   font-weight: 700;
+  line-height: 1;
   background: var(--surface-2);
   border: 1px solid var(--border);
   color: var(--text-muted);
@@ -1178,18 +1199,19 @@ input[type="number"] {
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
-.fx-knob__nudge button:hover {
+.fx-slider__btn:hover {
   background: var(--surface-hover);
   color: #fff;
+}
+.fx-slider__btn--reset {
+  margin-left: 2px;
 }
 
 /* ===== FX help popup ===== */
 .fx-help-tip {
   position: relative;
-  display: flex;
-  justify-content: center;
-  width: var(--fx-knob-w);
-  flex-shrink: 0;
+  display: block;
+  width: 100%;
 }
 .fx-help-tip__popup {
   position: fixed;
@@ -1310,7 +1332,10 @@ input[type="number"] {
 }
 
 .take-comp {
-  margin: 0 16px 12px;
+  flex-shrink: 0;
+  align-self: flex-start;
+  width: 260px;
+  margin: 10px 12px;
   padding: 10px 12px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.04);
@@ -1661,6 +1686,29 @@ input[type="number"] {
   font-variant-numeric: tabular-nums;
   color: var(--text-faint);
   min-width: 36px;
+}
+.mic-gain {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--ctrl-h);
+  padding: 0 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.mic-gain input {
+  width: 84px;
+  accent-color: var(--accent);
+}
+.mic-gain__value {
+  min-width: 32px;
+  font-variant-numeric: tabular-nums;
+  color: #7fa9f7;
 }
 
 /* ===== コンテキストメニュー 区切り ===== */

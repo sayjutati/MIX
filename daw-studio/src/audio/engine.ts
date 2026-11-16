@@ -14,6 +14,7 @@ import {
   resetPitchNode,
   sendPitchConfig,
 } from "./pitchWorklet";
+import { MIC_GAIN_DEFAULT } from "./recording";
 
 export type TrackStateRef = {
   getTrack: () => Track;
@@ -517,10 +518,12 @@ class AudioEngine {
   /** 録音モニター開始：マイク入力をヘッドホンへ（メーターと同一ソース） */
   async startMonitor(stream: MediaStream) {
     await this.ensureInputTap(stream);
-    if (this.monitorGain) this.monitorGain.gain.value = 1;
+    this._monitorOn = true;
+    if (this.monitorGain) this.monitorGain.gain.value = this._micInputGain;
   }
 
   stopMonitor() {
+    this._monitorOn = false;
     if (this.monitorGain) this.monitorGain.gain.value = 0;
   }
 
@@ -531,6 +534,14 @@ class AudioEngine {
   private inputSource: MediaStreamAudioSourceNode | null = null;
   private inputAnalyser: AnalyserNode | null = null;
   private inputBuf: Float32Array | null = null;
+  private _micInputGain = MIC_GAIN_DEFAULT;
+  private _monitorOn = false;
+
+  /** 録音データとメーター、モニターに掛けるマイク音量 */
+  setMicInputGain(value: number) {
+    this._micInputGain = value;
+    if (this._monitorOn && this.monitorGain) this.monitorGain.gain.value = value;
+  }
 
   /**
    * 1 本の MediaStreamSource から
@@ -598,7 +609,7 @@ class AudioEngine {
       const v = Math.abs(this.inputBuf[i] ?? 0);
       if (v > peak) peak = v;
     }
-    return Math.min(1, peak);
+    return Math.min(1, peak * this._micInputGain);
   }
 
   /** 入力波形を dest にコピー（ライブ可視化） */
@@ -606,7 +617,7 @@ class AudioEngine {
     if (!this.inputAnalyser || !this.inputBuf) return false;
     this.inputAnalyser.getFloatTimeDomainData(this.inputBuf);
     const n = Math.min(dest.length, this.inputBuf.length);
-    for (let i = 0; i < n; i++) dest[i] = this.inputBuf[i] ?? 0;
+    for (let i = 0; i < n; i++) dest[i] = (this.inputBuf[i] ?? 0) * this._micInputGain;
     return true;
   }
 }

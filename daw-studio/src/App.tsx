@@ -26,7 +26,16 @@ import {
   HelpCircle,
 } from "lucide-react";
 import { audioEngine } from "./audio/engine";
-import { createMediaRecorder, createMicStream, listMicDevices } from "./audio/recording";
+import {
+  createMediaRecorder,
+  createMicStream,
+  listMicDevices,
+  MIC_GAIN_DEFAULT,
+  MIC_GAIN_MAX,
+  MIC_GAIN_MIN,
+  readStoredMicGain,
+  storeMicGain,
+} from "./audio/recording";
 import { encodeMixdown, EXPORT_FORMAT_OPTIONS, type ExportFormat } from "./audio/export";
 import { audioBufferToWav, renderMixdown, renderTrackStem } from "./audio/mixdown";
 import { deserializeProject, serializeProject } from "./storage/projectIO";
@@ -44,7 +53,7 @@ import { renderMelodySynth } from "./audio/humToMelody";
 import { FxPanel, type FxMode } from "./components/FxPanel";
 import { bufferToMono, renderPitchCorrected, renderWholeShift } from "./audio/pitch";
 import { alignVocalToBgm } from "./audio/autoAlign";
-import { cleanRecordedVocal } from "./audio/recordCleanup";
+import { applyBufferGain, cleanRecordedVocal } from "./audio/recordCleanup";
 import { detectNotesAsync } from "./audio/pitchDetectClient";
 import { TrackItem } from "./components/TrackItem";
 import { MasterMeter } from "./components/MasterMeter";
@@ -87,7 +96,7 @@ function App() {
   const [mp3Bitrate, setMp3Bitrate] = useState(192);
   const [normalizeMode, setNormalizeMode] = useState<"off" | "peak" | "lufs14" | "lufs16">("peak");
   const [exportStems, setExportStems] = useState(false);
-  const [fxPanelHeight, setFxPanelHeight] = useState(280);
+  const [fxPanelHeight, setFxPanelHeight] = useState(220);
   const [autosaveReady, setAutosaveReady] = useState(false);
   const autosaveSchedulerRef = useRef(new AutosaveScheduler());
 
@@ -106,6 +115,9 @@ function App() {
   autoLatencyCompRef.current = autoLatencyComp;
   const [micDeviceId, setMicDeviceId] = useState<string>("");
   const [micDevices, setMicDevices] = useState<MediaDeviceInfo[]>([]);
+  const [micGain, setMicGain] = useState(readStoredMicGain);
+  const micGainRef = useRef(micGain);
+  micGainRef.current = micGain;
 
   const [globalTime, setGlobalTime] = useState(0);
   const globalTimeRef = useRef(0);
@@ -158,6 +170,16 @@ function App() {
   const [fxHelpOn, setFxHelpOn] = useState(true);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [timelineViewWidth, setTimelineViewWidth] = useState(0);
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const measure = () => setTimelineViewWidth(el.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -167,11 +189,15 @@ function App() {
 
   const hasSolo = tracks.some((t) => t.isSolo);
   const hasBgm = tracks.some((t) => t.kind === "bgm");
+  const hasClips = tracks.some((t) => t.clips.length > 0);
   const selectedTrack = tracks.find((t) => t.id === selectedTrackId);
   const playheadTrack = selectedTrack ?? tracks[0];
   const playheadTrackRef = useRef(playheadTrack);
   playheadTrackRef.current = playheadTrack;
-  const maxDuration = Math.max(15, ...tracks.map((t) => trackTimelineEnd(t)));
+  const contentEnd = Math.max(0, ...tracks.map((t) => trackTimelineEnd(t)));
+  const contentEndRef = useRef(contentEnd);
+  contentEndRef.current = contentEnd;
+  const maxDuration = Math.max(15, contentEnd);
 
   // Undo / Redo（構造操作のスナップショット）
   const tracksRef = useRef(tracks);
@@ -377,6 +403,11 @@ function App() {
     audioEngine.setMasterVolume(masterVolume);
   }, [masterVolume]);
 
+  useEffect(() => {
+    audioEngine.setMicInputGain(micGain);
+    storeMicGain(micGain);
+  }, [micGain]);
+
   // マイク一覧の取得＆デバイス変更の監視
   useEffect(() => {
     void listMicDevices().then(setMicDevices);
@@ -399,6 +430,15 @@ function App() {
       const lp = loopRef.current;
       if (lp.enabled && lp.end - lp.start > 0.05 && currentTime >= lp.end) {
         seekFnRef.current(lp.start);
+        return;
+      }
+
+      // 録音（準備中のカウントイン含む）以外は、最後のクリップの終端で自動停止
+      const end = contentEndRef.current;
+      if (!isRecording && !recordingBusyRef.current && end > 0 && currentTime >= end) {
+        globalTimeRef.current = end;
+        setGlobalTime(end);
+        setIsPlayingGlobal(false);
         return;
       }
 
@@ -452,17 +492,19 @@ function App() {
 
   // キーボードショートカット
   useEffect(() => {
+    // スライダー・チェックボックスにフォーカスが残っていてもショートカットは効かせる
+    const isTextEntry = (el: HTMLElement | null) => {
+      if (!el) return false;
+      if (el.isContentEditable || el.tagName === "TEXTAREA" || el.tagName === "SELECT") return true;
+      if (el.tagName !== "INPUT") return false;
+      return !["range", "checkbox", "radio", "button"].includes((el as HTMLInputElement).type);
+    };
+    // フォーカス中のボタンが Space で押されるのを防ぐ（Firefox は keyup で発火）
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space" && !isTextEntry(e.target as HTMLElement)) e.preventDefault();
+    };
     const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement;
-      if (
-        el &&
-        (el.tagName === "INPUT" ||
-          el.tagName === "TEXTAREA" ||
-          el.tagName === "SELECT" ||
-          el.isContentEditable)
-      ) {
-        return;
-      }
+      if (isTextEntry(e.target as HTMLElement)) return;
       const a = actionsRef.current;
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === "z") {
@@ -476,10 +518,13 @@ function App() {
         return;
       } else if (e.code === "Space") {
         e.preventDefault();
-        if (!e.repeat) a.isPlaying ? a.stop() : void a.play();
-      } else if ((e.key === "r" || e.key === "R") && !e.repeat) {
+        if (e.repeat) return;
+        a.isPlaying || a.isRecording ? a.stop() : void a.play();
+      } else if (e.code === "KeyV" && !e.repeat) {
+        e.preventDefault();
         a.isRecording ? a.stopRecording() : void a.startRecording();
-      } else if (e.key === "Home") {
+      } else if (e.key === "Home" || ((e.key === "s" || e.key === "S") && !e.repeat)) {
+        e.preventDefault();
         a.seek(0);
       } else if (e.key === "Delete" && a.selectedTrackId != null && !e.repeat) {
         e.preventDefault();
@@ -493,7 +538,11 @@ function App() {
       }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKeyUp);
+    };
   }, []);
 
   const handlePanelResizeStart = (e: React.MouseEvent) => {
@@ -653,13 +702,20 @@ function App() {
   };
 
   const handleTimelineClick = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest(".track-clip")) return;
+    // 音源が入るまではシークしない。ボタンのクリックが親へ泡立っても線を動かさない
+    if (!hasClips) return;
+    const target = e.target as HTMLElement;
+    if (!target.closest) return;
+    if (target.closest(".workspace-empty, button, a, input, select, label, .track-row__header")) return;
+    if (target.closest(".track-clip")) return;
     if ((e.target as HTMLElement).closest(".playhead")) return;
     if (isDraggingPlayheadRef.current) return;
     seekToTime(clientXToTime(e.clientX));
   };
 
   const playAll = async () => {
+    const end = contentEndRef.current;
+    if (end > 0 && globalTimeRef.current >= end - 0.05) seekToTime(0);
     await audioEngine.ensureRunning();
     nextClickRef.current = Math.ceil(globalTimeRef.current / (60 / bpm)) * (60 / bpm);
     setIsPlayingGlobal(true);
@@ -1088,9 +1144,10 @@ function App() {
           const { ctx } = audioEngine.getContext();
           decoded = await ctx.decodeAudioData(await rawBlob.arrayBuffer());
           try {
-            decoded = await cleanRecordedVocal(decoded);
+            decoded = await cleanRecordedVocal(decoded, micGainRef.current);
           } catch (e) {
             console.warn("録音ノイズ除去をスキップ:", e);
+            applyBufferGain(decoded, micGainRef.current);
           }
           duration = decoded.duration;
 
@@ -1149,14 +1206,7 @@ function App() {
           return [...prev, t];
         });
 
-        setGlobalTime(offset);
-        globalTimeRef.current = offset;
-        audioEngine.seek(offset);
         autosaveSchedulerRef.current.flush();
-
-        window.setTimeout(() => {
-          setIsPlayingGlobal(true);
-        }, 80);
       };
 
       if (monitorOnRef.current) {
@@ -1413,14 +1463,21 @@ function App() {
     }
   };
 
-  const timelineTicks = Array.from({ length: Math.ceil(maxDuration) + 21 }, (_, i) => i);
+  const visibleSeconds =
+    timelineViewWidth > TRACK_HEADER_WIDTH
+      ? (timelineViewWidth - TRACK_HEADER_WIDTH) / pxPerSec
+      : 0;
+  const rulerSeconds = Math.max(maxDuration + 4, visibleSeconds);
+  const timelineTicks = Array.from({ length: Math.ceil(rulerSeconds) + 1 }, (_, i) => i);
 
   // ズームに応じたルーラー目盛り間隔（秒）
   const tickStep = (() => {
-    const target = 56; // 目盛り間の最小px
+    const target = 48; // 目盛り間の最小px
     const raw = target / pxPerSec;
     return [1, 2, 5, 10, 15, 30, 60].find((s) => s >= raw) ?? 60;
   })();
+  // 秒数ラベルは、読める間隔なら目盛りの2つおき。狭いときは5つおき
+  const labelStep = tickStep * (tickStep * 2 * pxPerSec >= 64 ? 2 : 5);
 
   // 小節/拍グリッド線
   const gridLines: { t: number; bar: boolean }[] = [];
@@ -1458,7 +1515,7 @@ function App() {
   return (
     <FxHelpContext.Provider value={fxHelpOn}>
     <GlobalTooltip enabled={fxHelpOn} />
-    <div className="app">
+    <div className="app" style={{ "--fx-h": `${fxPanelHeight}px` } as React.CSSProperties}>
       <header className="toolbar">
         <div className="toolbar__left">
           <span className="toolbar__brand">MIX DAW</span>
@@ -1558,15 +1615,15 @@ function App() {
           </div>
 
         <div className="transport">
-          <button type="button" className="tooltip transport__btn-ghost" data-tooltip="最初に戻る" onClick={() => seekToTime(0)}>
+          <button type="button" className="tooltip transport__btn-ghost" data-tooltip="最初に戻る（Sキーで操作可能）" onClick={() => seekToTime(0)}>
             <SkipBack size={20} />
           </button>
           {isPlayingGlobal ? (
-            <button type="button" className="transport__btn-stop" onClick={stopAll}>
+            <button type="button" className="transport__btn-stop tooltip" data-tooltip="停止（Spaceキーで操作可能）" onClick={stopAll}>
               <Square size={20} fill="currentColor" />
             </button>
           ) : (
-            <button type="button" className="transport__btn-play" onClick={() => void playAll()}>
+            <button type="button" className="transport__btn-play tooltip" data-tooltip="再生（Spaceキーで操作可能）" onClick={() => void playAll()}>
               <Play size={22} fill="currentColor" style={{ marginLeft: 4 }} />
             </button>
           )}
@@ -1602,19 +1659,24 @@ function App() {
             <button
               type="button"
               className="transport__btn-rec tooltip"
-              data-tooltip={
+              data-tooltip={`${
                 selectedTrack && selectedTrack.kind !== "bgm"
                   ? `「${selectedTrack.name}」に重ねて録音`
                   : hasBgm
                   ? "BGM再生しながら新規レーンに録音"
                   : "録音（BGM追加後はオケに合わせて重ね録り）"
-              }
+              }（Vキーで操作可能）`}
               onClick={() => void startRecording()}
             >
               <Mic size={20} />
             </button>
           ) : (
-            <button type="button" className="transport__btn-rec transport__btn-rec--active" onClick={stopRecording}>
+            <button
+              type="button"
+              className="transport__btn-rec transport__btn-rec--active tooltip"
+              data-tooltip="録音停止（Vキーで操作可能）"
+              onClick={stopRecording}
+            >
               <Square size={16} fill="currentColor" />
             </button>
           )}
@@ -1640,13 +1702,30 @@ function App() {
             <Headphones size={18} />
           </button>
           <InputMeter live={isRecording} />
+          <label
+            className="mic-gain tooltip"
+            data-tooltip="マイクの音量。録音データとレベルメーターに反映されます。ダブルクリックで3.0xに戻す"
+          >
+            <span>マイク音量</span>
+            <input
+              type="range"
+              min={MIC_GAIN_MIN}
+              max={MIC_GAIN_MAX}
+              step={0.1}
+              value={micGain}
+              aria-label="マイク音量"
+              onChange={(e) => setMicGain(parseFloat(e.target.value))}
+              onDoubleClick={() => setMicGain(MIC_GAIN_DEFAULT)}
+            />
+            <span className="mic-gain__value">{micGain.toFixed(1)}x</span>
+          </label>
 
           <div className="transport__divider" />
 
           <button
             type="button"
             className={`transport__btn-ghost tooltip ${loopEnabled ? "transport__btn-ghost--on" : ""}`}
-            data-tooltip="ループ再生 ON/OFF（A〜B区間を繰り返す・Lキー）"
+            data-tooltip="ループ再生 ON/OFF：A〜B区間を繰り返す（Lキーで操作可能）"
             onClick={() => setLoopEnabled((v) => !v)}
           >
             <Repeat size={18} />
@@ -1729,7 +1808,7 @@ function App() {
           <button
             type="button"
             className="toolbar__icon tooltip"
-            data-tooltip="元に戻す (Ctrl+Z)"
+            data-tooltip="元に戻す（Ctrl+Zで操作可能）"
             disabled={pastRef.current.length === 0}
             onClick={undo}
           >
@@ -1738,7 +1817,7 @@ function App() {
           <button
             type="button"
             className="toolbar__icon tooltip"
-            data-tooltip="やり直す (Ctrl+Shift+Z)"
+            data-tooltip="やり直す（Ctrl+Shift+Z / Ctrl+Yで操作可能）"
             disabled={futureRef.current.length === 0}
             onClick={redo}
           >
@@ -1746,7 +1825,7 @@ function App() {
           </button>
           <div className="toolbar__divider" />
           <div className="toolbar__zoom">
-            <button type="button" className="toolbar__icon tooltip" data-tooltip="ズームアウト (−)" onClick={() => zoomBy(0.8)}>
+            <button type="button" className="toolbar__icon tooltip" data-tooltip="ズームアウト（−キーで操作可能）" onClick={() => zoomBy(0.8)}>
               <ZoomOut size={16} />
             </button>
             <input
@@ -1759,7 +1838,7 @@ function App() {
               className="toolbar__zoom-slider tooltip"
               data-tooltip={`ズーム ${Math.round(pxPerSec)}px/秒`}
             />
-            <button type="button" className="toolbar__icon tooltip" data-tooltip="ズームイン (+)" onClick={() => zoomBy(1.25)}>
+            <button type="button" className="toolbar__icon tooltip" data-tooltip="ズームイン（+キーで操作可能）" onClick={() => zoomBy(1.25)}>
               <ZoomIn size={16} />
             </button>
             <button type="button" className="toolbar__icon tooltip" data-tooltip="画面幅に合わせる" onClick={fitToWidth}>
@@ -1811,7 +1890,10 @@ function App() {
       </header>
 
       <div ref={scrollContainerRef} className="workspace" onClick={handleTimelineClick}>
-        <div className="workspace__inner" style={{ minWidth: `${timelineX(maxDuration, pxPerSec)}px` }}>
+        <div
+          className="workspace__inner"
+          style={{ minWidth: `max(100%, ${timelineX(maxDuration, pxPerSec)}px)` }}
+        >
           <div className="timeline-ruler">
             <div className="timeline-ruler__label">TIMELINE</div>
             <div className="timeline-ruler__ticks">
@@ -1820,10 +1902,10 @@ function App() {
                 .map((t) => (
                   <div
                     key={t}
-                    className={`timeline-tick ${t % (tickStep * 5) === 0 ? "timeline-tick--major" : ""}`}
+                    className={`timeline-tick ${t % labelStep === 0 ? "timeline-tick--major" : ""}`}
                     style={{ left: `${TIMELINE_PAD + t * pxPerSec}px` }}
                   >
-                    {t % (tickStep * 5) === 0
+                    {t % labelStep === 0
                       ? showBarsBeats
                         ? formatBarsBeats(t, bpm).split(".")[0]
                         : `${t}s`
@@ -1857,12 +1939,7 @@ function App() {
           )}
 
           {tracks.length === 0 ? (
-            <EmptyWorkspace
-              hasBgm={hasBgm}
-              onImport={() => document.getElementById("import-audio")?.click()}
-              onRecord={() => void startRecording()}
-              onHumMelody={() => setHumMelodyOpen(true)}
-            />
+            <EmptyWorkspace />
           ) : (
             tracks.map((track, idx) => (
               <TrackItem
@@ -1893,15 +1970,20 @@ function App() {
             ))
           )}
 
-          <div
-            className="playhead"
-            style={{ left: `${playheadVisualX(globalTime, playheadTrack, pxPerSec)}px` }}
-            onPointerDown={handlePlayheadDragStart}
-            onClick={(e) => e.stopPropagation()}
-            title="ドラッグして再生位置を移動"
-          >
-            <div className="playhead__line" aria-hidden />
-          </div>
+          {hasClips && (
+            <div
+              className="playhead"
+              style={{ left: `${playheadVisualX(globalTime, playheadTrack, pxPerSec)}px` }}
+            >
+              <div
+                className="playhead__cap"
+                onPointerDown={handlePlayheadDragStart}
+                onClick={(e) => e.stopPropagation()}
+                title="ドラッグして再生位置を移動"
+              />
+              <div className="playhead__line" aria-hidden />
+            </div>
+          )}
         </div>
             </div>
 

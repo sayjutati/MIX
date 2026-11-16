@@ -1,9 +1,10 @@
 import { Sliders, Music2 } from "lucide-react";
+import type { ReactNode } from "react";
 import { MELODY_VOICES, type MelodyVoiceId, type PitchNote, type Track } from "../types";
 import { trackTimelineEnd } from "../types";
 import { FX_TOOLTIPS } from "../data/fxTooltips";
 import { formatTime } from "../utils/time";
-import { EffectKnob } from "./EffectKnob";
+import { EffectSlider, type EffectSliderProps } from "./EffectSlider";
 import { PitchEditor } from "./PitchEditor";
 import { TakeComp } from "./TakeComp";
 
@@ -18,6 +19,8 @@ export const FX_PRESETS: { id: string; label: string; values: Partial<Track> }[]
   { id: "natural", label: "ナチュラル（控えめ）", values: { bass: 0, treble: 1, compressor: 0.25, deEss: 0.25, noiseReduce: 0.08, reverb: 0.12, delay: 0, chorus: 0 } },
   { id: "radio", label: "ラジオボイス（細い）", values: { bass: -8, treble: 5, compressor: 0.7, deEss: 0.3, noiseReduce: 0.2, reverb: 0, delay: 0, chorus: 0 } },
 ];
+
+type SliderField = keyof typeof FX_TOOLTIPS & keyof Track;
 
 type Props = {
   height: number;
@@ -45,8 +48,16 @@ type Props = {
   voiceBusy?: boolean;
 };
 
+function FxGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="fx-group">
+      <div className="fx-group__title">{title}</div>
+      <div className="fx-group__body">{children}</div>
+    </section>
+  );
+}
+
 export function FxPanel({
-  height,
   selectedTrack,
   onResizeStart,
   onUpdate,
@@ -71,13 +82,37 @@ export function FxPanel({
   voiceBusy,
 }: Props) {
   const pct = (v: number) => `${Math.round(v * 100)}%`;
+  const signed = (v: number, digits = 0) =>
+    v === 0 ? "0" : v > 0 ? `+${v.toFixed(digits)}` : v.toFixed(digits);
   const pitchAllowed = !!selectedTrack && selectedTrack.kind !== "bgm";
   const mode: FxMode = pitchAllowed ? fxMode : "fx";
   const pitchClip =
     selectedTrack?.clips.find((c) => c.id === pitchClipId) ?? selectedTrack?.clips[0];
 
+  const slider = (
+    track: Track,
+    field: SliderField,
+    label: string,
+    range: [min: string, max: string, step: string],
+    extra: Partial<EffectSliderProps> = {}
+  ) => (
+    <EffectSlider
+      key={field}
+      label={label}
+      min={range[0]}
+      max={range[1]}
+      step={range[2]}
+      value={(track[field] as number | undefined) ?? 0}
+      onChange={(v) => onUpdate(track.id, field, v)}
+      defaultValue={0}
+      helpTitle={FX_TOOLTIPS[field].title}
+      helpDescription={FX_TOOLTIPS[field].description}
+      {...extra}
+    />
+  );
+
   return (
-    <div className="fx-panel" style={{ height: `${height}px` }}>
+    <div className="fx-panel" style={{ height: "100%" }}>
       <div className="fx-panel__handle" onMouseDown={onResizeStart} title="ドラッグして高さを調整">
         <div className="fx-panel__handle-title">
           {mode === "pitch" ? <Music2 size={14} /> : <Sliders size={14} />}
@@ -135,58 +170,14 @@ export function FxPanel({
           </div>
         ) : selectedTrack ? (
           <div className="fx-panel__content">
-            <TakeComp
-              track={selectedTrack}
-              onSelectTake={(clipId) => onSelectTake(selectedTrack.id, clipId)}
-              onAuditionTake={(clipId) => onAuditionTake(selectedTrack.id, clipId)}
-              onToggleTakeMuted={(clipId) => onToggleTakeMuted(selectedTrack.id, clipId)}
-            />
             <div className="fx-panel__track-info">
               <div className="fx-panel__track-name" style={{ color: selectedTrack.color }}>
                 {selectedTrack.name}
               </div>
               <div className="fx-panel__track-meta">
-                {selectedTrack.kind === "bgm" ? "BGM / オケ" : "ボーカル / 録音"} ·{" "}
-                テイク {selectedTrack.clips.length} · {formatTime(trackTimelineEnd(selectedTrack))}
-                {(selectedTrack.nudgeMs ?? 0) !== 0 && (
-                  <> · nudge {selectedTrack.nudgeMs > 0 ? "+" : ""}{selectedTrack.nudgeMs.toFixed(1)} ms</>
-                )}
+                {selectedTrack.kind === "bgm" ? "BGM / オケ" : "ボーカル / 録音"} · テイク{" "}
+                {selectedTrack.clips.length} · {formatTime(trackTimelineEnd(selectedTrack))}
               </div>
-              <EffectKnob
-                label="タイミング補正"
-                min="-100"
-                max="100"
-                step="0.1"
-                value={selectedTrack.nudgeMs ?? 0}
-                onChange={(v) => onUpdate(selectedTrack.id, "nudgeMs", v)}
-                defaultValue={0}
-                formatValue={(v) =>
-                  (v === 0 ? "0" : v > 0 ? `+${v.toFixed(1)}` : v.toFixed(1)) + " ms"
-                }
-                helpTitle={FX_TOOLTIPS.nudgeMs.title}
-                helpDescription={FX_TOOLTIPS.nudgeMs.description}
-              />
-              {selectedTrack.synthVoice && onChangeVoice && (
-                <div className="fx-panel__voices">
-                  <span>音色</span>
-                  <div className="voice-picks">
-                    {MELODY_VOICES.map((v) => (
-                      <button
-                        key={v.id}
-                        type="button"
-                        className={`voice-picks__btn${selectedTrack.synthVoice === v.id ? " is-on" : ""}`}
-                        disabled={voiceBusy}
-                        onClick={() => onChangeVoice(selectedTrack.id, v.id)}
-                      >
-                        {v.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <p className="fx-panel__nudge-hint">
-                録音時に自動補正済み。まだズレるときだけ手動で微調整（遅れ→マイナス / 早い→プラス）
-              </p>
               <label className="fx-panel__preset">
                 <span>プリセット</span>
                 <select
@@ -207,186 +198,72 @@ export function FxPanel({
                   ))}
                 </select>
               </label>
-              <div className="fx-panel__knob-row">
-                <EffectKnob
-                  label="再生速度"
-                  min="0.5"
-                  max="2"
-                  step="0.01"
-                  value={selectedTrack.speed}
-                  onChange={(v) => onUpdate(selectedTrack.id, "speed", v)}
-                  defaultValue={1}
-                  formatValue={(v) => `${v.toFixed(2)}x`}
-                  helpTitle={FX_TOOLTIPS.speed.title}
-                  helpDescription={FX_TOOLTIPS.speed.description}
-                />
-                <EffectKnob
-                  label="キー変更"
-                  min="-12"
-                  max="12"
-                  step="1"
-                  value={selectedTrack.pitch}
-                  onChange={(v) => onUpdate(selectedTrack.id, "pitch", v)}
-                  defaultValue={0}
-                  formatValue={(v) => (v === 0 ? "0" : v > 0 ? `+${v}` : `${v}`) + " sem"}
-                  helpTitle={FX_TOOLTIPS.pitch.title}
-                  helpDescription={FX_TOOLTIPS.pitch.description}
-                />
-              </div>
+              {selectedTrack.synthVoice && onChangeVoice && (
+                <div className="fx-panel__voices">
+                  <span>音色</span>
+                  <div className="voice-picks">
+                    {MELODY_VOICES.map((v) => (
+                      <button
+                        key={v.id}
+                        type="button"
+                        className={`voice-picks__btn${selectedTrack.synthVoice === v.id ? " is-on" : ""}`}
+                        disabled={voiceBusy}
+                        onClick={() => onChangeVoice(selectedTrack.id, v.id)}
+                      >
+                        {v.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
-            <div className="fx-panel__knob-strip">
-              <EffectKnob
-                label="L ◀ Pan ▶ R"
-                min="-1"
-                max="1"
-                step="0.01"
-                value={selectedTrack.pan}
-                onChange={(v) => onUpdate(selectedTrack.id, "pan", v)}
-                formatValue={(v) =>
-                  v === 0 ? "C" : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`
-                }
-                defaultValue={0}
-                helpTitle={FX_TOOLTIPS.pan.title}
-                helpDescription={FX_TOOLTIPS.pan.description}
-              />
-              <EffectKnob
-                label="低音 Bass"
-                min="-15"
-                max="15"
-                step="1"
-                value={selectedTrack.bass}
-                onChange={(v) => onUpdate(selectedTrack.id, "bass", v)}
-                unit=" dB"
-                defaultValue={0}
-                helpTitle={FX_TOOLTIPS.bass.title}
-                helpDescription={FX_TOOLTIPS.bass.description}
-              />
-              <EffectKnob
-                label="高音 Treble"
-                min="-15"
-                max="15"
-                step="1"
-                value={selectedTrack.treble}
-                onChange={(v) => onUpdate(selectedTrack.id, "treble", v)}
-                unit=" dB"
-                defaultValue={0}
-                helpTitle={FX_TOOLTIPS.treble.title}
-                helpDescription={FX_TOOLTIPS.treble.description}
-              />
-              <div className="fx-panel__knob-divider" aria-hidden />
-              <EffectKnob
-                label="コンプ"
-                min="0"
-                max="1"
-                step="0.01"
-                value={selectedTrack.compressor}
-                onChange={(v) => onUpdate(selectedTrack.id, "compressor", v)}
-                formatValue={pct}
-                defaultValue={0}
-                helpTitle={FX_TOOLTIPS.compressor.title}
-                helpDescription={FX_TOOLTIPS.compressor.description}
-              />
-              <EffectKnob
-                label="ノイズ除去"
-                min="0"
-                max="1"
-                step="0.01"
-                value={selectedTrack.noiseReduce}
-                onChange={(v) => onUpdate(selectedTrack.id, "noiseReduce", v)}
-                formatValue={pct}
-                defaultValue={0}
-                helpTitle={FX_TOOLTIPS.noiseReduce.title}
-                helpDescription={FX_TOOLTIPS.noiseReduce.description}
-              />
-              <EffectKnob
-                label="ディエッサー"
-                min="0"
-                max="1"
-                step="0.01"
-                value={selectedTrack.deEss ?? 0}
-                onChange={(v) => onUpdate(selectedTrack.id, "deEss", v)}
-                formatValue={pct}
-                defaultValue={0}
-                helpTitle={FX_TOOLTIPS.deEss.title}
-                helpDescription={FX_TOOLTIPS.deEss.description}
-              />
-              <div className="fx-panel__knob-divider" aria-hidden />
-              <EffectKnob
-                label="リバーブ"
-                min="0"
-                max="1"
-                step="0.01"
-                value={selectedTrack.reverb}
-                onChange={(v) => onUpdate(selectedTrack.id, "reverb", v)}
-                formatValue={pct}
-                defaultValue={0}
-                helpTitle={FX_TOOLTIPS.reverb.title}
-                helpDescription={FX_TOOLTIPS.reverb.description}
-              />
-              <EffectKnob
-                label="ディレイ"
-                min="0"
-                max="1"
-                step="0.01"
-                value={selectedTrack.delay}
-                onChange={(v) => onUpdate(selectedTrack.id, "delay", v)}
-                formatValue={pct}
-                defaultValue={0}
-                helpTitle={FX_TOOLTIPS.delay.title}
-                helpDescription={FX_TOOLTIPS.delay.description}
-              />
-              <div className="fx-panel__knob-divider" aria-hidden />
-              <EffectKnob
-                label="コーラス"
-                min="0"
-                max="1"
-                step="0.01"
-                value={selectedTrack.chorus}
-                onChange={(v) => onUpdate(selectedTrack.id, "chorus", v)}
-                formatValue={pct}
-                defaultValue={0}
-                helpTitle={FX_TOOLTIPS.chorus.title}
-                helpDescription={FX_TOOLTIPS.chorus.description}
-              />
-              <EffectKnob
-                label="トレモロ"
-                min="0"
-                max="1"
-                step="0.01"
-                value={selectedTrack.tremolo}
-                onChange={(v) => onUpdate(selectedTrack.id, "tremolo", v)}
-                formatValue={pct}
-                defaultValue={0}
-                helpTitle={FX_TOOLTIPS.tremolo.title}
-                helpDescription={FX_TOOLTIPS.tremolo.description}
-              />
-              <div className="fx-panel__knob-divider" aria-hidden />
-              <EffectKnob
-                label="フェードイン"
-                min="0"
-                max="10"
-                step="0.1"
-                value={selectedTrack.fadeIn}
-                onChange={(v) => onUpdate(selectedTrack.id, "fadeIn", v)}
-                unit="s"
-                defaultValue={0}
-                helpTitle={FX_TOOLTIPS.fadeIn.title}
-                helpDescription={FX_TOOLTIPS.fadeIn.description}
-              />
-              <EffectKnob
-                label="フェードアウト"
-                min="0"
-                max="10"
-                step="0.1"
-                value={selectedTrack.fadeOut}
-                onChange={(v) => onUpdate(selectedTrack.id, "fadeOut", v)}
-                unit="s"
-                defaultValue={0}
-                helpTitle={FX_TOOLTIPS.fadeOut.title}
-                helpDescription={FX_TOOLTIPS.fadeOut.description}
-              />
+            <div className="fx-panel__groups">
+              <FxGroup title="タイミング・キー">
+                {slider(selectedTrack, "nudgeMs", "タイミング補正", ["-100", "100", "0.1"], {
+                  formatValue: (v) => `${signed(v, 1)} ms`,
+                })}
+                {slider(selectedTrack, "speed", "再生速度", ["0.5", "2", "0.01"], {
+                  defaultValue: 1,
+                  formatValue: (v) => `${v.toFixed(2)}x`,
+                })}
+                {slider(selectedTrack, "pitch", "キー変更", ["-12", "12", "1"], {
+                  formatValue: (v) => `${signed(v)} sem`,
+                })}
+              </FxGroup>
+              <FxGroup title="定位・EQ">
+                {slider(selectedTrack, "pan", "Pan（L ◀ ▶ R）", ["-1", "1", "0.01"], {
+                  formatValue: (v) =>
+                    v === 0 ? "C" : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`,
+                })}
+                {slider(selectedTrack, "bass", "低音 Bass", ["-15", "15", "1"], { unit: " dB" })}
+                {slider(selectedTrack, "treble", "高音 Treble", ["-15", "15", "1"], { unit: " dB" })}
+              </FxGroup>
+              <FxGroup title="ダイナミクス">
+                {slider(selectedTrack, "compressor", "コンプ", ["0", "1", "0.01"], { formatValue: pct })}
+                {slider(selectedTrack, "noiseReduce", "ノイズ除去", ["0", "1", "0.01"], { formatValue: pct })}
+                {slider(selectedTrack, "deEss", "ディエッサー", ["0", "1", "0.01"], { formatValue: pct })}
+              </FxGroup>
+              <FxGroup title="空間">
+                {slider(selectedTrack, "reverb", "リバーブ", ["0", "1", "0.01"], { formatValue: pct })}
+                {slider(selectedTrack, "delay", "ディレイ", ["0", "1", "0.01"], { formatValue: pct })}
+              </FxGroup>
+              <FxGroup title="揺れ・厚み">
+                {slider(selectedTrack, "chorus", "コーラス", ["0", "1", "0.01"], { formatValue: pct })}
+                {slider(selectedTrack, "tremolo", "トレモロ", ["0", "1", "0.01"], { formatValue: pct })}
+              </FxGroup>
+              <FxGroup title="フェード">
+                {slider(selectedTrack, "fadeIn", "フェードイン", ["0", "10", "0.1"], { unit: "s" })}
+                {slider(selectedTrack, "fadeOut", "フェードアウト", ["0", "10", "0.1"], { unit: "s" })}
+              </FxGroup>
             </div>
+
+            <TakeComp
+              track={selectedTrack}
+              onSelectTake={(clipId) => onSelectTake(selectedTrack.id, clipId)}
+              onAuditionTake={(clipId) => onAuditionTake(selectedTrack.id, clipId)}
+              onToggleTakeMuted={(clipId) => onToggleTakeMuted(selectedTrack.id, clipId)}
+            />
           </div>
         ) : (
           <div className="fx-panel__empty">

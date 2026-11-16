@@ -1,4 +1,21 @@
 import { bufferToMono } from "./pitch";
+import { MIC_GAIN_DEFAULT } from "./recording";
+
+/** ゲインアップ後に 0dBFS を超えた分だけ全体を下げる。in-place */
+const limitPeak = (buf: AudioBuffer, ceiling = 0.98) => {
+  let peak = 0;
+  for (let c = 0; c < buf.numberOfChannels; c++) {
+    const ch = buf.getChannelData(c);
+    for (let i = 0; i < ch.length; i++) peak = Math.max(peak, Math.abs(ch[i]!));
+  }
+  if (peak <= ceiling) return buf;
+  const k = ceiling / peak;
+  for (let c = 0; c < buf.numberOfChannels; c++) {
+    const ch = buf.getChannelData(c);
+    for (let i = 0; i < ch.length; i++) ch[i]! *= k;
+  }
+  return buf;
+};
 
 /** 10ms フレームの RMS 下位 15% をノイズ床とみなす */
 export const estimateNoiseFloor = (mono: Float32Array, hop: number) => {
@@ -44,11 +61,26 @@ export const applyNoiseGate = (buf: AudioBuffer, floorRms: number) => {
   return buf;
 };
 
-/** 録音クリップ用：ハイパス＋軽いコンプ＋ゲート（端末内） */
-export const cleanRecordedVocal = async (buffer: AudioBuffer): Promise<AudioBuffer> => {
+/** オフライン処理に失敗したときの入力ゲイン。in-place */
+export const applyBufferGain = (buf: AudioBuffer, amount: number) => {
+  if (amount === 1) return buf;
+  for (let c = 0; c < buf.numberOfChannels; c++) {
+    const ch = buf.getChannelData(c);
+    for (let i = 0; i < ch.length; i++) ch[i]! *= amount;
+  }
+  return limitPeak(buf);
+};
+
+/** 録音クリップ用：入力ゲイン＋ハイパス＋軽いコンプ＋ゲート（端末内） */
+export const cleanRecordedVocal = async (
+  buffer: AudioBuffer,
+  inputGainAmount = MIC_GAIN_DEFAULT
+): Promise<AudioBuffer> => {
   const ctx = new OfflineAudioContext(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
   const src = ctx.createBufferSource();
   src.buffer = buffer;
+  const inputGain = ctx.createGain();
+  inputGain.gain.value = inputGainAmount;
   const hp = ctx.createBiquadFilter();
   hp.type = "highpass";
   hp.frequency.value = 95;
@@ -62,12 +94,13 @@ export const cleanRecordedVocal = async (buffer: AudioBuffer): Promise<AudioBuff
   comp.ratio.value = 2.8;
   comp.attack.value = 0.006;
   comp.release.value = 0.14;
-  src.connect(hp);
+  src.connect(inputGain);
+  inputGain.connect(hp);
   hp.connect(lp);
   lp.connect(comp);
   comp.connect(ctx.destination);
   src.start();
-  const rendered = await ctx.startRendering();
+  const rendered = limitPeak(await ctx.startRendering());
   const floor = estimateNoiseFloor(bufferToMono(rendered), Math.round(rendered.sampleRate * 0.01));
   return applyNoiseGate(rendered, floor);
 };
