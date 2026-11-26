@@ -9,7 +9,7 @@ export default defineConfig(async () => ({
   base: process.env.VITE_BASE ?? "/",
   plugins: [react()],
   optimizeDeps: {
-    include: ["lamejs"],
+    exclude: ["lamejs"],
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

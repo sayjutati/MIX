@@ -13,9 +13,13 @@ type Props = {
   onPreview: (trackId: string) => void;
 };
 
-const STEP = 0.25;
+export const DRUM_STEP = 0.25;
 
-const nearestStep = (start: number, beat: number) => Math.abs(start - beat) < STEP * 0.49;
+export const isDrumStepHit = (start: number, beat: number) =>
+  Math.abs(start - beat) < DRUM_STEP * 0.49;
+
+const STEP = DRUM_STEP;
+const nearestStep = isDrumStepHit;
 
 export function DrumGrid({
   tracks,

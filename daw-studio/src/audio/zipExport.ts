@@ -18,6 +18,6 @@ export const downloadZip = (entries: ZipEntry[], filename: string) => {
   const files: Record<string, Uint8Array> = {};
   for (const e of entries) files[e.name] = e.data;
   const zipped = zipSync(files, { level: 0 });
-  const blob = new Blob([zipped.buffer as ArrayBuffer], { type: "application/zip" });
+  const blob = new Blob([zipped], { type: "application/zip" });
   downloadBlob(blob, filename.endsWith(".zip") ? filename : `${filename}.zip`);
 };

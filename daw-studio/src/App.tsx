@@ -293,7 +293,7 @@ function App() {
   const pitchPlayLocal = (() => {
     if (!pitchTrack || !pitchClip) return null;
     const speed = pitchTrack.speed ?? 1;
-    const local = (globalTime - pitchClip.offset) * speed;
+    const local = (globalTime - clipEffectiveOffset(pitchTrack, pitchClip)) * speed;
     return local >= 0 && local <= pitchClip.duration ? local : null;
   })();
 
@@ -861,7 +861,7 @@ function App() {
           },
         ];
       for (const track of tracks) {
-          if (track.isMuted || track.clips.every((c) => c.muted)) continue;
+          if (track.isMuted || (hasSolo && !track.isSolo) || track.clips.every((c) => c.muted)) continue;
           // ステムはミックスと同じ長さに揃え、個別ノーマライズはしない（相対バランスを保つ）
           const stem = await renderTrackStem(track, masterVolume, {
             ...mixOpts,
@@ -1032,7 +1032,7 @@ function App() {
       );
       for (const r of rendered) {
         if (r.prev.startsWith("blob:")) {
-          window.setTimeout(() => URL.revokeObjectURL(r.prev), 5000);
+          window.setTimeout(() => URL.revokeObjectURL(r.prev), 60_000);
         }
       }
       audioEngine.restartIfPlaying(trackId);
@@ -1092,7 +1092,8 @@ function App() {
       if (cancelled()) return;
       const recorder = createMediaRecorder(stream);
       mediaRecorderRef.current = recorder;
-      audioChunksRef.current = [];
+      const takeChunks: Blob[] = [];
+      audioChunksRef.current = takeChunks;
 
       // 選択中がボーカルレーンなら、そのレーンに重ねて録る
       const target =
@@ -1100,7 +1101,7 @@ function App() {
       recordTargetRef.current = target;
 
       recorder.ondataavailable = (ev) => {
-        if (ev.data.size > 0) audioChunksRef.current.push(ev.data);
+        if (ev.data.size > 0) takeChunks.push(ev.data);
       };
 
       recorder.onerror = () => {
@@ -1111,11 +1112,12 @@ function App() {
       };
 
       recorder.onstop = async () => {
-        recordingBusyRef.current = false;
+        try {
         const anchorSec = recordOffsetRef.current;
+        const targetId = target;
         let latencyFallbackSec = 0;
         if (autoLatencyCompRef.current) {
-          const settings = recordStreamRef.current?.getAudioTracks()[0]?.getSettings() as
+          const settings = stream.getAudioTracks()[0]?.getSettings() as
             | (MediaTrackSettings & { latency?: number })
             | undefined;
           const inputLatency = settings?.latency ?? 0;
@@ -1123,13 +1125,14 @@ function App() {
           if (latencyFallbackSec < 0.005) latencyFallbackSec = 0.03;
         }
 
-        recordStreamRef.current?.getTracks().forEach((t) => t.stop());
-        recordStreamRef.current = null;
-        audioEngine.stopInputMeter();
-        audioEngine.stopMonitor();
+        stream.getTracks().forEach((t) => t.stop());
+        if (recordStreamRef.current === stream) {
+          recordStreamRef.current = null;
+          audioEngine.stopInputMeter();
+          audioEngine.stopMonitor();
+        }
         const blobType = recorder.mimeType || "audio/webm";
-        const rawBlob = new Blob(audioChunksRef.current, { type: blobType });
-        const targetId = recordTargetRef.current;
+        const rawBlob = new Blob(takeChunks, { type: blobType });
 
         if (rawBlob.size < 200) {
           alert("録音データが空です。もう少し長く録音してから停止してください。");
@@ -1207,6 +1210,9 @@ function App() {
         });
 
         autosaveSchedulerRef.current.flush();
+        } finally {
+          if (session === recordSessionRef.current) recordingBusyRef.current = false;
+        }
       };
 
       if (monitorOnRef.current) {

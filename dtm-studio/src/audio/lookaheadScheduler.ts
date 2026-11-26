@@ -230,18 +230,34 @@ export class LookaheadScheduler {
     }
 
     if (looping && winEnd > loopEnd && loopEnd - loopStart > 0.05) {
+      const wrapAnchorCtx = nowCtx + beatToSec(loopEnd - nowBeat, tempo);
+      const wrapWinEnd = loopStart + (winEnd - loopEnd);
       const wrapNotes = buildNoteSchedules(
         project,
         loopStart,
-        loopStart + (winEnd - loopEnd),
-        nowCtx + beatToSec(loopEnd - nowBeat, tempo),
-        loopEnd,
+        wrapWinEnd,
+        wrapAnchorCtx,
+        loopStart,
         tempo,
         this.loopCycle + 1
       ).filter((n) => !this.scheduled.has(n.noteId));
       if (wrapNotes.length > 0) {
         scheduleNotesToSynth(synth, wrapNotes);
         for (const n of wrapNotes) this.scheduled.add(n.noteId);
+      }
+      const wrapClips = buildClipSchedules(
+        project,
+        loopStart,
+        wrapWinEnd,
+        wrapAnchorCtx,
+        loopStart,
+        tempo,
+        this.loopCycle + 1
+      ).filter((c) => !this.scheduled.has(c.scheduleId));
+      if (wrapClips.length > 0) {
+        for (const c of wrapClips) this.scheduled.add(c.scheduleId);
+        await audioClipPlayer.schedule(project, wrapClips);
+        if (sid !== this.session) return;
       }
     }
   }

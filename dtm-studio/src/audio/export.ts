@@ -1,4 +1,4 @@
-import { Mp3Encoder } from "lamejs";
+import { createMp3Encoder } from "./lameEncoder";
 
 export type ExportFormat = "wav" | "mp3";
 
@@ -7,31 +7,55 @@ const MP3_BLOCK_SIZE = 1152;
 const floatTo16BitPCM = (input: Float32Array): Int16Array => {
   const out = new Int16Array(input.length);
   for (let i = 0; i < input.length; i++) {
-    const s = Math.max(-1, Math.min(1, input[i]));
+    const s = Math.max(-1, Math.min(1, input[i]!));
     out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+  return out;
+};
+
+const paddedBlock = (src: Int16Array, start: number) => {
+  const slice = src.subarray(start, start + MP3_BLOCK_SIZE);
+  if (slice.length === MP3_BLOCK_SIZE) return slice;
+  const block = new Int16Array(MP3_BLOCK_SIZE);
+  block.set(slice);
+  return block;
+};
+
+const toU8 = (buf: Int8Array) => new Uint8Array(buf);
+
+export const pcmToMp3Bytes = (
+  left: Int16Array,
+  right: Int16Array | null,
+  sampleRate: number,
+  kbps = 192
+): Uint8Array => {
+  const channels = right ? 2 : 1;
+  const encoder = createMp3Encoder(channels, sampleRate, kbps);
+  const chunks: Uint8Array[] = [];
+  for (let i = 0; i < left.length; i += MP3_BLOCK_SIZE) {
+    const l = paddedBlock(left, i);
+    const encoded = right ? encoder.encodeBuffer(l, paddedBlock(right, i)) : encoder.encodeBuffer(l);
+    if (encoded.length > 0) chunks.push(toU8(encoded));
+  }
+  const tail = encoder.flush();
+  if (tail.length > 0) chunks.push(toU8(tail));
+  const total = chunks.reduce((n, c) => n + c.length, 0);
+  const out = new Uint8Array(total);
+  let o = 0;
+  for (const c of chunks) {
+    out.set(c, o);
+    o += c.length;
   }
   return out;
 };
 
 export const audioBufferToMp3 = (buffer: AudioBuffer, kbps = 192): Blob => {
   const channels = Math.min(2, buffer.numberOfChannels);
-  const sampleRate = buffer.sampleRate;
-  const encoder = new Mp3Encoder(channels, sampleRate, kbps);
-  const left = buffer.getChannelData(0);
-  const right = channels > 1 ? buffer.getChannelData(1) : left;
-  const chunks: Int8Array[] = [];
-
-  for (let i = 0; i < left.length; i += MP3_BLOCK_SIZE) {
-    const leftChunk = floatTo16BitPCM(left.subarray(i, i + MP3_BLOCK_SIZE));
-    const encoded =
-      channels === 1
-        ? encoder.encodeBuffer(leftChunk)
-        : encoder.encodeBuffer(leftChunk, floatTo16BitPCM(right.subarray(i, i + MP3_BLOCK_SIZE)));
-    if (encoded.length > 0) chunks.push(encoded);
-  }
-  const tail = encoder.flush();
-  if (tail.length > 0) chunks.push(tail);
-  return new Blob(chunks, { type: "audio/mpeg" });
+  const left = floatTo16BitPCM(buffer.getChannelData(0));
+  const right = channels > 1 ? floatTo16BitPCM(buffer.getChannelData(1)) : null;
+  const bytes = pcmToMp3Bytes(left, right, buffer.sampleRate, kbps);
+  if (bytes.length < 32) throw new Error("MP3 encoder produced an empty file");
+  return new Blob([bytes], { type: "audio/mpeg" });
 };
 
 export const encodeExport = (

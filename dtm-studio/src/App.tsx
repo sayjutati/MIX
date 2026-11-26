@@ -24,7 +24,7 @@ import { AudioPanel } from "./components/AudioTrack/AudioPanel";
 import { AudioTrackView } from "./components/AudioTrack/AudioTrackView";
 import { FxPanel } from "./components/FxPanel/FxPanel";
 import { TrackList } from "./components/TrackList/TrackList";
-import { DrumGrid } from "./components/DrumGrid/DrumGrid";
+import { DrumGrid, isDrumStepHit } from "./components/DrumGrid/DrumGrid";
 import { TransportBar } from "./components/Transport/TransportBar";
 import { useEditorStore } from "./state/useEditorStore";
 import { useHistoryStore } from "./state/useHistoryStore";
@@ -530,10 +530,14 @@ export default function App() {
           `${parsed.notes.length} ノートをインポートします。\nOK = 新規トラック / キャンセル = 選択中トラックに追加`
         );
         const current = useProjectStore.getState().project;
-        if (asNewTrack) {
+        const mergeTarget = !asNewTrack && track && !isAudioTrack(track) ? track : null;
+        if (mergeTarget) {
+          setProject(mergeMidiIntoProject(current, mergeTarget.id, parsed));
+        } else {
+          if (!asNewTrack && track && isAudioTrack(track)) {
+            alert("オーディオトラックには MIDI を重ねられないので、新規トラックとして取り込みます。");
+          }
           setProject(importMidiAsNewTrack(current, parsed, file.name.replace(/\.(mid|midi)$/i, "")));
-        } else if (track) {
-          setProject(mergeMidiIntoProject(current, track.id, parsed));
         }
         void flushSave();
       } catch (e) {
@@ -624,7 +628,7 @@ export default function App() {
     (trackId: string, beat: number) => {
       const tr = useProjectStore.getState().project.tracks.find((t) => t.id === trackId);
       if (!tr) return;
-      const hits = tr.notes.filter((n) => Math.abs(n.start - beat) < 0.12);
+      const hits = tr.notes.filter((n) => isDrumStepHit(n.start, beat));
       pushHistory();
       if (hits.length) removeNotes(trackId, hits.map((n) => n.id));
       else addNote(trackId, { pitch: 60, start: beat, duration: 0.22, velocity: 110 });

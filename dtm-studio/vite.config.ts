@@ -5,7 +5,7 @@ export default defineConfig({
   base: process.env.VITE_BASE ?? "/",
   plugins: [react()],
   optimizeDeps: {
-    include: ["lamejs"],
+    exclude: ["lamejs"],
   },
   server: {
     port: 1440,

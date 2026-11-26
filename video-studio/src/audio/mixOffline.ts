@@ -1,5 +1,23 @@
 import { allMixClips } from "./clipAudio";
-import type { EditorState } from "../types";
+import type { EditorState, TimelineClip } from "../types";
+
+/** OfflineAudioContext.start が例外にならない範囲にクリップ窓を収める */
+export const clipSourceWindow = (
+  clip: Pick<TimelineClip, "start" | "duration" | "inPoint" | "speed">,
+  bufDuration: number,
+  mixDuration: number
+): { when: number; offset: number; srcDur: number; speed: number } | null => {
+  const speed = clip.speed > 0 ? clip.speed : 1;
+  const timelineDur = Math.min(clip.duration, mixDuration - Math.max(0, clip.start));
+  if (timelineDur <= 0 || mixDuration <= 0) return null;
+  const when = Math.max(0, clip.start);
+  if (when >= mixDuration) return null;
+  const skipSec = clip.start < 0 ? -clip.start * speed : 0;
+  const offset = Math.min(Math.max(0, clip.inPoint + skipSec), Math.max(0, bufDuration));
+  const srcDur = Math.min(timelineDur * speed, Math.max(0, bufDuration - offset));
+  if (srcDur <= 0.001) return null;
+  return { when, offset, srcDur, speed };
+};
 
 /** オフラインで全音声トラックを1本にミックス（書き出し用） */
 export const mixAudioOffline = async (
@@ -34,19 +52,22 @@ export const mixAudioOffline = async (
   for (const { clip, asset, effectiveVolume } of clips) {
     const buf = await decode(asset.url);
     if (!buf) continue;
-    const speed = clip.speed > 0 ? clip.speed : 1;
-    const timelineDur = Math.min(clip.duration, duration - clip.start);
-    if (timelineDur <= 0) continue;
+    const window = clipSourceWindow(clip, buf.duration, duration);
+    if (!window) continue;
 
     const src = ctx.createBufferSource();
     src.buffer = buf;
-    src.playbackRate.value = speed;
+    src.playbackRate.value = window.speed;
     const gain = ctx.createGain();
     gain.gain.value = effectiveVolume;
     src.connect(gain);
     gain.connect(ctx.destination);
-    // start() の duration は再生レートに依らずバッファ時間
-    src.start(clip.start, clip.inPoint, timelineDur * speed);
+    try {
+      src.start(window.when, window.offset, window.srcDur);
+    } catch {
+      src.disconnect();
+      gain.disconnect();
+    }
   }
 
   return ctx.startRendering();

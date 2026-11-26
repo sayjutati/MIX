@@ -451,11 +451,19 @@ export const useProjectStore = create<ProjectState>((set) => ({
     set((s) => ({
       project: touchProject({
         ...s.project,
-        tracks: s.project.tracks.map((t) =>
-          t.id === trackId
-            ? { ...t, ...patch, ...(patch.name !== undefined ? { name: patch.name.trim() || t.name } : {}) }
-            : t
-        ),
+        tracks: s.project.tracks.map((t) => {
+          if (t.id !== trackId) return t;
+          const next: Track = {
+            ...t,
+            ...patch,
+            ...(patch.name !== undefined ? { name: patch.name.trim() || t.name } : {}),
+          };
+          if (patch.instrumentId && patch.role === undefined) {
+            const inst = s.project.instruments.find((i) => i.id === patch.instrumentId);
+            next.role = roleOfKind(inst?.kind);
+          }
+          return next;
+        }),
       }),
     })),
 

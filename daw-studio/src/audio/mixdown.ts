@@ -156,7 +156,10 @@ export const renderMixdown = async (
 
     for (const clip of activeClips) {
       const buf = await resolveClipBuffer(clip, offlineCtx, pitchLimit);
-      const clipDur = buf.duration / speed;
+      const clipDur = Math.min(buf.duration / speed, clipPlayDuration(track, clip));
+      const srcDur = clipDur * speed;
+      const startAt = clipEffectiveOffset(track, clip);
+      if (srcDur <= 0.001 || startAt >= totalDur) continue;
 
       const src = offlineCtx.createBufferSource();
       src.buffer = buf;
@@ -167,7 +170,6 @@ export const renderMixdown = async (
       src.connect(fadeGain);
       fadeGain.connect(clipBus);
 
-      const startAt = clipEffectiveOffset(track, clip);
       if (track.fadeIn > 0 || track.fadeOut > 0) {
         applyOfflineFade(fadeGain, track, startAt, clipDur);
       } else {
@@ -175,8 +177,8 @@ export const renderMixdown = async (
       }
 
       // ニュッジで 0 秒より前に出たぶんは頭を切る（負の when は先頭から全部鳴ってしまう）
-      if (startAt >= 0) src.start(startAt);
-      else if (-startAt < clipDur) src.start(0, -startAt * speed);
+      if (startAt >= 0) src.start(startAt, 0, srcDur);
+      else if (-startAt < clipDur) src.start(0, -startAt * speed, srcDur + startAt * speed);
     }
   }
 

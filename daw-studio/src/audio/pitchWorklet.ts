@@ -11,11 +11,16 @@ export function preloadPitchWorklet(ctx: AudioContext): Promise<void> {
 
 export async function ensurePitchWorklet(ctx: AudioContext): Promise<void> {
   if (loadedCtx === ctx) return;
-  if (!loadPromise) {
-    loadPromise = ctx.audioWorklet.addModule(WORKLET_URL).then(() => {
+  loadPromise = ctx.audioWorklet
+    .addModule(WORKLET_URL)
+    .then(() => {
       loadedCtx = ctx;
+    })
+    .catch((err) => {
+      loadPromise = null;
+      loadedCtx = null;
+      throw err;
     });
-  }
   await loadPromise;
 }
 

@@ -245,7 +245,6 @@ export const mergeMidiIntoProject = (
   parsed: { tempo: number; notes: Omit<MidiNote, "id">[] }
 ): Project => ({
   ...project,
-  tempo: parsed.tempo,
   updatedAt: Date.now(),
   tracks: project.tracks.map((t) =>
     t.id === trackId
@@ -265,6 +264,8 @@ export const importMidiAsNewTrack = (
 ): Project => {
   const track = makeTrack({
     name: trackName,
+    instrumentId: "inst-piano",
+    role: "melody",
     notes: parsed.notes.map((n) => makeNote(n)),
   });
   return {

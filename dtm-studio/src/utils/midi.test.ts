@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { makeNote, makeProject, makeTrack } from "../types/project";
-import { importMidiAsNewTrack, parseMidi, projectToMidi } from "./midi";
+import { importMidiAsNewTrack, mergeMidiIntoProject, parseMidi, projectToMidi } from "./midi";
 
 describe("midi", () => {
   it("projectToMidi → parseMidi でノートが復元される", () => {
@@ -35,5 +35,19 @@ describe("midi", () => {
     expect(next.tracks).toHaveLength(2);
     expect(next.tracks[1].name).toBe("From MIDI");
     expect(next.tracks[1].notes).toHaveLength(1);
+    expect(next.tracks[1].role).toBe("melody");
+  });
+
+  it("mergeMidiIntoProject は既存テンポを保つ", () => {
+    const p = makeProject({
+      tempo: 90,
+      tracks: [makeTrack({ id: "t1", notes: [makeNote({ pitch: 60, start: 0, duration: 1 })] })],
+    });
+    const next = mergeMidiIntoProject(p, "t1", {
+      tempo: 140,
+      notes: [{ pitch: 64, start: 1, duration: 1, velocity: 100 }],
+    });
+    expect(next.tempo).toBe(90);
+    expect(next.tracks[0].notes).toHaveLength(2);
   });
 });

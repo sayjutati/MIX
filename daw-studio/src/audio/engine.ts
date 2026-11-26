@@ -1,5 +1,5 @@
 import type { Clip, PitchNote, Track } from "../types";
-import { clipEffectiveOffset } from "../types";
+import { clipEffectiveOffset, clipPlayDuration } from "../types";
 import {
   applyTrackEffectParams,
   computeFadeGain,
@@ -362,7 +362,7 @@ class AudioEngine {
     this.stopClipSource(clipRt);
 
     const bufferOffset = Math.max(0, localTime * speed);
-    const remain = playBuf.duration - bufferOffset;
+    const remain = Math.min(playBuf.duration, clip.duration) - bufferOffset;
     if (remain <= 0.001) return;
 
     const { ctx } = this.getContext();
@@ -392,7 +392,7 @@ class AudioEngine {
 
     gain.connect(rt.nodes.input);
 
-    const playDur = playBuf.duration / speed;
+    const playDur = Math.min(playBuf.duration, clip.duration) / speed;
     scheduleClipFade(gain, track, localTime, playDur, when);
 
     src.onended = () => {
@@ -432,7 +432,10 @@ class AudioEngine {
       }
 
       const start = clipEffectiveOffset(track, clip);
-      const playDur = clipRt.buffer.duration / (track.speed || 1);
+      const playDur = Math.min(
+        clipRt.buffer.duration / (track.speed || 1),
+        clipPlayDuration(track, clip)
+      );
       const local = globalTime - start;
 
       if (local >= -0.02 && local < playDur) {
