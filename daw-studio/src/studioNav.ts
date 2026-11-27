@@ -9,11 +9,13 @@ const PORTS: Record<Exclude<StudioId, "home">, number> = {
 
 const inPortal = () => /\/(dtm|daw|video|photo)(\/|$)/.test(location.pathname);
 
-/** ポータル配下なら相対パス、単体 dev なら各アプリのポート */
+/** ポータル配下なら相対パス、単体 dev なら現在のホスト名を維持して各アプリのポートへ遷移 */
 export const studioHref = (id: StudioId): string => {
-  if (id === "home") return inPortal() ? "/" : "/";
+  if (id === "home") return "/";
   if (inPortal()) return `/${id}/`;
-  return `http://127.0.0.1:${PORTS[id]}/`;
+  const protocol = location.protocol === "https:" ? "https:" : "http:";
+  const host = location.hostname || "127.0.0.1";
+  return `${protocol}//${host}:${PORTS[id]}/`;
 };
 
 export const STUDIOS: { id: Exclude<StudioId, "home">; label: string }[] = [

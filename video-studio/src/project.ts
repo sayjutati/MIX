@@ -7,16 +7,22 @@ import type {
   TextClip,
   TimelineClip,
 } from "./types";
-import { PROJECT_VERSION, defaultEffects, projectDuration } from "./types";
+import { DEFAULT_FPS, PROJECT_VERSION, defaultEffects, defaultTransform, projectDuration } from "./types";
 import { textStyleFromLegacy } from "./text/textStyle";
 import { downloadBlob } from "./export/exportVideo";
 
-const blobToBase64 = (blob: Blob): Promise<string> =>
+const blobToBase64 = (blob: Blob): Promise<{ base64: string; mime: string }> =>
   new Promise((resolve, reject) => {
     const r = new FileReader();
     r.onload = () => {
       const s = r.result as string;
-      resolve(s.split(",")[1] ?? "");
+      const comma = s.indexOf(",");
+      const header = comma >= 0 ? s.slice(0, comma) : "";
+      const m = /^data:([^;]+);base64$/.exec(header);
+      resolve({
+        base64: comma >= 0 ? s.slice(comma + 1) : s,
+        mime: m?.[1] || blob.type || "",
+      });
     };
     r.onerror = () => reject(r.error);
     r.readAsDataURL(blob);
@@ -29,7 +35,7 @@ const base64ToBlob = (data: string, mime: string) => {
   return new Blob([arr], { type: mime });
 };
 
-const mimeForKind = (kind: MediaAsset["kind"]) => {
+const fallbackMimeForKind = (kind: MediaAsset["kind"]) => {
   if (kind === "video") return "video/mp4";
   if (kind === "audio") return "audio/wav";
   return "image/png";
@@ -41,15 +47,17 @@ export const serializeProject = async (state: EditorState): Promise<ProjectFile>
   for (const asset of state.assets) {
     const res = await fetch(asset.url);
     const blob = await res.blob();
+    const { base64, mime } = await blobToBase64(blob);
     serializedAssets.push({
       id: asset.id,
       name: asset.name,
       kind: asset.kind,
+      mimeType: asset.mimeType || mime || fallbackMimeForKind(asset.kind),
       duration: asset.duration,
       width: asset.width,
       height: asset.height,
       hasAudio: asset.hasAudio,
-      data: await blobToBase64(blob),
+      data: base64,
     });
   }
 
@@ -66,6 +74,9 @@ export const serializeProject = async (state: EditorState): Promise<ProjectFile>
       volume: t.volume,
       opacity: t.opacity,
       effects: t.effects,
+      transform: t.transform,
+      fadeIn: t.fadeIn,
+      fadeOut: t.fadeOut,
       transitionOut: t.transitionOut,
       opacityKeyframes: t.opacityKeyframes,
       text: t.text,
@@ -81,9 +92,10 @@ export const serializeProject = async (state: EditorState): Promise<ProjectFile>
     assets: serializedAssets,
     tracks: state.tracks.map(({ clips: _c, ...t }) => t),
     clips,
-    duration: state.duration,
+    duration: projectDuration(state.clips, state.textClips),
     previewWidth: state.previewWidth,
     previewHeight: state.previewHeight,
+    fps: state.fps ?? DEFAULT_FPS,
     pxPerSec: state.pxPerSec,
     masterVolume: state.masterVolume,
     audioEnabled: state.audioEnabled,
@@ -92,11 +104,13 @@ export const serializeProject = async (state: EditorState): Promise<ProjectFile>
 
 export const deserializeProject = (file: ProjectFile): EditorState => {
   const assets: MediaAsset[] = file.assets.map((a) => {
-    const blob = base64ToBlob(a.data, mimeForKind(a.kind));
+    const mime = a.mimeType || fallbackMimeForKind(a.kind);
+    const blob = base64ToBlob(a.data, mime);
     return {
       id: a.id,
       name: a.name,
       kind: a.kind,
+      mimeType: mime,
       url: URL.createObjectURL(blob),
       duration: a.duration,
       width: a.width,
@@ -115,6 +129,8 @@ export const deserializeProject = (file: ProjectFile): EditorState => {
         assetId: c.assetId || "text-placeholder",
         audioMuted: true,
         effects: c.effects ?? defaultEffects(),
+        fadeIn: c.fadeIn ?? 0,
+        fadeOut: c.fadeOut ?? 0,
         opacityKeyframes: c.opacityKeyframes ?? [],
         text: c.text,
         x: c.x ?? 0.5,
@@ -132,12 +148,15 @@ export const deserializeProject = (file: ProjectFile): EditorState => {
         audioMuted: c.audioMuted ?? false,
         origin: c.origin ?? "media",
         effects: c.effects ?? defaultEffects(),
+        transform: c.transform ? { ...defaultTransform(), ...c.transform } : defaultTransform(),
+        fadeIn: c.fadeIn ?? 0,
+        fadeOut: c.fadeOut ?? 0,
         opacityKeyframes: c.opacityKeyframes ?? [],
       });
     }
   }
 
-  const duration = Math.max(file.duration, projectDuration(clips, textClips));
+  const duration = projectDuration(clips, textClips);
 
   return {
     title: file.title,
@@ -157,10 +176,12 @@ export const deserializeProject = (file: ProjectFile): EditorState => {
     loopA: null,
     loopB: null,
     snapEnabled: true,
+    rippleMode: false,
     selectedClipId: null,
     selectedTrackId: null,
     previewWidth: file.previewWidth,
     previewHeight: file.previewHeight,
+    fps: file.fps ?? DEFAULT_FPS,
     masterVolume: file.masterVolume ?? 1,
     audioEnabled: file.audioEnabled ?? true,
   };
@@ -168,7 +189,6 @@ export const deserializeProject = (file: ProjectFile): EditorState => {
 
 export const downloadProject = async (state: EditorState) => {
   const file = await serializeProject(state);
-  // 素材を base64 で抱えるので pretty print は巨大化するだけ
   const blob = new Blob([JSON.stringify(file)], { type: "application/json" });
   downloadBlob(blob, `${state.title || "project"}.vproj`);
 };

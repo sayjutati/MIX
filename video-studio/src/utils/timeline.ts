@@ -1,7 +1,7 @@
-import type { TimelineClip, Track } from "../types";
-import { clipOpacityAt, clipTimelineEnd } from "../types";
+import type { TextClip, TimelineClip, Track } from "../types";
+import { SNAP_GRID_SEC, clipOpacityAt, clipTimelineEnd } from "../types";
 
-export const clipsOnTrack = (clips: TimelineClip[], trackId: string) =>
+export const clipsOnTrack = <T extends TimelineClip>(clips: T[], trackId: string): T[] =>
   clips.filter((c) => c.trackId === trackId).sort((a, b) => a.start - b.start);
 
 export const trackEndTime = (clips: TimelineClip[], trackId: string) =>
@@ -19,8 +19,7 @@ export const transitionOverlap = (
   if (!next || clip.transitionOut?.kind !== "crossfade") return 0;
   const d = clip.transitionOut.duration;
   const gap = next.start - clipTimelineEnd(clip);
-  // 隣接クリップ（gap≈0）でもクロスフェードを適用
-  if (Math.abs(gap) < 0.001) return Math.min(d, clip.duration, next.duration);
+  if (Math.abs(gap) < 0.02) return Math.min(d, clip.duration, next.duration);
   if (gap > 0) return 0;
   return Math.min(d, -gap, clip.duration, next.duration);
 };
@@ -30,31 +29,42 @@ export const canPlaceClip = (
   trackId: string,
   start: number,
   duration: number,
-  excludeId?: string
+  excludeIds?: string | Set<string>
 ) => {
   const end = start + duration;
+  const ex = typeof excludeIds === "string" ? new Set([excludeIds]) : excludeIds;
   return !clipsOnTrack(clips, trackId).some((c) => {
-    if (c.id === excludeId) return false;
+    if (ex?.has(c.id)) return false;
     const cEnd = clipTimelineEnd(c);
-    return start < cEnd && end > c.start;
+    return start < cEnd - 1e-5 && end > c.start + 1e-5;
   });
 };
 
 export const trackByKind = (tracks: Track[], kind: Track["kind"]) =>
   tracks.find((t) => t.kind === kind);
 
+/** タイムライン表示順：上ほど手前レイヤー（テロップ → オーバーレイ → 映像[上位→下位] → 音声） */
+export const displayOrderedTracks = (tracks: Track[]): Track[] => {
+  const text = tracks.filter((t) => t.kind === "text");
+  const overlay = tracks.filter((t) => t.kind === "overlay");
+  const video = [...tracks.filter((t) => t.kind === "video")].reverse();
+  const audio = tracks.filter((t) => t.kind === "audio");
+  return [...text, ...overlay, ...video, ...audio];
+};
+
 /** desired 以降で、全ターゲットトラックに重ならず置ける最初の開始位置 */
 export const findFreeStart = (
   clips: TimelineClip[],
   targets: { trackId: string; duration: number }[],
-  desired: number
+  desired: number,
+  excludeIds?: Set<string>
 ): number => {
-  let start = desired;
+  let start = Math.max(0, desired);
   for (let guard = 0; guard < 500; guard++) {
     let blocker: TimelineClip | undefined;
     for (const { trackId, duration } of targets) {
       blocker = clipsOnTrack(clips, trackId).find(
-        (c) => start < clipTimelineEnd(c) && start + duration > c.start
+        (c) => !excludeIds?.has(c.id) && start < clipTimelineEnd(c) - 1e-5 && start + duration > c.start + 1e-5
       );
       if (blocker) break;
     }
@@ -62,6 +72,63 @@ export const findFreeStart = (
     start = clipTimelineEnd(blocker);
   }
   return start;
+};
+
+/**
+ * スマートマグネット吸着：
+ * クリップ開始・終了エッジが プレイヘッド / ループ点 / 他クリップ端 に近ければピタッと吸着し、
+ * ガイド線を出すための時刻 `guideTime` も返す。それ以外はグリッド吸着。
+ */
+export const computeMagneticStart = (opts: {
+  rawStart: number;
+  duration: number;
+  pxPerSec: number;
+  snapEnabled: boolean;
+  playhead: number;
+  loopA: number | null;
+  loopB: number | null;
+  clips: TimelineClip[];
+  textClips: TextClip[];
+  excludeIds: Set<string>;
+}): { start: number; guideTime: number | null } => {
+  const clamped = Math.max(0, opts.rawStart);
+  if (!opts.snapEnabled) return { start: clamped, guideTime: null };
+
+  const thresholdSec = Math.min(0.35, Math.max(0.04, 10 / Math.max(8, opts.pxPerSec)));
+  const anchors: number[] = [0, opts.playhead];
+  if (opts.loopA != null) anchors.push(opts.loopA);
+  if (opts.loopB != null) anchors.push(opts.loopB);
+  for (const c of [...opts.clips, ...opts.textClips]) {
+    if (opts.excludeIds.has(c.id)) continue;
+    anchors.push(c.start, clipTimelineEnd(c));
+  }
+
+  let bestDelta = Infinity;
+  let bestStart = clamped;
+  let bestAnchor: number | null = null;
+
+  for (const a of anchors) {
+    const dStart = Math.abs(clamped - a);
+    if (dStart <= thresholdSec && dStart < bestDelta) {
+      bestDelta = dStart;
+      bestStart = a;
+      bestAnchor = a;
+    }
+    const endPos = clamped + opts.duration;
+    const dEnd = Math.abs(endPos - a);
+    if (dEnd <= thresholdSec && dEnd < bestDelta && a - opts.duration >= -1e-6) {
+      bestDelta = dEnd;
+      bestStart = Math.max(0, a - opts.duration);
+      bestAnchor = a;
+    }
+  }
+
+  if (bestAnchor != null) {
+    return { start: bestStart, guideTime: bestAnchor };
+  }
+
+  const grid = opts.pxPerSec >= 100 ? 0.1 : SNAP_GRID_SEC;
+  return { start: Math.max(0, Math.round(clamped / grid) * grid), guideTime: null };
 };
 
 const MIN_CLIP_SEC = 0.1;

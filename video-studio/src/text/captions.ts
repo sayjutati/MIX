@@ -12,10 +12,20 @@ const stamp = (s: string): number | null => {
   return Number(m[1] ?? 0) * 3600 + Number(m[2]) * 60 + Number(m[3]) + frac;
 };
 
+const decodeEntities = (s: string): string =>
+  s
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"');
+
 const parseTimed = (text: string): Cue[] => {
   const cues: Cue[] = [];
   const blocks = text.replace(/\r\n?/g, "\n").split(/\n{2,}/);
   for (const block of blocks) {
+    const trimmed = block.trim();
+    if (!trimmed || /^(WEBVTT|NOTE\b|STYLE\b|REGION\b)/i.test(trimmed)) continue;
     const lines = block.split("\n").filter((l) => l.trim() !== "");
     const i = lines.findIndex((l) => l.includes("-->"));
     if (i < 0) continue;
@@ -23,7 +33,13 @@ const parseTimed = (text: string): Cue[] => {
     const start = stamp(a ?? "");
     const end = stamp((b ?? "").trim().split(/\s+/)[0] ?? "");
     if (start == null || end == null || end <= start) continue;
-    const body = lines.slice(i + 1).join("\n").replace(/<[^>]+>/g, "").trim();
+    const body = decodeEntities(
+      lines
+        .slice(i + 1)
+        .join("\n")
+        .replace(/<[^>]+>/g, "")
+        .trim()
+    );
     if (body) cues.push({ start, end, text: body });
   }
   return cues;

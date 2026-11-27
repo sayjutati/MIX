@@ -1,14 +1,18 @@
 import { mixAudioOffline } from "../audio/mixOffline";
 import { renderFrameAsync } from "../preview/compositor";
 import type { EditorState } from "../types";
-import { projectDuration } from "../types";
+import { DEFAULT_FPS, projectDuration } from "../types";
 import type { ExportFormat } from "./exportCapabilities";
 import {
-  getMp4ExportMethod,
   pickNativeMp4Mime,
   pickWebmMime,
 } from "./exportCapabilities";
 import { transcodeWebmToMp4 } from "./transcodeMp4";
+import {
+  evenDimension,
+  tryExportMp4WithWebCodecs,
+  tryExportWebmWithWebCodecs,
+} from "./webcodecsExport";
 
 export type { ExportFormat } from "./exportCapabilities";
 export { exportFormatHint, getMp4ExportMethod } from "./exportCapabilities";
@@ -16,6 +20,7 @@ export { exportFormatHint, getMp4ExportMethod } from "./exportCapabilities";
 export interface ExportOptions {
   fps?: number;
   onProgress?: (p: number, status?: string) => void;
+  signal?: AbortSignal;
 }
 
 export interface ExportResult {
@@ -25,29 +30,32 @@ export interface ExportResult {
 
 const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
 
-/**
- * MediaRecorder は実時間で録画されるため、映像フレームの描画時刻も実時間に同期させる。
- * （1 フレームごとに固定 sleep すると、描画時間ぶん映像だけ伸びて音声とズレる）
- */
 export const frameTimeAt = (elapsedSec: number, duration: number) =>
   Math.min(Math.max(0, elapsedSec), Math.max(0, duration - 1e-3));
 
-const recordTimeline = async (
+/** WebCodecs 非対応ブラウザ向けのフォールバック録画 */
+const recordTimelineFallback = async (
   canvas: HTMLCanvasElement,
   state: EditorState,
   mime: string,
+  audioBuffer: AudioBuffer | null,
+  duration: number,
+  fps: number,
   opts: ExportOptions
 ): Promise<Blob> => {
-  const fps = opts.fps ?? 30;
-  const duration = projectDuration(state.clips, state.textClips);
+  canvas.width = evenDimension(state.previewWidth);
+  canvas.height = evenDimension(state.previewHeight);
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("canvas 2d unavailable");
 
-  await document.fonts.ready;
+  const renderState: EditorState = {
+    ...state,
+    previewWidth: canvas.width,
+    previewHeight: canvas.height,
+    isPlaying: false,
+  };
 
-  const audioBuffer = await mixAudioOffline(state, duration);
   const audioFeed = audioBuffer ? createAudioFeed(audioBuffer) : null;
-
   const stream = canvas.captureStream(fps);
   if (audioFeed) stream.addTrack(audioFeed.track);
 
@@ -59,27 +67,40 @@ const recordTimeline = async (
 
   try {
     return await new Promise<Blob>((resolve, reject) => {
+      const onAbort = () => {
+        if (recorder.state !== "inactive") recorder.stop();
+        reject(new DOMException("書き出しを中断しました", "AbortError"));
+      };
+      opts.signal?.addEventListener("abort", onAbort, { once: true });
+
       recorder.ondataavailable = (e) => {
         if (e.data.size) chunks.push(e.data);
       };
-      recorder.onstop = () => resolve(new Blob(chunks, { type: mime.split(";")[0] }));
-      recorder.onerror = () => reject(new Error("MediaRecorder failed"));
+      recorder.onstop = () => {
+        opts.signal?.removeEventListener("abort", onAbort);
+        resolve(new Blob(chunks, { type: mime.split(";")[0] }));
+      };
+      recorder.onerror = () => {
+        opts.signal?.removeEventListener("abort", onAbort);
+        reject(new Error("MediaRecorder failed"));
+      };
 
       const run = async () => {
-        await renderFrameAsync(ctx, state, 0);
+        await renderFrameAsync(ctx, renderState, 0);
         recorder.start(100);
         audioFeed?.start();
         const t0 = performance.now();
 
         for (;;) {
+          if (opts.signal?.aborted) return;
           const elapsed = (performance.now() - t0) / 1000;
           if (elapsed >= duration) break;
-          await renderFrameAsync(ctx, state, frameTimeAt(elapsed, duration));
+          await renderFrameAsync(ctx, renderState, frameTimeAt(elapsed, duration));
           opts.onProgress?.(Math.min(1, elapsed / duration), "フレームを書き出し中…");
           const nextFrameAt = t0 + ((Math.floor(elapsed * fps) + 1) / fps) * 1000;
           await sleep(Math.max(0, nextFrameAt - performance.now()));
         }
-        await renderFrameAsync(ctx, state, frameTimeAt(duration, duration));
+        await renderFrameAsync(ctx, renderState, frameTimeAt(duration, duration));
         opts.onProgress?.(1, "フレームを書き出し中…");
         recorder.stop();
       };
@@ -101,7 +122,6 @@ interface AudioFeed {
   dispose: () => void;
 }
 
-/** ミックス済み音声を MediaStream トラックとして流す。start() の瞬間から再生される */
 const createAudioFeed = (buffer: AudioBuffer): AudioFeed | null => {
   try {
     const ctx = new AudioContext();
@@ -134,41 +154,116 @@ const createAudioFeed = (buffer: AudioBuffer): AudioFeed | null => {
   }
 };
 
-/** 形式を選んで書き出し（MP4 は非対応ブラウザで自動変換） */
+/**
+ * 書き出しメインエントリ：
+ * 1. WebCodecs による非リアルタイム・フレーム完全固定（CFR）エンコードを最優先（音ズレ・コマ落ちゼロ）
+ * 2. AAC エンコード非対応環境では WebCodecs CFR WebM → FFmpeg.wasm H.264/AAC 変換
+ * 3. WebCodecs 自体が無い環境のみ MediaRecorder へ自動フォールバック
+ */
 export const exportVideo = async (
   canvas: HTMLCanvasElement,
   state: EditorState,
   format: ExportFormat,
   opts: ExportOptions = {}
 ): Promise<ExportResult> => {
+  const fps = opts.fps ?? state.fps ?? DEFAULT_FPS;
+  const duration = projectDuration(state.clips, state.textClips);
+
+  if (document.fonts?.ready) {
+    await document.fonts.ready;
+  }
+  if (opts.signal?.aborted) throw new DOMException("書き出しを中断しました", "AbortError");
+
+  opts.onProgress?.(0.01, "音声をミックス中…");
+  const audioBuffer = await mixAudioOffline(state, duration);
+  if (opts.signal?.aborted) throw new DOMException("書き出しを中断しました", "AbortError");
+
   if (format === "webm") {
-    const blob = await recordTimeline(canvas, state, pickWebmMime(), opts);
-    return { blob, extension: "webm" };
+    const wcWebm = await tryExportWebmWithWebCodecs({
+      state,
+      duration,
+      fps,
+      audioBuffer,
+      onProgress: opts.onProgress,
+      signal: opts.signal,
+    }).catch((err) => {
+      if (err instanceof DOMException && err.name === "AbortError") throw err;
+      return null;
+    });
+    if (wcWebm) return { blob: wcWebm, extension: "webm" };
+
+    const fallbackWebm = await recordTimelineFallback(
+      canvas,
+      state,
+      pickWebmMime(),
+      audioBuffer,
+      duration,
+      fps,
+      opts
+    );
+    return { blob: fallbackWebm, extension: "webm" };
   }
 
-  const nativeMime = pickNativeMp4Mime();
-  if (nativeMime && getMp4ExportMethod() === "native") {
-    try {
-      const blob = await recordTimeline(canvas, state, nativeMime, opts);
-      return { blob, extension: "mp4" };
-    } catch {
-      /* fall through to transcode */
-    }
-  }
-
-  const webmBlob = await recordTimeline(canvas, state, pickWebmMime(), {
-    ...opts,
-    onProgress: (p, status) => opts.onProgress?.(p * 0.65, status),
+  // MP4 第1経路: WebCodecs H.264 + AAC 直接 mux
+  const wcMp4 = await tryExportMp4WithWebCodecs({
+    state,
+    duration,
+    fps,
+    audioBuffer,
+    onProgress: opts.onProgress,
+    signal: opts.signal,
+  }).catch((err) => {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    return null;
   });
+  if (wcMp4) return { blob: wcMp4, extension: "mp4" };
 
-  const mp4Blob = await transcodeWebmToMp4(webmBlob, (p, status) =>
-    opts.onProgress?.(0.65 + p * 0.35, status)
-  );
+  // MP4 第2経路: WebCodecs CFR WebM → FFmpeg.wasm MP4
+  const wcWebmForMp4 = await tryExportWebmWithWebCodecs({
+    state,
+    duration,
+    fps,
+    audioBuffer,
+    onProgress: (p, s) => opts.onProgress?.(p * 0.65, s),
+    signal: opts.signal,
+  }).catch((err) => {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    return null;
+  });
+  if (wcWebmForMp4) {
+    const mp4Blob = await transcodeWebmToMp4(wcWebmForMp4, (p, s) =>
+      opts.onProgress?.(0.65 + p * 0.35, s)
+    );
+    return { blob: mp4Blob, extension: "mp4" };
+  }
 
-  return { blob: mp4Blob, extension: "mp4" };
+  // MP4 第3経路: MediaRecorder WebM → FFmpeg.wasm MP4（ネイティブ MediaRecorder MP4 は mdhd 破損があるため最後に回す）
+  try {
+    const webmBlob = await recordTimelineFallback(
+      canvas,
+      state,
+      pickWebmMime(),
+      audioBuffer,
+      duration,
+      fps,
+      {
+        ...opts,
+        onProgress: (p, status) => opts.onProgress?.(p * 0.65, status),
+      }
+    );
+    const mp4Blob = await transcodeWebmToMp4(webmBlob, (p, status) =>
+      opts.onProgress?.(0.65 + p * 0.35, status)
+    );
+    return { blob: mp4Blob, extension: "mp4" };
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    const nativeMime = pickNativeMp4Mime();
+    if (!nativeMime) throw err;
+    const blob = await recordTimelineFallback(canvas, state, nativeMime, audioBuffer, duration, fps, opts);
+    return { blob, extension: "mp4" };
+  }
 };
 
-/** @deprecated exportVideo を使用 */
 export const exportToWebM = (
   canvas: HTMLCanvasElement,
   state: EditorState,

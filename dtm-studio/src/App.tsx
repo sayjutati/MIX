@@ -178,6 +178,7 @@ export default function App() {
   );
   const [exporting, setExporting] = useState(false);
   const [sendingToDaw, setSendingToDaw] = useState(false);
+  const [sendingToVideo, setSendingToVideo] = useState(false);
   const [exportFormat, setExportFormat] = useState<ExportFormat>("wav");
   const [helpOn, setHelpOn] = useState(() => {
     try {
@@ -490,7 +491,7 @@ export default function App() {
   }, [exportFormat]);
 
   const handleSendToDaw = useCallback(async () => {
-    if (sendingToDaw || exporting) return;
+    if (sendingToDaw || sendingToVideo || exporting) return;
     const win = window.open("about:blank", "_blank");
     setSendingToDaw(true);
     try {
@@ -509,7 +510,29 @@ export default function App() {
     } finally {
       setSendingToDaw(false);
     }
-  }, [sendingToDaw, exporting]);
+  }, [sendingToDaw, sendingToVideo, exporting]);
+
+  const handleSendToVideo = useCallback(async () => {
+    if (sendingToDaw || sendingToVideo || exporting) return;
+    const win = window.open("about:blank", "_blank");
+    setSendingToVideo(true);
+    try {
+      const p = useProjectStore.getState().project;
+      const buf = await renderProjectOffline(p);
+      normalizeBuffer(buf);
+      const { blob } = encodeExport(buf, "wav");
+      await putHandoff("dtm-video", `${safeFilename(p.name)}.wav`, blob);
+      const url = studioHref("video");
+      if (win) win.location.href = url;
+      else window.location.href = url;
+    } catch (e) {
+      win?.close();
+      console.error("Video への送信に失敗:", e);
+      alert("Video Studio への送信に失敗しました。");
+    } finally {
+      setSendingToVideo(false);
+    }
+  }, [sendingToDaw, sendingToVideo, exporting]);
 
   const handleExportMidi = useCallback(() => {
     const p = useProjectStore.getState().project;
@@ -1156,6 +1179,8 @@ export default function App() {
         onExport={() => void handleExport()}
         onSendToDaw={() => void handleSendToDaw()}
         sendingToDaw={sendingToDaw}
+        onSendToVideo={() => void handleSendToVideo()}
+        sendingToVideo={sendingToVideo}
         onExportFormatChange={setExportFormat}
         onImportMidi={(f) => void handleImportMidi(f)}
         onExportMidi={handleExportMidi}

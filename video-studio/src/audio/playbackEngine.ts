@@ -11,7 +11,7 @@ interface MediaNode {
 /**
  * プレビュー再生エンジン。
  * 動画トラックは Canvas（無音）、音声は Audio トラックのクリップから再生。
- * DAW 取り込み・動画リンク音声・単独音声ファイルを同じミキサーで扱う。
+ * フェードイン/アウト・クロスフェード・ソロ/ミュートは書き出し (mixOffline) と完全に同じ規則で適用。
  */
 export class PlaybackEngine {
   private ctx: AudioContext | null = null;
@@ -56,7 +56,8 @@ export class PlaybackEngine {
 
   sync(state: EditorState) {
     const { ctx, master } = this.ensureCtx();
-    master.gain.value = state.audioEnabled ? state.masterVolume : 0;
+    // collectAudibleClips 側で masterVolume と audioEnabled が既に反映されるため master は 1 に固定
+    master.gain.value = 1;
 
     if (!state.isPlaying) {
       for (const n of this.nodes.values()) n.element.pause();
@@ -84,13 +85,14 @@ export class PlaybackEngine {
         this.nodes.set(key, node);
       }
 
+      const speed = Math.max(0.25, Math.min(4, clip.speed || 1));
       const local = state.playhead - clip.start;
-      const sourceT = clip.inPoint + local * clip.speed;
+      const sourceT = Math.max(0, clip.inPoint + local * speed);
       const el = node.element;
-      if (Math.abs(el.currentTime - sourceT) > 0.08) {
+      if (Math.abs(el.currentTime - sourceT) > 0.12) {
         el.currentTime = sourceT;
       }
-      el.playbackRate = clip.speed;
+      if (el.playbackRate !== speed) el.playbackRate = speed;
       node.gain.gain.value = effectiveVolume;
       if (el.paused) void el.play().catch(() => {});
     }
@@ -99,7 +101,6 @@ export class PlaybackEngine {
     for (const [key, node] of this.nodes) {
       if (activeKeys.has(key)) continue;
       node.element.pause();
-      // 削除済みクリップの <audio>/<video> と AudioNode を解放する
       if (!key.startsWith("scrub-") && !liveClipIds.has(key)) this.release(key);
     }
   }
@@ -118,12 +119,14 @@ export class PlaybackEngine {
   /** スクラブ時に一瞬だけ聴く */
   scrubPreview(state: EditorState, time: number) {
     const { ctx, master } = this.ensureCtx();
-    master.gain.value = state.masterVolume * 0.5;
+    if (ctx.state === "suspended") void ctx.resume();
+    master.gain.value = 1;
     const audible = collectAudibleClips(state, time);
     for (const { clip, asset, effectiveVolume } of audible.slice(0, 1)) {
       const key = `scrub-${clip.id}`;
       let node = this.nodes.get(key);
-      if (!node) {
+      if (!node || node.assetId !== asset.id) {
+        this.release(key);
         const element = this.getElement(asset);
         const source = ctx.createMediaElementSource(element);
         const gain = ctx.createGain();
@@ -132,14 +135,14 @@ export class PlaybackEngine {
         node = { element, source, gain, assetId: asset.id };
         this.nodes.set(key, node);
       }
+      const speed = Math.max(0.25, Math.min(4, clip.speed || 1));
       const local = time - clip.start;
-      node.element.currentTime = clip.inPoint + local * clip.speed;
-      node.gain.gain.value = effectiveVolume;
+      node.element.currentTime = Math.max(0, clip.inPoint + local * speed);
+      node.gain.gain.value = effectiveVolume * 0.6;
       void node.element.play().catch(() => {});
       const scrubNode = node;
-      setTimeout(() => scrubNode.element.pause(), 120);
+      setTimeout(() => scrubNode.element.pause(), 90);
     }
-    // スクラブ用ノードは直近のクリップ分だけ残す
     const scrubKeys = [...this.nodes.keys()].filter((k) => k.startsWith("scrub-"));
     for (const k of scrubKeys.slice(0, Math.max(0, scrubKeys.length - 4))) this.release(k);
   }

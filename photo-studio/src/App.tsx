@@ -15,7 +15,7 @@ import {
   restoreEmbeddedAssets,
 } from "./storage/projectStorage";
 import { usePhotoStore } from "./state/usePhotoStore";
-import { putHandoff, takeHandoff } from "./storage/handoff";
+import { putHandoff, subscribeHandoff, takeHandoff } from "./storage/handoff";
 import { studioHref } from "./studioNav";
 import type { ExportFormat, ExportOptions } from "./types/document";
 import "./App.css";
@@ -52,23 +52,36 @@ export default function App() {
   }, []);
   useEffect(() => () => window.clearTimeout(toastTimer.current), []);
 
+  const handoffBusy = useRef(false);
+  const consumeVideoFrame = useCallback(async () => {
+    if (handoffBusy.current) return;
+    handoffBusy.current = true;
+    try {
+      const rec = await takeHandoff("video-frame");
+      if (!rec) return;
+      const file = new File([rec.blob], rec.name || "frame.png", {
+        type: rec.blob.type || "image/png",
+      });
+      await importFile(file);
+      setWorkspaceOpen(true);
+      showToast("Video のフレームを取り込みました");
+    } catch {
+      showToast("フレームの取り込みに失敗しました");
+    } finally {
+      handoffBusy.current = false;
+    }
+  }, [importFile, showToast]);
+
   const handoffTried = useRef(false);
   useEffect(() => {
-    if (handoffTried.current) return;
-    handoffTried.current = true;
-    void takeHandoff("video-frame")
-      .then(async (rec) => {
-        if (!rec) return;
-        const file = new File([rec.blob], rec.name || "frame.png", {
-          type: rec.blob.type || "image/png",
-        });
-        await importFile(file);
-        setWorkspaceOpen(true);
-        showToast("Video のフレームを取り込みました");
-      })
-      .catch(() => showToast("フレームの取り込みに失敗しました"));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!handoffTried.current) {
+      handoffTried.current = true;
+      void consumeVideoFrame();
+    }
+    return subscribeHandoff(["video-frame"], () => {
+      void consumeVideoFrame();
+    });
+  }, [consumeVideoFrame]);
 
   const saveProject = useCallback(
     async (p: typeof project) => {

@@ -2,10 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import type { ExportFormat } from "../export/exportCapabilities";
 
 export type UiMode = "beginner" | "pro";
-export type SidebarTab = "media" | "guide";
-export type InspectorTab = "basic" | "telop" | "fx" | "project";
+export type SidebarTab = "media" | "telop" | "guide";
+export type InspectorTab = "basic" | "telop" | "fx" | "audio" | "project";
 
-const KEY = "mix-video-studio-ui";
+const KEY = "mix-video-studio-ui-v2";
 
 interface UiPrefs {
   mode: UiMode;
@@ -13,16 +13,20 @@ interface UiPrefs {
   inspectorTab: InspectorTab;
   mixerOpen: boolean;
   helpOpen: boolean;
+  safeZoneGuide: boolean;
+  timelineHeight: number;
   /** 書き出し形式（既定 MP4 = YouTube 向け） */
   exportFormat: ExportFormat;
 }
 
 const defaults: UiPrefs = {
-  mode: "beginner",
-  sidebarTab: "guide",
+  mode: "pro",
+  sidebarTab: "media",
   inspectorTab: "basic",
-  mixerOpen: true,
+  mixerOpen: false,
   helpOpen: false,
+  safeZoneGuide: false,
+  timelineHeight: 276,
   exportFormat: "mp4",
 };
 
@@ -47,8 +51,6 @@ export const useUiPrefs = () => {
     setPrefs((p) => ({
       ...p,
       mode,
-      sidebarTab: mode === "beginner" ? "guide" : p.sidebarTab,
-      mixerOpen: mode === "pro" ? true : p.mixerOpen,
     }));
   }, []);
 

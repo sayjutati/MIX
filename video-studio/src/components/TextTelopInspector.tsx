@@ -76,6 +76,14 @@ export const TextTelopInspector = ({ clip, editor }: Props) => {
             onChange={(e) => editor.updateClip(clip.id, { text: e.target.value })}
           />
         </label>
+        <button
+          type="button"
+          className="btn btn--sm btn--block"
+          onClick={() => editor.fitClipToProject(clip.id)}
+          title="クレジット表記などを 0:00 から動画・音源の最後まで常時表示にします"
+        >
+          作品全体の長さに合わせる (0:00〜終端)
+        </button>
         <label className="field">
           <span className="field__label">フォント</span>
           <select

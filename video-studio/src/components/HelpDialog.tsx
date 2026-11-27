@@ -6,16 +6,19 @@ interface Props {
 }
 
 const shortcuts = [
-  ["Space", "再生 / 一時停止"],
-  ["← / →", "1フレームずつ移動（Shift=1秒）"],
-  ["S", "再生位置でクリップ分割"],
+  ["Space / K", "再生 / 一時停止"],
+  ["← / →", "1フレームずつ正確に移動（Shift押下で1秒）"],
+  ["Home / End", "先頭 / 作品末尾へジャンプ"],
+  ["S / Ctrl+B", "再生位置でクリップ分割"],
+  ["[ / ]", "選択クリップの先頭 / 末尾を再生位置までトリム"],
+  ["Delete / Backspace", "選択クリップを削除"],
+  ["Shift + Delete", "削除して後ろのクリップを自動で左へ詰める（リップル削除）"],
   ["M", "選択クリップの音声 ON/OFF"],
-  ["Delete", "選択クリップを削除"],
-  ["+", "-", "タイムラインの拡大 / 縮小"],
-  ["Ctrl+C / Ctrl+V", "クリップのコピー / 貼り付け"],
-  ["Ctrl+D", "クリップを複製"],
-  ["Ctrl+Z", "元に戻す"],
-  ["Ctrl+Y", "やり直し"],
+  ["Ctrl+D", "選択クリップを複製"],
+  ["Ctrl+C / Ctrl+V", "コピー / 再生位置へ貼り付け"],
+  ["Ctrl+Z / Ctrl+Y", "元に戻す / やり直し"],
+  ["Ctrl + マウスホイール", "カーソル位置基準でタイムライン拡大・縮小"],
+  ["Alt + ドラッグ", "一時的にマグネット吸着を無効化して微調整"],
   ["?", "このヘルプを表示"],
 ];
 
@@ -30,7 +33,7 @@ export const HelpDialog = ({ open, onClose }: Props) => {
         onClick={(e) => e.stopPropagation()}
       >
         <header className="dialog__head">
-          <h2 id="help-title">ショートカット & ヒント</h2>
+          <h2 id="help-title">ショートカット & 操作ガイド</h2>
           <button type="button" className="dialog__close" onClick={onClose} aria-label="閉じる">
             <X size={18} />
           </button>
@@ -48,30 +51,21 @@ export const HelpDialog = ({ open, onClose }: Props) => {
               ))}
             </tbody>
           </table>
+
           <section className="dialog__section">
-            <h3>テロップ</h3>
+            <h3>プレビュー直接編集</h3>
             <ul>
-              <li>Titles 行ダブルクリック → テキストクリップ追加</li>
-              <li>テンプレ（曲名・クレジット・歌詞など）をワンクリック適用</li>
-              <li>SRT / VTT / LRC / テキストの歌詞を一括でテロップ化</li>
-              <li>DAW の「動画へ送る」でミックス音声を自動取り込み</li>
-              <li>「サムネへ」で今のフレームを Photo に渡す</li>
-              <li>VO ボタンでナレーション録音（Audio 1）</li>
-              <li>縁取り / 影 / グラデ / 背景ボックス / 8種フォント</li>
-              <li>入り・抜けアニメ（ポップ・スライド・タイプライター・カラオケ）</li>
-              <li>横スクロール（流れ続ける）・エンドロール（流れて停止→フェード）</li>
-              <li>プレビューをドラッグで位置移動</li>
+              <li>映像・画像・テロップを直接クリックして選択、ドラッグで移動（中央自動スナップ付き）</li>
+              <li>選択枠の四隅ハンドルをドラッグして直感的に拡大・縮小</li>
+              <li>テロップをダブルクリックするとその場でテキストを書き換え可能</li>
             </ul>
           </section>
+
           <section className="dialog__section">
-            <h3>音声トラックの見分け方</h3>
+            <h3>プレビューと書き出しの完全一致</h3>
             <ul>
-              <li>
-                <span className="pill pill--linked">動画音</span> … 動画ファイルから自動抽出（Audio 1）
-              </li>
-              <li>
-                <span className="pill pill--daw">DAW</span> … daw-studio のミックス（Audio 2）
-              </li>
+              <li>WebCodecs 固定フレームレート (CFR) レンダリングにより、フレーム落ちや音ズレなくプレビュー通りの映像・音声を出力します</li>
+              <li>選択枠や安全枠ガイドはプレビュー専用オーバーレイのため、書き出し動画には一切写り込みません</li>
             </ul>
           </section>
         </div>

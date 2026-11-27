@@ -43,7 +43,7 @@ import { clearAutosave, loadAutosave } from "./storage/autosave";
 import { AutosaveScheduler } from "./storage/autosaveScheduler";
 import { downloadBlob } from "./audio/download";
 import { detectBpm, mixToMono } from "./audio/bpmDetect";
-import { putHandoff, takeHandoff } from "./audio/handoff";
+import { putHandoff, subscribeHandoff, takeHandoff } from "./audio/handoff";
 import { studioHref } from "./studioNav";
 import { bufferLoudness } from "./audio/loudness";
 import { bufferToBytes, downloadZip } from "./audio/zipExport";
@@ -1044,20 +1044,32 @@ function App() {
     }
   };
 
-  const dtmHandoffTried = useRef(false);
-  useEffect(() => {
-    if (dtmHandoffTried.current) return;
-    dtmHandoffTried.current = true;
-    void takeHandoff("dtm-mix").then((rec) => {
+  const dtmHandoffBusy = useRef(false);
+  const consumeDtmHandoff = useCallback(async () => {
+    if (dtmHandoffBusy.current) return;
+    dtmHandoffBusy.current = true;
+    try {
+      const rec = await takeHandoff("dtm-mix");
       if (!rec) return;
       const file = new File([rec.blob], rec.name || "DTM伴奏.wav", { type: rec.blob.type || "audio/wav" });
-      addTracksFromFiles([file], "bgm");
-    }).catch((err) => {
+      await addTracksFromFiles([file], "bgm");
+    } catch (err) {
       console.error("DTM 伴奏の取り込みに失敗:", err);
+    } finally {
+      dtmHandoffBusy.current = false;
+    }
+  }, [addTracksFromFiles]);
+
+  const dtmHandoffTried = useRef(false);
+  useEffect(() => {
+    if (!dtmHandoffTried.current) {
+      dtmHandoffTried.current = true;
+      void consumeDtmHandoff();
+    }
+    return subscribeHandoff(["dtm-mix"], () => {
+      void consumeDtmHandoff();
     });
-    // 起動時一度だけ
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [consumeDtmHandoff]);
 
   const releaseRecordingResources = () => {
     recordStreamRef.current?.getTracks().forEach((t) => t.stop());

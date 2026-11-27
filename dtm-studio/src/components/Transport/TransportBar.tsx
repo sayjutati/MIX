@@ -28,6 +28,8 @@ type Props = {
   onExport: () => void;
   onSendToDaw: () => void;
   sendingToDaw: boolean;
+  onSendToVideo: () => void;
+  sendingToVideo: boolean;
   onExportFormatChange: (format: ExportFormat) => void;
   onImportMidi: (file: File) => void;
   onExportMidi: () => void;
@@ -66,6 +68,8 @@ export function TransportBar({
   onExport,
   onSendToDaw,
   sendingToDaw,
+  onSendToVideo,
+  sendingToVideo,
   onExportFormatChange,
   onImportMidi,
   onExportMidi,
@@ -136,9 +140,18 @@ export function TransportBar({
           className="btn btn--ghost tooltip"
           data-tooltip="ミックスを WAV にして DAW で開き、ボーカルを重ねる（GarageBand→録音相当）"
           onClick={onSendToDaw}
-          disabled={exporting || sendingToDaw}
+          disabled={exporting || sendingToDaw || sendingToVideo}
         >
           {sendingToDaw ? "送信中…" : "DAWへ"}
+        </button>
+        <button
+          type="button"
+          className="btn btn--ghost tooltip"
+          data-tooltip="ミックスを WAV にして Video Studio へ直接送り、BGM として配置する"
+          onClick={onSendToVideo}
+          disabled={exporting || sendingToDaw || sendingToVideo}
+        >
+          {sendingToVideo ? "送信中…" : "動画へ"}
         </button>
         <button
           type="button"

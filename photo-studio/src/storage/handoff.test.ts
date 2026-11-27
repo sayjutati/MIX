@@ -18,10 +18,12 @@ describe("handoff", () => {
     expect(await takeHandoff("daw-mix")).toBeNull();
   });
 
-  it("keeps keys independent", async () => {
+  it("keeps keys independent including dtm-video", async () => {
     await putHandoff("daw-mix", "a.wav", new Blob(["1"]));
+    await putHandoff("dtm-video", "v.wav", new Blob(["2"]));
     expect(await takeHandoff("video-frame")).toBeNull();
     expect((await takeHandoff("daw-mix"))?.name).toBe("a.wav");
+    expect((await takeHandoff("dtm-video"))?.name).toBe("v.wav");
   });
 
   it("stores dtm-mix and photo-overlay separately", async () => {
